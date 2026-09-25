@@ -13,16 +13,24 @@
  * （U8「新增 routes 文件菜单自动出现」是**结构性**性质，靠 `import.meta.glob` 保证，
  *   本脚本不做——它需要往仓库里塞临时文件再删，收益低于风险。）
  *
- * ⚠️ U7 的真相（必须写清楚，别糊弄）：
- *   U7 是「token 过期后**调接口** → 清 token 并跳登录」。但 WEB-01 阶段的页面里
- *   **没有任何一处会调后端接口**（Dashboard 纯静态；第一个真实调用点要等 WEB-02/03）。
- *   所以 U7 **无法通过纯 UI 点击路径触发**。本脚本的做法是：在页面上下文里用动态
- *   `import('/admin/src/api/client.ts')` 拿到**与 App 同一份**模块实例（vite dev 的
- *   模块注册表按解析后的 URL 去重，所以是同一个单例），注入一个假 token 后真发一次请求。
- *   这样验证的是**真实生产代码路径**：`client.ts` 拦截器 → `clearToken()` →
- *   `main.ts` 注册的 unauthorizedHandler → `useUserStore().logout()` → `router.replace`。
- *   唯一被绕过的是「用户点击」这一层，而 U7 本来也不靠点击触发。结论：有效，但不完整，
- *   待 WEB-02/03 出现第一个真实调用点后**必须回归一次纯 UI 路径**。
+ * ⚠️ U7 有**两条路径**，两条都验（只看一条会以为覆盖了，实则漏了一半）：
+ *
+ *   （一）**请求层路径**：在页面上下文里动态 `import('/admin/src/api/client.ts')`
+ *   拿到**与 App 同一份**模块实例（vite dev 的模块注册表按解析后的 URL 去重，
+ *   所以是同一个单例），注入假 token 后真发一次请求。验的是生产请求层的拦截器链：
+ *   `client.ts` → `clearToken()` → `main.ts` 注册的 unauthorizedHandler →
+ *   `useUserStore().logout()` → `router.replace`。
+ *   ⚠️ 它**绕过了「用户点击」这一层** —— 请求是脚本自己发的。
+ *
+ *   （二）**纯 UI 点击路径**（2026-09-25 补上，清单 E5）：WEB-01 阶段 Dashboard 纯静态、
+ *   全站**没有一处会调后端**，所以当时**点不出来**（脚本头原来的原话是「待 WEB-02/03
+ *   出现第一个真实调用点后必须回归一次纯 UI 路径」）。WEB-02/03 完成后调用点有了：
+ *   侧边栏「内容管理」→ `/content/units`（该页 `onMounted(load)` 自发请求），
+ *   页面上还有「查询」按钮（`@click="onSearch"` → `load()`）。于是从**点击**出发跑：
+ *       点菜单 → vue-router → 组件 onMounted → 生产请求层 → 401 → 清 token → 跳登录
+ *   全程**没有任何一步由脚本代劳**。脚本只往 localStorage 写一个失效 token
+ *   —— 等价于「服务端把这个 token 作废了」（`getToken()` 每次都读 localStorage，
+ *   见 `client.ts:60`，所以连模块内存都不用碰）。
  *
  * ⚠️ 为什么走 `--remote-debugging-pipe` 而不是 WebSocket：
  *   本机 Node 22.22.2 的内置（undici）`WebSocket` 与 Edge 的 CDP 端点**握手能成功、
@@ -633,7 +641,14 @@ async function main() {
         title: document.title,
         menus: Array.from(document.querySelectorAll('.el-menu-item')).map(e => e.textContent.trim()),
         headerUser: document.querySelector('.admin-header__user')?.textContent?.trim() || '',
-        hasPlaceholder: !!document.querySelector('.dashboard-placeholder'),
+        // ⚠️ WEB-03 F12 把这个占位块换成了真的 ServerQRCard 组件（父类
+        //    dashboard-placeholder 随之被删，只剩 __title 子类还被样式引用）——
+        //    旧选择器恒不命中。改断真组件的根节点 + 卡片标题。
+        //    （注：本段位于模板字符串内，注释里不能出现反引号，否则会把外层字符串提前闭合。）
+        hasQrCard: !!document.querySelector('.server-qr-card'),
+        hasServerTitle: Array.from(document.querySelectorAll('.dashboard-placeholder__title')).some(
+          (e) => (e.textContent || '').trim() === '服务地址',
+        ),
       }))()`,
     )
     // 顶部栏文案走 store 的 `displayName = real_name || username`
@@ -666,7 +681,13 @@ async function main() {
       u2.token.length > 20 && u2.storedUser?.role === 'admin' && u2.storedUser?.username === ADMIN_USER,
       `token.len=${u2.token.length} user=${JSON.stringify(u2.storedUser)}`,
     )
-    check('U2', 'dashboard-placeholder', '工作台渲染出 WEB-03 的服务地址挂载点', u2.hasPlaceholder)
+    check(
+      'U2',
+      'dashboard-placeholder',
+      '工作台渲染出 WEB-03 的服务地址挂载点（真组件 `ServerQRCard`，非占位块）',
+      u2.hasQrCard && u2.hasServerTitle,
+      `server-qr-card=${u2.hasQrCard} title=服务地址:${u2.hasServerTitle}`,
+    )
 
     // =====================================================================
     // U9 —— 刷新后登录态保持
@@ -694,6 +715,115 @@ async function main() {
     )
 
     // =====================================================================
+    // U7 · E5 —— 「纯 UI 点击」路径回归（清单 E5；第二条路径，见文件头「U7 有两条路径」）
+    // =====================================================================
+    // U7 那三条（在本段**之后**）是**请求层**路径（脚本 import client.ts 自己发请求），被绕过的是
+    // 「用户点击」这一层。E5 补的就是这一层：脚本**不发任何请求、不调任何 client 方法**，
+    // 只干两件事 —— 点真实控件、写一次 localStorage。
+    //
+    // ⚠️ 放在这里（U9 之后、U5 之前）有硬理由：**复用 U2/U9 刚建立的登录态**，不额外登录。
+    //    本脚本已经登录数次，再多一次会撞契约 §5.4「登录 5 次/分钟」的限流
+    //    （E5 最初排在 U7 之后，正是第 6 次登录被 10005 拒 → 前置就超时）。
+    await waitFor(
+      cdp,
+      sid,
+      `location.pathname === ${JSON.stringify(`${BASE}dashboard`)}`,
+      'E5 前置：当前处于工作台（复用已登录态）',
+      8000,
+    )
+    await sleep(300)
+
+    // ---- E5-1：点侧边栏菜单「内容管理」→ 真的路由到 /content/units 且页面渲染出来了
+    // 此时 token 仍有效，页面应正常加载。这条既证明「点击真的生效」，
+    // 又**正面断言「页面确实渲染」** —— 只断 URL 会漏掉「路由跳了但组件崩了」。
+    const e5nav = await evalJs(
+      cdp,
+      sid,
+      `(() => {
+        const items = Array.from(document.querySelectorAll('.el-menu-item'));
+        const el = items.find((e) => (e.textContent || '').trim() === '内容管理');
+        if (!el) return { clicked: false, menus: items.map((e) => (e.textContent || '').trim()) };
+        el.click();
+        return { clicked: true, menuCount: items.length };
+      })()`,
+    )
+    let e5path = ''
+    try {
+      e5path = await waitFor(
+        cdp,
+        sid,
+        `location.pathname === ${JSON.stringify(`${BASE}content/units`)} && location.pathname`,
+        'E5 点击菜单进内容管理',
+        8000,
+      )
+    } catch {
+      e5path = await evalJs(cdp, sid, 'location.pathname')
+    }
+    const e5page = await evalJs(
+      cdp,
+      sid,
+      `(() => ({
+        hasFilter: !!document.querySelector('.filter-card'),
+        hasSearchBtn: Array.from(document.querySelectorAll('.el-button')).some(
+          (b) => (b.textContent || '').trim() === '查询',
+        ),
+      }))()`,
+    )
+    check(
+      'U7',
+      'e5-menu-click-navigates',
+      '纯 UI：点侧边栏「内容管理」→ 真的路由到 /content/units，且页面渲染（筛选卡 + 查询按钮都在）',
+      e5path === `${BASE}content/units` && e5page.hasFilter && e5page.hasSearchBtn,
+      `clicked=${e5nav.clicked} path=${e5path} filter=${e5page.hasFilter} searchBtn=${e5page.hasSearchBtn} menus=${JSON.stringify(e5nav.menus)}`,
+    )
+
+    // ---- E5-2：token 失效后**点页面上的「查询」按钮** → 由 onSearch() 自己发请求
+    // 只动 localStorage（不碰 client 模块），之后**只点按钮**。
+    const e5click = await evalJs(
+      cdp,
+      sid,
+      `(() => {
+        localStorage.setItem('bjsys_admin_token', 'this-is-not-a-valid-jwt');
+        const btn = Array.from(document.querySelectorAll('.el-button')).find(
+          (b) => (b.textContent || '').trim() === '查询',
+        );
+        if (!btn) return { clicked: false };
+        btn.click();
+        return { clicked: true, ls: localStorage.getItem('bjsys_admin_token') };
+      })()`,
+    )
+    let e5login = ''
+    try {
+      e5login = await waitFor(
+        cdp,
+        sid,
+        `location.pathname === ${JSON.stringify(`${BASE}login`)} && location.pathname`,
+        'E5 纯 UI 路径被踢回登录页',
+        10000,
+      )
+    } catch {
+      e5login = await evalJs(cdp, sid, 'location.pathname')
+    }
+    const e5after = await evalJs(
+      cdp,
+      sid,
+      `(() => ({
+        search: location.search,
+        token: localStorage.getItem('bjsys_admin_token'),
+        user: localStorage.getItem('bjsys_admin_user'),
+      }))()`,
+    )
+    check(
+      'U7',
+      'e5-ui-click-clears-and-redirects',
+      '纯 UI：点「查询」→ 页面自发请求（失效 token）→ 清 token + 跳登录（redirect 保留 /content/units）',
+      e5login === `${BASE}login` &&
+        !e5after.token &&
+        !e5after.user &&
+        new URLSearchParams(e5after.search).get('redirect') === '/content/units',
+      `clicked=${e5click.clicked} path=${e5login} token=${e5after.token} user=${e5after.user} search=${e5after.search}`,
+    )
+    // =====================================================================
     // U5 —— 未登录访问受保护页面 → 跳登录并带 redirect
     // =====================================================================
     await evalJs(cdp, sid, `localStorage.clear()`)
@@ -709,7 +839,7 @@ async function main() {
     )
 
     // =====================================================================
-    // U7 —— token 失效 → 清 token + 跳登录（见文件头「U7 的真相」）
+    // U7 —— token 失效 → 清 token + 跳登录（请求层路径；见文件头「U7 有两条路径」）
     // =====================================================================
     await submitLogin(cdp, sid, ADMIN_USER, ADMIN_PWD)
     await waitFor(cdp, sid, `location.pathname === ${JSON.stringify(`${BASE}dashboard`)}`, '再次登录进工作台', 15000)
@@ -767,6 +897,16 @@ async function main() {
   } catch (err) {
     say(`\n[EXCEPTION] ${err?.stack || err}`)
     console.log(`[!!] exception  ${err?.message || err}`)
+    // ⚠️ 异常必须**计入失败项**：否则 `finish()` 只看 `results`，会打印出
+    //    「N/N PASS」—— 而用例其实**一条都没跑完**。本脚本曾真实出现过
+    //    「中断却报 15/15 PASS」（只有退出码是 1，而退出码很容易被管道吞掉）。
+    results.push({
+      id: 'FATAL',
+      slug: 'exception',
+      title: `烟测中断：${err?.message || err}`,
+      ok: false,
+      detail: '',
+    })
     return finish(1, backendLog, viteLog, browserLog)
   } finally {
     cdp?.close()

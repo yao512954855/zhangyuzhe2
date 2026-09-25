@@ -31,6 +31,12 @@ backend/backups/
 backend/.smoketmp/
 qa/tmp/
 
+# ⚠️ 但 `admin-web/logs/` 是个例外，要整个排除：
+#    它是**烟测脚本自己 `writeFileSync` 覆盖写的运行日志**（每次跑都变），
+#    与 `qa/smoke_*.txt`（**人工存档**的结论快照，写完不再变）性质不同。
+#    留着会让「跑一次烟测 → 工作区就脏」。证据一律存 `qa/`。
+admin-web/logs/
+
 # ---------- 密钥与本地配置（硬红线）----------
 .env
 .env.*

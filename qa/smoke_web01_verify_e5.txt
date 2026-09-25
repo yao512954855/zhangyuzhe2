@@ -1,0 +1,21 @@
+[OK] U1 login-page-loads
+[OK] U3 wrong-pwd-trace-id
+[OK] U3 wrong-pwd-code-20002
+[OK] U6 error-toast-once
+[OK] U4 student-rejected-20002
+[OK] U4 no-token-leak
+[OK] U2 login-ok-dashboard
+[OK] U2 header-shows-displayname
+[OK] U2 token-persisted
+[OK] U2 dashboard-placeholder
+[OK] U9 refresh-keeps-session
+[OK] U7 e5-menu-click-navigates
+[OK] U7 e5-ui-click-clears-and-redirects
+[OK] U5 guard-redirect
+[OK] U7 expired-token-10002
+[OK] U7 clear-token
+[OK] U7 auto-redirect-login
+
+RESULT 17/17 PASS
+LOG D:\helloagent\zhanglaoshi_zhangyuze\admin-web\logs\smoke_web01.txt
+PIPE_EXIT=0
