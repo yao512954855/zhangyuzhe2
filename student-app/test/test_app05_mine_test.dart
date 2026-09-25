@@ -8,7 +8,8 @@
 ///
 /// - U1 / F1：只练错题的请求体 `strategy.scope` 必须为 `wrong`（生产代码层断言）；
 /// - U3：我的记录渲染**真能拿到**的进度汇总；
-/// - F2：绝不伪造场次列表/单次详情入口；
+/// - F2：场次列表走 `GET /api/sessions`（契约 §14.1 缺口 7），一条都不编造
+///   —— 列表/详情的完整用例见 `test_app05_records_test.dart`；
 /// - F7：退出登录清登录态、保留服务器地址、回登录页；
 /// - F9：一期不做游戏化（无星星/排行/打卡/积分/勋章）。
 library;
@@ -100,18 +101,34 @@ void main() {
     });
   });
 
-  group('F2 不伪造场次列表/单次详情', () {
-    testWidgets('入口只有 我的统计/设置/关于，没有"练习记录"列表入口', (tester) async {
+  group('F2 我的记录：场次列表走真接口，一条都不编', () {
+    testWidgets('列表区渲染服务端返回的场次（此前只能渲染 5 个汇总数字）', (tester) async {
       useTallScreen(tester);
-      final adapter = defaultAdapter();
+      final adapter = defaultAdapter(
+        sessions: sessionsJson(
+          [
+            sessionRecordJson(
+              sessionId: 9001,
+              unitName: 'Unit 3 My Family',
+              totalItems: 20,
+              correctItems: 18,
+              accuracy: 0.9,
+              score: 88,
+              durationMs: 96000,
+            ),
+          ],
+          1,
+        ),
+      );
       await tester.pumpWidget(bootApp(const MyRecordsPage(), local: local, serverStore: serverStore, adapter: adapter));
       await tester.pumpAndSettle();
 
-      expect(find.text('我的统计'), findsOneWidget);
-      expect(find.text('设置'), findsOneWidget);
-      expect(find.text('关于'), findsOneWidget);
+      expect(find.text('练习记录'), findsOneWidget);
+      expect(find.text('共 1 次'), findsOneWidget);
+      expect(find.text('英语练习 · Unit 3 My Family'), findsOneWidget);
+      expect(find.text('90%'), findsOneWidget);
+      // 服务端一条都没给的时候，页面**不编造**场次（这条见 test_app05_records_test.dart）。
       expect(find.textContaining('查看全部'), findsNothing);
-      expect(find.textContaining('练习记录'), findsNothing);
     });
   });
 

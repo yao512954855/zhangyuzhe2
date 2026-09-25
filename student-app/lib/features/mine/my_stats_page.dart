@@ -3,11 +3,11 @@
 /// 渲染**真能拿到**的进度数据：`GET /api/me/progress` 的
 /// 正确率 / 已掌握词条数 / 连续练习天数（契约 §8.4）。
 ///
-/// 关于「正确率趋势」：学生端**没有**历史正确率序列接口
-/// （`stats_service` 的 `trend` 是**班级级**、供管理者用，契约未给学生开放），
-/// 所以这里**不伪造时间序列**——趋势图在暂无数据时显示诚实的占位文案，
-/// 等后端补齐个人历史接口再填充（见交付说明偏离项）。U10 的「空数据 / 单点不崩」
-/// 由 [TrendChart] 本身保证，并有单元测试覆盖。
+/// **「正确率趋势」一期不做**（姚工 2026-09-25 裁决 = 摘掉）：
+/// 学生端没有个人历史正确率序列接口（`stats_service` 的 `trend` 是**班级级**、
+/// 供管理者用，契约从未向学生开放），而「画一条永远空的占位」既不是趋势图，
+/// 又让需求/规格与实现永远对不上。故已连 **需求 §5.9、30-规格 F3/U4、
+/// 趋势图组件一起摘除**，不留任何占位；个人趋势进二期（`dev/01 §14.1`）。
 library;
 
 import 'package:flutter/material.dart';
@@ -19,7 +19,6 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/feedback.dart';
 import '../home/models.dart';
 import 'my_records_page.dart' show mineProgressProvider;
-import 'widgets/trend_chart.dart';
 
 /// 「我的统计」页。
 class MyStatsPage extends ConsumerWidget {
@@ -43,27 +42,6 @@ class MyStatsPage extends ConsumerWidget {
           padding: const EdgeInsets.all(AgeProfile.screenEdgeInset),
           children: [
             _Headline(progress: p, profile: profile, extra: extra),
-            const SizedBox(height: AgeProfile.elementGap),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('正确率趋势', style: profile.cardTitleStyle),
-                    const SizedBox(height: 8),
-                    TrendChart(
-                      // ⚠️ 暂无个人历史接口，传空列表 → 显示诚实占位（不伪造曲线）。
-                      points: const [],
-                      lineColor: extra.hint,
-                      axisColor: extra.divider,
-                      labelColor: extra.textSub,
-                      hintColor: extra.textFaint,
-                    ),
-                  ],
-                ),
-              ),
-            ),
             const SizedBox(height: AgeProfile.elementGap),
             _NumberGrid(progress: p, profile: profile, extra: extra),
           ],

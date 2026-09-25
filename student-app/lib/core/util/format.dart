@@ -1,8 +1,9 @@
 /// 通用工具：颜色对比度校验 + 展示格式化。
 ///
 /// **为什么对比度计算要放在 App 里而不是只写在设计文档里**：
-/// UI 规范 §2.5 / §6.3 把「对比度 8:1 ~ 12:1」列为硬约束，
-/// 但色值一旦被人手改一个字符（比如夜间背景从 `#1B1F23` 改成 `#14171A`），
+/// UI 规范 §2.1 把「正文对比度 ≥ 4.5:1（WCAG AA）」列为硬约束（**不设上限**，
+/// 原文「8:1 ~ 12:1」已废止），但色值一旦被人手改一个字符
+/// （比如夜间背景从 `#1B1F23` 改成 `#14171A`），
 /// 文档不会报错、眼睛也未必立刻察觉。把它变成可执行的断言，
 /// 才是真的约束住了（见 `test/test_app01_theme.dart`）。
 library;
@@ -107,4 +108,22 @@ String countLabel(int count, String unit) => '$count$unit';
 String formatAudioMs(int ms) {
   final seconds = ms / 1000.0;
   return '${seconds.toStringAsFixed(1)} 秒';
+}
+
+/// 毫秒 → 「3 分 05 秒」/「45 秒」/「0 秒」（场次用时、背诵用时）。
+///
+/// ⚠️ 项目里原先另有两份**私有**实现（英语结算页 `$m 分 ${ss} 秒`、
+/// 语文结算页 `mm:ss`）。这里给出共用的一份，**新代码一律用它**；
+/// 那两处暂不动（属别的包，改它们要单独走复核，见 §八）。
+String formatDurationMs(int ms) {
+  final totalSec = (ms / 1000).round();
+  if (totalSec <= 0) {
+    return '0 秒';
+  }
+  final minutes = totalSec ~/ 60;
+  final seconds = totalSec % 60;
+  if (minutes <= 0) {
+    return '$seconds 秒';
+  }
+  return '$minutes 分 ${seconds.toString().padLeft(2, '0')} 秒';
 }

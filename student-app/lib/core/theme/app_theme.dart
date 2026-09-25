@@ -113,7 +113,7 @@ class AppPalette {
 
 /// 三套主题的色值表 —— 严格照 UI 规范 §2.1 / §2.2 / §2.3。
 abstract final class AppPalettes {
-  /// 日间 · 暖白（默认）。对比度 `#2B2B2B` on `#F7F5F0` ≈ 11.5:1。
+  /// 日间 · 暖白（默认）。正文对比度 `#2B2B2B` on `#F7F5F0` = 13.00:1（WCAG 实算）。
   static const day = AppPalette(
     id: AppThemeId.day,
     bg: 0xF7F5F0,

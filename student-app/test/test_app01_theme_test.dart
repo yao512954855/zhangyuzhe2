@@ -32,26 +32,25 @@ void main() {
   });
 
   group('三套主题 · 对比度（UI 规范 §2.1 / §6.3）', () {
-    test('日间暖白：实算 13.0:1 —— ⚠️ 文档标注的「≈11.5:1」是错的', () {
+    test('日间暖白：正文对比度 13.00:1（§2.1 已修正标注）', () {
       final ratio = contrastRatio(AppPalettes.day.textMain, AppPalettes.day.bg);
 
-      // ⚠️ 这是一处**文档事实性错误 + 内部矛盾**，已上报待裁决：
-      //   · §2.1 标注 `#2B2B2B` on `#F7F5F0` ≈ 11.5:1 —— 按 WCAG 公式实算是 13.00；
-      //   · §6.3 又要求"所有主题对比度控制在 8:1 ~ 12:1" —— 13.00 超上限。
-      // 处理方式：**保留规范原色值**（不擅自改设计），把实测值钉在测试里，
-      // 色值一旦被人改动就会红，逼着改动者回到这条裁决上来。
+      // ✅ 2026-09-25 裁决（§八 #38）：原 §2.1 标注「≈11.5:1」是**算错**（WCAG 实算 13.00）；
+      // 且原 §6.3 的「8:1 ~ 12:1」把 13.00 判成超上限 —— 该区间已**废止**。
+      // 新口径：正文以 WCAG AA 为下限（≥4.5:1），**不设上限**。色值一个都没动。
+      // 实测值钉在这里：色值一旦被改动就会红，逼改动者回到 §2.1 的口径注。
       expect(ratio, closeTo(13.0, 0.1));
-      expect(ratio, greaterThanOrEqualTo(8.0), reason: '下限必须满足');
+      expect(ratio, greaterThanOrEqualTo(4.5), reason: '正文必须达 WCAG AA');
     });
 
-    test('纸质护眼与夜间都落在 8:1 ~ 12:1', () {
+    test('纸质护眼与夜间正文对比度均达 WCAG AA（≥4.5:1，不再设上限）', () {
       final paper = contrastRatio(AppPalettes.paper.textMain, AppPalettes.paper.bg);
       final night = contrastRatio(AppPalettes.night.textMain, AppPalettes.night.bg);
       expect(paper, closeTo(10.68, 0.1));
       expect(night, closeTo(11.41, 0.1));
+      // 「≤12.0」的上限断言已随 §6.3 废止一并删除（12:1 上限无 WCAG 依据）。
       for (final ratio in [paper, night]) {
-        expect(ratio, greaterThanOrEqualTo(8.0));
-        expect(ratio, lessThanOrEqualTo(12.0));
+        expect(ratio, greaterThanOrEqualTo(4.5));
       }
     });
 
@@ -75,10 +74,11 @@ void main() {
       }
     });
 
-    test('弱化文字（占位/说明）实算值记录 —— ⚠️ 低于 4.5:1，属文档矛盾', () {
-      // §2.5 写「低于 4.5:1 不达标（WCAG AA）」，但 §2.1 给的 `textFaint`
-      // 实算是 2.58 / 2.44 / 3.58，三套都不达标。同样是**文档内部矛盾**，已上报。
-      // 它只用于占位与说明（非承载信息的正文），故不阻断本包验收。
+    test('弱化文字（占位/说明）实算值记录 —— ⚠️ 低于 AA，规范已如实登记不视为达标', () {
+      // 2026-09-25 裁决（§八 #39）：§2.1 给的 `textFaint` 三套实算 2.58 / 2.44 / 3.58，
+      // **均低于 WCAG AA 的 4.5:1**。规范已把该情况**如实记入 §2.1 实测表（标 ⚠️）**
+      // 并明确「不视为达标」；它只承载占位/说明这类非判读信息，故一期不阻断。
+      // 若后续要用它承载关键信息，必须先调深色值 —— 那时这几条断言该改成 ≥4.5。
       final ratios = {
         AppThemeId.day: contrastRatio(AppPalettes.day.textFaint, AppPalettes.day.bg),
         AppThemeId.paper: contrastRatio(AppPalettes.paper.textFaint, AppPalettes.paper.bg),
@@ -92,9 +92,11 @@ void main() {
       }
     });
 
-    test('日间卡片色值必须还是 #FFFFFF（§2.1 原文）', () {
-      // #2B2B2B on #FFFFFF 实算 14.16:1，也超出 §6.3 的 8~12。
-      // §2.1 的对比度校验只针对「页面背景 vs 主文字」，本文件照此执行。
+    test('日间卡片色值必须还是 #FFFFFF（§2.1 原文；正文 on 卡片 14.16:1）', () {
+      // 2026-09-25 复核（§八 #40）：条目原文「卡片 #FFFFFF on 背景 #F7F5F0 实测 14.16:1」
+      // **把数字挂错了对象** —— 14.16 是「正文 #2B2B2B on 卡片 #FFFFFF」；
+      // 「卡片 on 背景」实值为 1.09:1，那是**相邻色块层次**，不是文字对比度，本就不该套 AA。
+      // 正文 on 卡片 14.16:1 在新口径下完全合规（≥4.5、不设上限）。
       expect(AppPalettes.day.card, 0xFFFFFF);
     });
 
