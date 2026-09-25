@@ -1,0 +1,88 @@
+================================================================================
+背记系统 · 首次 Git 提交清单（基线存档）
+================================================================================
+
+提交哈希 : 69083f6a719452981f30f2d249f638fdd50cd69c  (短: 69083f6)
+提交时间 : 2026-09-25 10:35:34 +0800
+提交者   : yao512954855 <512954855@qq.com>
+分支     : master（root-commit，此前仓库无任何提交）
+规模     : 501 files changed, 90505 insertions(+)
+说明     : 仅本地提交，**未 push**（无远端）。
+
+--------------------------------------------------------------------------------
+一、纳入文件按目录分布
+--------------------------------------------------------------------------------
+  qa/            150   烟测/E2E 证据、ASR 预研与选型报告、收口报告、测试音频样本
+  student-app/   145   Flutter 学生端（lib/test/scripts/web/android 等）
+  backend/       114   FastAPI 后端（app/scripts/config/tests 等）
+  admin-web/      66   Vue3 管理端（src/scripts，不含 node_modules）
+  docs/           15   需求说明书 / 数据库设计 / 接口设计 / UI 规范 + dev 工作包规格
+  .workbuddy/      6   项目记忆（memory/*.md + 验收截图 shots/*.png）
+  ops/             4   部署运维（README.md、backup.bat、install/uninstall_service.ps1）
+  scripts/         1   flutter.sh（构建包装脚本）
+  .gitignore       1
+  .gitattributes   1
+
+--------------------------------------------------------------------------------
+二、明确排除（提交前逐条用 `git check-ignore -q` 验证过）
+--------------------------------------------------------------------------------
+路径                                  依据                        规则
+------------------------------------  --------------------------  -------------------------
+backend/.env                          .env / backend/.env         硬红线（密钥）
+backend/asr.yaml                      asr.yaml                    硬红线（云厂商凭证）
+admin-web/.env.production             .env.*                      本次新增的防护规则
+backend/data/*.db                     backend/data/               运行时数据库
+backend/backups/*.db                  backend/backups/            备份产物
+qa/tmp/*.db                           *.db                        临时库
+backend/logs/bjsys.log                *.log                       运行日志（947KB 噪音）
+backend/.smoketmp/                    backend/.smoketmp/          烟测临时目录
+qa/tmp/                               qa/tmp/                     临时目录
+.flutter_tool_state                   .flutter_tool_state         本次新增（本地状态）
+.flutter_settings                     .flutter_settings           含本机绝对路径
+student-app/android/local.properties  /local.properties           含本机绝对路径
+backend/.venv/  admin-web/node_modules/  student-app/build/       .venv / node_modules / build
+
+--------------------------------------------------------------------------------
+三、唯一例外（人工核对后准许入库）
+--------------------------------------------------------------------------------
+admin-web/.env.development
+  文件开头自述：「开发环境配置（随仓库提交，不含任何密钥）」
+  实际内容：只有 4 个 VITE_* 变量（API 前缀、后端 target、开发端口、base path），
+            **无任何凭证**。已人工逐行核对属实。
+
+--------------------------------------------------------------------------------
+四、安全扫描结果（首次提交前）
+--------------------------------------------------------------------------------
+全仓 grep（排除 .git/.venv/node_modules/build/data/backups/.dart_tool）：
+  sk-[A-Za-z0-9]{20,} | AKID[A-Za-z0-9]{10,} | LTAI[A-Za-z0-9]{10,}
+  → **零匹配**，无明文云凭证。
+.workbuddy/ 内仅有文字描述（如「AccessKey 只在服务端」），无明文密钥。
+
+--------------------------------------------------------------------------------
+五、换行符策略（本次新增 .gitattributes）
+--------------------------------------------------------------------------------
+背景：开发机 Windows（core.autocrlf=true），服务端部署到局域网 Linux。
+      不统一会在 Linux 上出现 `bad interpreter: /bin/bash^M`，且会「没改代码却整仓 diff」。
+策略：仓库内一律存 LF（* text=auto eol=lf）；
+      ops/*.bat、*.cmd、*.ps1 在 checkout 时还原 CRLF；
+      常见二进制扩展名（wav/png/xlsx/db/keystore…）显式 binary，禁转换。
+      95 个二进制文件已按规则处理（git numstat 显示 `- -`）。
+
+--------------------------------------------------------------------------------
+六、本次提交对应的验收基线（2026-09-25）
+--------------------------------------------------------------------------------
+后端        : pytest 453 passed
+学生端      : flutter analyze → No issues found!
+              flutter test    → +303 ~54，All tests passed!
+管理端      : npm run typecheck / build 通过
+              真浏览器烟测 WEB-02 14/15、WEB-03 17/18（余项为人工验收）
+语音预研    : qa/ASR预研报告.md / qa/ASR模型选型报告.md（第三批真人录音**未完成**）
+
+--------------------------------------------------------------------------------
+七、如何自查这次提交
+--------------------------------------------------------------------------------
+  git show --stat HEAD              # 看文件清单
+  git show HEAD --name-only | wc -l # 确认文件数
+  git log -1 --format=%B            # 看完整提交信息
+  git check-ignore -v backend/.env  # 抽查忽略规则
+================================================================================
