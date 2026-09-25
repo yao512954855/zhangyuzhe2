@@ -45,7 +45,7 @@ Flutter / Vue3+Vite+TS+ElementPlus+Pinia / FastAPI+uvicorn。DB **SQLite(WAL)**�
 - 语文「重背这篇」**不新增接口**：`content_type='chinese'` + `scope='lesson'` + `scope_detail.text_ids`（与配置页「选课文」**同一条路**）；⚠️ 语文**不给 `scope=wrong`**（背诵没有「只背这几个字」模式，给了就是骗学生）。
 - **前端**：新增 `wrong_char_book.dart`（按课文分组 + 字格 + 上下文 + 「重背这篇」）；`wrong_book_page.dart` 加**学科切换**；首页卡片改**两套文案两套数字**（英语「只练错题（N 个）」/ 语文「错题本（N 个字）」），`HomeData` **拆出独立的 `wrongCharsCount`** —— 合成一个字段，切 Tab 数字会串。
 - 🐞 **顺带修掉一个潜伏缺陷（§八 #79）**：`WrongBookController.build()` 里**同步**调 `_load()` → `_load` 第一行读 `state` → Riverpod 抛「**Tried to read the state of an uninitialized provider**」，**错题本页上线以来从未真正渲染成功过**。老用例要么只测纯函数、要么固定 `pump` 间接进页面，**没有一条真渲染过**。已改 `Future.microtask`。
-- **计数**：后端全量 **478 passed**（469 + 9）；学生端 `analyze` **0 issue**、全量 **338 passed / 56 skipped**（+17）；真机烟测 **10 通过 / 0 跳过**（`qa/smoke_app05_verify4.txt`，造数侧真背 2 遍各漏「霜」→ `wrong_count=2`、`first_pos=9`、上下文与正文**逐字核对**）。
+- **计数**：后端全量 **478 passed**（469 + 9）；学生端 `analyze` **0 issue**、全量 **338 passed / 59 skipped**（+17；3 条 §8.10 live 用例无后端时 skip）；真机烟测 **10 通过 / 0 跳过**（`qa/smoke_app05_verify4.txt`，造数侧真背 2 遍各漏「霜」→ `wrong_count=2`、`first_pos=9`、上下文与正文**逐字核对**）。
 - **回写**：接口设计 **§8.10**、契约 **§14.1 缺口 6 扩围**、30-规格 F1/U11/U12、矩阵 **#29**、需求 §5.9、§八 **#48 已解决 + #79**（分布表已处置 13；**下轮从 #80 起编号**）。**清单 A 档 0 条。**
 
 ## 进度（2026-09-25 17:00）— **§八 待裁清单清空（77/77）**
