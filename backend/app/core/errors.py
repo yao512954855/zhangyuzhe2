@@ -5,7 +5,7 @@
 - HTTP 非 200 仅用于：400 格式错 / 401 未登录 / 403 无权限 / 404 路径不存在 /
   413 文件过大 / 429 限流 / 500 服务异常。
 - 错误码分段：10000 通用 / 20000 账号班级 / 30000 内容 / 40000 导入 /
-  50000 语音 / 60000 服务发现。
+  50000 语音 / 60000 服务发现 / 70000 二期学习（2026-09-25 追加）。
 """
 
 from __future__ import annotations
@@ -51,6 +51,15 @@ class ErrorCode:
     # ---- 60000 段：服务发现 ----
     DISCOVERY_FAILED = 60001
 
+    # ---- 70000 段：二期学习能力（2026-09-25 追加，见 dev/50-二期工作包拆解）----
+    PLAN_NOT_FOUND = 70001  # 练习方案不存在 / 越权（同码不暴露存在性）
+    HOMEWORK_NOT_FOUND = 70002
+    HOMEWORK_EXPIRED = 70003
+    SRS_PLAN_NOT_FOUND = 70004
+    VERSION_NOT_FOUND = 70005
+    HINT_EXHAUSTED = 70006  # 提示档位用尽
+    HINT_NOT_ALLOWED = 70007  # 该题型无提示
+
 
 # 错误码 → 默认中文提示。
 # 文案面向中小学学生与管理者，**禁用技术术语**（UI 规范文案要求）。
@@ -78,6 +87,13 @@ DEFAULT_MESSAGES: dict[int, str] = {
     ErrorCode.ASR_EMPTY: "没有听到声音",
     ErrorCode.ASR_BAD_AUDIO: "录音格式不正确",
     ErrorCode.DISCOVERY_FAILED: "没能找到服务器",
+    ErrorCode.PLAN_NOT_FOUND: "练习方案不存在",
+    ErrorCode.HOMEWORK_NOT_FOUND: "作业不存在",
+    ErrorCode.HOMEWORK_EXPIRED: "作业已截止",
+    ErrorCode.SRS_PLAN_NOT_FOUND: "没有需要复习的内容",
+    ErrorCode.VERSION_NOT_FOUND: "版本记录不存在",
+    ErrorCode.HINT_EXHAUSTED: "提示已经用完了",
+    ErrorCode.HINT_NOT_ALLOWED: "这道题不能使用提示",
 }
 
 

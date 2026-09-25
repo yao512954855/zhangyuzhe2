@@ -31,9 +31,12 @@ bcrypt==5.0.0
 #   对外接口（hash_password / verify_password）保持不变，其他工作包无感知。
 #   详见 backend/app/core/security.py 顶部注释。
 
-# ---------- Excel 与拼音 ----------
+# ---------- Excel、Word 与拼音 ----------
 openpyxl==3.1.5
 pypinyin==0.51.0
+# `python-docx` 是 WP-2B（Word→Excel 导入转换脚本 `scripts/word2excel.py`）的直接依赖。
+# 它与本清单同目录同源，故登记在此（脚本本身不新增后端接口，只做离线转换）。
+python-docx==1.2.0
 
 # ---------- 语音（WP-BE-06）----------
 # `websockets` 是 BE-06 流式 ASR 的**直接依赖**（原来只是 uvicorn[standard] 的传递依赖）。

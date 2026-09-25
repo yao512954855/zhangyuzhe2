@@ -28,6 +28,7 @@ from app.core.deps import CurrentUser, require_admin
 from app.core.response import ok
 from app.schemas.content import WordBatchStatusIn, WordOut, WordPatchIn
 from app.services.content_service import ContentService
+from app.services.version_service import VersionService
 
 router = APIRouter(tags=["words"])
 
@@ -56,6 +57,9 @@ async def patch_word(
     word, history_affected = ContentService.patch_word(
         word_id, changes, operator_id=admin.id, ip=_ip(request)
     )
+    # WP-2I：停用记 disable、其余改记 update
+    op = "disable" if changes.get("status") == "inactive" else "update"
+    VersionService.record_now(entity_type="word", entity_id=word_id, op=op, operator_id=admin.id)
     return ok({**WordOut.model_validate(word).model_dump(), "history_affected": history_affected})
 
 
@@ -70,9 +74,18 @@ async def batch_word_status(
     停用的词条**立即从学生端消失**（`list_words_student` 固定带 `status='active'`，U12），
     但历史记录与掌握度都保留 —— 这是「本学期不教这个词」的标准处理方式。
     """
+    # WP-2I：批量改动前逐个捕获「改动前」快照（停用记 disable、启用记 update）
+    op = "disable" if payload.status == "inactive" else "update"
+    before = {
+        wid: VersionService.capture_raw("word", wid) for wid in set(payload.word_ids)
+    }
     affected = ContentService.batch_status(
         payload.word_ids, payload.status, operator_id=admin.id, ip=_ip(request)
     )
+    for wid in set(payload.word_ids):
+        VersionService.record_now(
+            entity_type="word", entity_id=wid, op=op, operator_id=admin.id, snapshot=before.get(wid)
+        )
     return ok(
         {
             "updated": affected,
@@ -93,5 +106,10 @@ async def delete_word(
     有答题记录 → `30003` + `data.record_count`（U9），提示改为停用；
     零记录才物理删除（U10）。
     """
+    # WP-2I：删除前捕获整行快照（删除成功才落一条 delete 版本）
+    snapshot = VersionService.capture_raw("word", word_id)
     data = ContentService.delete_word(word_id, operator_id=admin.id, ip=_ip(request))
+    VersionService.record_now(
+        entity_type="word", entity_id=word_id, op="delete", operator_id=admin.id, snapshot=snapshot
+    )
     return ok(data)

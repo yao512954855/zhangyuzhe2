@@ -46,6 +46,7 @@ from app.schemas.content import (
     WordStudentOut,
 )
 from app.services.content_service import ContentService
+from app.services.version_service import VersionService
 
 router = APIRouter(tags=["units"])
 
@@ -110,6 +111,10 @@ async def create_unit(
         operator_id=admin.id,
         ip=request.client.host if request.client else None,
     )
+    # WP-2I：新增即写一条快照（op=create）
+    VersionService.record_now(
+        entity_type="unit", entity_id=int(data["id"]), op="create", operator_id=admin.id
+    )
     return ok(UnitOut.model_validate(data).model_dump())
 
 
@@ -132,6 +137,11 @@ async def patch_unit(
         operator_id=admin.id,
         ip=request.client.host if request.client else None,
     )
+    # WP-2I：停用记 disable、其余改记 update
+    op = "disable" if changes.get("status") == "inactive" else "update"
+    VersionService.record_now(
+        entity_type="unit", entity_id=unit_id, op=op, operator_id=admin.id
+    )
     return ok(UnitOut.model_validate(data).model_dump())
 
 
@@ -142,10 +152,15 @@ async def delete_unit(
     admin: CurrentUser = Depends(require_admin),
 ) -> dict:
     """删除单元（10a F4）。有练习记录 → `30003`，请改用停用。"""
+    # WP-2I：删除前捕获整行作为快照（删除成功才落一条 delete 版本）
+    snapshot = VersionService.capture_raw("unit", unit_id)
     data = ContentService.delete_unit(
         unit_id,
         operator_id=admin.id,
         ip=request.client.host if request.client else None,
+    )
+    VersionService.record_now(
+        entity_type="unit", entity_id=unit_id, op="delete", operator_id=admin.id, snapshot=snapshot
     )
     return ok(data)
 

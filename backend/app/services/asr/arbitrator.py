@@ -30,6 +30,7 @@ from typing import Any, Literal
 from app.core.errors import ErrorCode
 from app.core.logging import get_logger
 from app.services.asr.base import ASRError, audio_to_data_uri
+from app.services.asr.fallback import FallbackProvider
 
 logger = get_logger(__name__)
 
@@ -68,6 +69,9 @@ class ArbitratorProvider:
         self.endpoint: str = str(section.get("endpoint") or aliyun.get("http_endpoint") or "")
         self.http_format: str = str(aliyun.get("http_format") or "wav")
         self.timeout_s: float = float(section.get("timeout_ms") or 5000) / 1000.0
+        # WP-2C：接入兜底引擎。仲裁仍只在 empty/fuzzy/appeal 场景把门（见 should_trigger），
+        # 但「自身后端无结果」时，把同一段音频交给兜底引擎再识别一次（仍是旁路，未进主链路）。
+        self.fallback: FallbackProvider = FallbackProvider(config)
 
     # ------------------------------------------------------------------ 判定
 
@@ -93,17 +97,32 @@ class ArbitratorProvider:
     # ------------------------------------------------------------------ 调用
 
     async def arbitrate(self, pcm: bytes) -> str:
-        """拿第二判据的识别文本。
+        """拿第二判据的识别文本（仲裁自身后端 → 兜底引擎，两层都失败才返回空）。
 
         Args:
             pcm: 本次任务的音频（**内存里的那一份**，不落盘）。
 
         Returns:
-            识别文本；调用失败返回空串（**不抛异常** —— 仲裁失败不该把主流程带崩，
-            由调用方按「仲裁仍失败 → 降级键盘」处理）。
+            识别文本；两层都失败返回空串（**不抛异常** —— 仲裁/兜底失败不该把主流程带崩，
+            由调用方按「仍失败 → 降级键盘」处理）。
         """
         if not pcm:
             return ""
+        # 1) 一期逻辑：仲裁器自身后端（empty/fuzzy/appeal 场景的第二判据）
+        text = await self._arbitrate_via_self(pcm)
+        if text:
+            return text
+        # 2) WP-2C：接入兜底引擎。仅当仲裁自身无结果时再试一次；
+        #    仍是 empty/fuzzy/appeal 场景内（should_trigger 已经把门），未进主链路。
+        #    兜底引擎同样拒绝接收 expected（红线），这里恒定传 None。
+        if self.fallback.enabled:
+            fb = await self.fallback.fallback(pcm, expected=None)
+            if fb:
+                return fb
+        return ""
+
+    async def _arbitrate_via_self(self, pcm: bytes) -> str:
+        """仲裁器自身后端的识别（原 `arbitrate` 逻辑，单独抽出便于兜底降级）。"""
         payload = self._build_payload(pcm)
         try:
             body = await self._call(payload, self._headers())

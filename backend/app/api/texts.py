@@ -28,6 +28,7 @@ from app.core.deps import CurrentUser, get_current_user, require_admin
 from app.core.response import ok
 from app.schemas.content import TextDetailOut, TextPatchIn
 from app.services.content_service import ContentService
+from app.services.version_service import VersionService
 
 router = APIRouter(tags=["texts"])
 
@@ -65,6 +66,9 @@ async def patch_text(
     data, history_affected = ContentService.patch_text(
         text_id, changes, operator_id=admin.id, ip=_ip(request)
     )
+    # WP-2I：停用记 disable、其余改记 update
+    op = "disable" if changes.get("status") == "inactive" else "update"
+    VersionService.record_now(entity_type="text", entity_id=text_id, op=op, operator_id=admin.id)
     return ok({**TextDetailOut.model_validate(data).model_dump(), "history_affected": history_affected})
 
 
@@ -75,5 +79,10 @@ async def delete_text(
     admin: CurrentUser = Depends(require_admin),
 ) -> dict:
     """删除课文。有背诵记录 → `30003` + `record_count`。"""
+    # WP-2I：删除前捕获整行快照（删除成功才落一条 delete 版本）
+    snapshot = VersionService.capture_raw("text", text_id)
     data = ContentService.delete_text(text_id, operator_id=admin.id, ip=_ip(request))
+    VersionService.record_now(
+        entity_type="text", entity_id=text_id, op="delete", operator_id=admin.id, snapshot=snapshot
+    )
     return ok(data)

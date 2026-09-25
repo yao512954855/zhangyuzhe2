@@ -31,6 +31,7 @@ from app.core.db import read_conn
 from app.core.errors import ErrorCode
 from app.core.logging import get_logger
 from app.services.asr.arbitrator import ArbitratorProvider
+from app.services.asr.fallback import FallbackProvider
 from app.services.asr.base import (
     ASRError,
     ASRProvider,
@@ -191,6 +192,7 @@ class ASRSession:
         raw_config: `asr.yaml` 原始 dict；不传则自己读。
         router: 主备编排；不传则按 `raw_config` 建。
         arbitrator: 仲裁器；不传则按 `raw_config` 建。
+        fallback: 多模态兜底引擎（WP-2C）；不传则按 `raw_config` 建。
     """
 
     def __init__(
@@ -201,6 +203,7 @@ class ASRSession:
         raw_config: dict[str, Any] | None = None,
         router: ASRRouter | None = None,
         arbitrator: ArbitratorProvider | None = None,
+        fallback: FallbackProvider | None = None,
     ) -> None:
         self.user = user
         self.user_id: int = int(getattr(user, "id", 0))
@@ -226,6 +229,9 @@ class ASRSession:
         self.router = router if router is not None else ASRRouter(self.raw)
         self.arbitrator = (
             arbitrator if arbitrator is not None else ArbitratorProvider(self.raw)
+        )
+        self.fallback = (
+            fallback if fallback is not None else FallbackProvider(self.raw)
         )
 
         # ---- 出站 ----
@@ -489,6 +495,13 @@ class ASRSession:
         text, conf, duration_ms = final
         text = (text or "").strip()
 
+        # WP-2C：置信度低（疑似听错）→ 先用多模态兜底做一次**忠实**识别再判分（§9.7）。
+        # 未启用兜底 / 置信度正常 → 完全不改变原有行为。
+        if conf is not None and self.fallback.should_trigger(confidence=conf):
+            rescued = await self._try_fallback(confidence=conf)
+            if rescued:
+                text, conf = rescued, None
+
         # 空结果 → 50003 + retry，**不计错**（F17 / U6）
         if not text:
             arbitrated = await self._try_arbitrate("empty")
@@ -529,7 +542,7 @@ class ASRSession:
     # ================================================================== 判定（F9 / F10）
 
     async def _judge_and_emit(
-        self, text: str, conf: float | None, provider: ASRProvider
+        self, text: str, conf: float | None, provider: ASRProvider | None
     ) -> None:
         assert self.cfg is not None
         task_type = self.cfg.task_type
@@ -554,6 +567,7 @@ class ASRSession:
             await self._fail(
                 ASRError(ErrorCode.ASR_UNAVAILABLE, f"判定失败：{exc}", status="error"),
                 provider=provider,
+                allow_fallback=False,   # ASR 已出文本，判分崩了不该再识别一遍
             )
             return
 
@@ -645,8 +659,9 @@ class ASRSession:
     # ================================================================== 仲裁（F19）
 
     def _remember_audio(self, chunk: bytes) -> None:
-        """只为仲裁保留最近若干秒音频（内存，不落盘）。"""
-        if not self.arbitrator.enabled:
+        """为**仲裁 / 兜底**保留最近若干秒音频（内存，不落盘）。"""
+        # WP-2C：兜底引擎同样需要这一窗音频；只在仲裁开启时才留会导致兜底永远拿不到声音。
+        if not (self.arbitrator.enabled or self.fallback.enabled):
             return
         self._pcm_window.append(bytes(chunk))
         self._pcm_window_bytes += len(chunk)
@@ -662,6 +677,23 @@ class ASRSession:
         if not pcm:
             return None
         text = await self.arbitrator.arbitrate(pcm)
+        return text or None
+
+    async def _try_fallback(self, *, asr_failed: bool = False,
+                            confidence: float | None = None) -> str | None:
+        """WP-2C：ASR 失败 / 低置信时，用多模态兜底再识别一次。
+
+        这是「**降级键盘之前**」的最后一次识别机会（需求 §9.4 / §9.7）。
+        返回兜底文本或 `None`（未触发 / 拿不到音频 / 兜底也失败）。
+        """
+        if not self.fallback.should_trigger(
+            asr_failed=asr_failed, confidence=confidence
+        ):
+            return None
+        pcm = b"".join(self._pcm_window)
+        if not pcm:
+            return None
+        text = await self.fallback.fallback(pcm)
         return text or None
 
     # ================================================================== 回调
@@ -708,8 +740,20 @@ class ASRSession:
         *,
         log: bool = True,
         provider: ASRProvider | None = None,
+        allow_fallback: bool = True,
     ) -> None:
-        """统一处理识别失败：计数 → 可能切键盘 → 出站 error + 写日志。"""
+        """统一处理识别失败：**先试多模态兜底** → 计数 → 可能切键盘 → 出站 error + 写日志。"""
+        # WP-2C：ASR 识别失败时，在降级键盘之前先用多模态兜底再识别一次
+        # （需求 §9.4 降级策略 / §9.7「不要把孩子赶去键盘」）。
+        # ⛔ `allow_fallback=False` 用于「判定失败」等 ASR 已成功出文本的场景 ——
+        #    那类失败再识别一遍没有意义，且会与判定形成回环。
+        if (
+            allow_fallback
+            and self.cfg is not None
+            and await self._rescue_with_fallback(provider)
+        ):
+            return
+
         self._consecutive_errors += 1
         self.router.note_failure()
         if self._consecutive_errors >= KEYBOARD_MODE_THRESHOLD:
@@ -735,6 +779,25 @@ class ASRSession:
                 fallback="keyboard" if self._keyboard_mode else None,
             )
         )
+
+    async def _rescue_with_fallback(self, provider: ASRProvider | None) -> bool:
+        """兜底成功 → 直接下发 `final` 并判分，返回 True（本轮**不算失败**）。
+
+        兜底失败 / 未触发 → 返回 False，调用方按原逻辑降级（计数、可能切键盘）。
+        """
+        rescued = await self._try_fallback(asr_failed=True)
+        if not rescued:
+            return False
+        self.outbox.append(
+            {
+                "type": "final",
+                "text": rescued,
+                "confidence": None,
+                "duration_ms": 0,
+            }
+        )
+        await self._judge_and_emit(rescued, None, provider)
+        return True
 
     async def _error(self, code: int, message: str, *, action: str = "retry") -> None:
         self.outbox.append(self._error_payload(code, message, action=action))

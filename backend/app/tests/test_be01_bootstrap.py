@@ -144,14 +144,21 @@ def _make_student(username: str, *, status: str = "active") -> int:
 # ---------------------------------------------------------------------------
 
 def test_u1_first_boot_creates_schema_and_admin(client):
-    """U1 空目录首次启动 → 建库建表；schema_version 1 条；settings 20 条；生成 admin。"""
-    assert _scalar("SELECT COUNT(*) FROM schema_version") == 1
-    assert _scalar("SELECT MAX(version) FROM schema_version") == 1
+    """U1 空目录首次启动 → 建库建表；schema_version = 全部迁移脚本；settings 20 条；生成 admin。"""
+    from app.core.migrate import discover_migrations
+
+    # ⚠️ 版本条数/最大值由 `app/migrations/` 推导，**不写死** ——
+    #    新增 003/004 时本用例无需再改（2026-09-25 加 002_wave2.sql 时即因此处写死 1 而假红）
+    migrations = discover_migrations()
+    assert _scalar("SELECT COUNT(*) FROM schema_version") == len(migrations)
+    assert _scalar("SELECT MAX(version) FROM schema_version") == max(
+        m.version for m in migrations
+    )
 
     # settings 种子值：与《数据库设计》§4 逐条一致，共 20 条
     assert _scalar("SELECT COUNT(*) FROM settings") == 20
 
-    # 15 张表 + 3 个视图都在
+    # 一期 15 张核心表 + 3 个视图都在（二期 7 张表见 002_wave2.sql，此处只核一期基线）
     tables = {
         r[0]
         for r in _db_conn().execute(
@@ -179,11 +186,12 @@ def test_u1_first_boot_creates_schema_and_admin(client):
 
 def test_u2_second_migration_is_idempotent(client):
     """U2 二次启动 → 迁移不重复执行。"""
-    from app.core.migrate import run_migrations
+    from app.core.migrate import discover_migrations, run_migrations
 
     applied = run_migrations()
     assert applied == [], f"二次迁移不应再执行任何脚本，实际：{applied}"
-    assert _scalar("SELECT COUNT(*) FROM schema_version") == 1
+    # 同样按目录推导，不写死（见 U1 注释）
+    assert _scalar("SELECT COUNT(*) FROM schema_version") == len(discover_migrations())
 
 
 # ---------------------------------------------------------------------------
@@ -191,14 +199,16 @@ def test_u2_second_migration_is_idempotent(client):
 # ---------------------------------------------------------------------------
 
 def test_u3_health_check(client):
-    """U3 GET /api/health → code=0，含 db:true、schema_version:1。"""
+    """U3 GET /api/health → code=0，含 db:true、schema_version=最新迁移版本。"""
+    from app.core.migrate import discover_migrations
+
     r = client.get("/api/health")
     assert r.status_code == 200
     body = r.json()
     assert body["code"] == 0
     data = body["data"]
     assert data["db"] is True
-    assert data["schema_version"] == 1
+    assert data["schema_version"] == max(m.version for m in discover_migrations())
     assert "asr_ready" in data
     assert body["trace_id"]
 

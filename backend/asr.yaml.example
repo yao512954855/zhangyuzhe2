@@ -46,7 +46,7 @@ hotwords:
   enabled: false          # 预研实测无效（qa/ASR预研报告.md §4.2），一期不启用
   sources: []             # 保留配置位，换厂商后可重新验证
 
-# 多模态仲裁：专用 ASR 判不准时的「第二判据」（需求 §9.7）
+# 多模态仲裁：专用 ASR 判不准时的「第二判据」（需求 §9.7，一期启用）
 arbitrator:
   enabled: true           # ← 预研已确认启用（与 ASR 互补而非包含）
   provider: "aliyun"
@@ -55,6 +55,25 @@ arbitrator:
   endpoint: ""            # 留空则回落到 aliyun.http_endpoint
   buffer_ms: 15000        # 只为仲裁在**内存**里保留最近这么久音频（F18：仍然不落盘）
   trigger: [empty, fuzzy, appeal]     # 严禁进主链路（延迟秒级、按 token 计费）
+
+# 多模态兜底判定：专用 ASR **整段失败 / 低置信**时的最后一次识别机会（WP-2C，二期）
+# 与 arbitrator 的区别：arbitrator 管「判分结果级」（empty/fuzzy/申诉）；
+# fallback 管「ASR 链路级」（失败 / 低置信）—— 在降级键盘之前再试一次。
+# ⚠️ 同样严禁进主链路：一次干净的高置信结果绝不触发兜底。
+fallback:
+  enabled: false          # ← 默认关闭；接好 key 且确认模型后再开（按 token 计费、秒级延迟）
+  provider: "aliyun"
+  model: "qwen3.5-omni-plus"          # 多模态兜底；不要用 qwen-audio-3.0-asr-flash 之外的脑补模型
+  api_key: ""             # 留空则回落到 aliyun.api_key
+  endpoint: ""            # 留空则回落到 aliyun.http_endpoint
+  http_format: "wav"      # 复用 aliyun.http_format（HTTP 调用必须显式传 format）
+  confidence_threshold: 0.5   # ASR 置信度低于此值才触发（配置驱动，不硬编码）
+  timeout_ms: 5000
+  trigger_on_error: true          # ASR 抛错 / 超时 → 触发兜底
+  trigger_on_low_confidence: true # 低置信 → 触发兜底
+  # ⛔ 禁用清单（配置即报错，不静默使用）：qwen3-asr-flash / qwen3-asr-flash-realtime
+  #    —— 会把学生错读脑补成正确词（GLASS→CLASS、ABPLE→APPLE），用于判分属教学事故。
+  # 提示词固定、且**不含答案文本**，确保 expected 永不下发云厂商（契约 §6.3 红线）。
 
 limits:
   connect_timeout_ms: 3000
