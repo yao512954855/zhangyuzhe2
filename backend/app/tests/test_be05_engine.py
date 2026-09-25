@@ -714,6 +714,67 @@ class TestSettle:
         assert first["replay"] is False
         assert len(_sql("SELECT id FROM recitations WHERE id = ?", (rid,))) == 1
 
+    def test_settle_returns_server_duration(self, client):
+        """契约 §9.4：结算响应**回带服务端已落库**的用时 / 首声延迟。
+
+        这条是「结算页用时同源」的护栏。之前 `/settle` 不回带，客户端只能用
+        自己那份本地计时 —— 切后台 / 杀进程就失真，而且与学生报告、管理端统计
+        不是同一个来源。
+
+        **幂等重放也必须回带**：二次进入结算页（或重复提交）时若变回 0，
+        页面就会闪出一个「0 秒」。
+        """
+        token, _, _, rid, _ = self._bootstrap(client)
+        client.post(
+            f"/api/recitations/{rid}/feed",
+            json={"partial_text": "我与父亲不相见"},
+            headers=_auth(token),
+        )
+
+        first = client.post(
+            f"/api/recitations/{rid}/settle",
+            json={
+                "transcript": "我与父亲不相见",
+                "duration_ms": 42000,
+                "first_voice_ms": 1800,
+                "finish_reason": "completed",
+            },
+            headers=_auth(token),
+        ).json()["data"]
+
+        assert first["duration_ms"] == 42000
+        assert first["first_voice_ms"] == 1800
+
+        # 库里也确实是这一对值（响应不能是另算的）
+        row = _sql("SELECT duration_ms, first_voice_ms FROM recitations WHERE id = ?", (rid,))[0]
+        assert row["duration_ms"] == 42000
+        assert row["first_voice_ms"] == 1800
+
+        # 幂等重放：从库里读回同一对值
+        again = client.post(
+            f"/api/recitations/{rid}/settle",
+            json={"transcript": "我与父亲不相见", "finish_reason": "completed"},
+            headers=_auth(token),
+        ).json()["data"]
+        assert again["replay"] is True
+        assert again["duration_ms"] == 42000, "重放要回带库里的值，不能变 0"
+        assert again["first_voice_ms"] == 1800
+
+    def test_settle_first_voice_null_when_never_spoke(self, client):
+        """没发过声 → `first_voice_ms` 回 `null`（而不是 0）。
+
+        `0` 会被结算页画成「首次发声 0 秒」，那是假的；`null` 才能渲染成「—」。
+        """
+        token, _, _, rid, _ = self._bootstrap(client)
+        data = client.post(
+            f"/api/recitations/{rid}/settle",
+            json={"transcript": "", "duration_ms": 9000, "finish_reason": "manual"},
+            headers=_auth(token),
+        ).json()["data"]
+
+        assert data["first_voice_ms"] is None
+        assert data["duration_ms"] == 9000
+
     def test_settle_bad_reason(self, client):
         token, _, _, rid, _ = self._bootstrap(client)
         resp = client.post(

@@ -10,9 +10,16 @@
 ///
 /// 数据来源说明（与 F1「进入不显示正文」一致）：
 /// 创建响应**只有计数与元信息**（`total_chars` / `char_count_per_paragraph` / `title`），
-/// 不含正文、不含拼音。因此逐字点亮只能按「位置」渲染占位框，
-/// 无法在客户端区分标点格（标点由服务端在比对层忽略）—— 这是契约层面的已知缺口，
-/// 见交付说明偏离项 D-APP04-01。
+/// 不含正文、不含拼音 —— 展示用的正文由展示层单独从 §8.7 课文详情取
+/// （见 `recite_text.dart`），控制器本身不碰正文。
+///
+/// ⚠️ **D-APP04-01 的原描述已证伪（2026-09-25 实跑复核）**：原先记的是「客户端无法
+/// 区分标点格，标点位置也会出现一个框，框数 ≠ 实际字数」。实测两边**都剔除标点**
+/// （服务端 `han_only` 与客户端 `_hanzi` 对「床前明月光，疑是地上霜。」都得 10 个字），
+/// **根本不存在「标点格」**。真实差异是**汉字字符集口径**：服务端 `_HAN_RANGES` 有 6 段
+/// （含兼容表意 F900 区、增补平面 20000+），客户端原先只有 2 段 → 这类字被客户端丢掉，
+/// `chars.length != total_chars`，框数与点亮索引整体错位。已按服务端口径对齐
+/// （`recite_text.dart` 的 `_hanRanges`），并有真机断言钉住。
 library;
 
 import 'package:flutter/foundation.dart';
@@ -238,6 +245,8 @@ class ReciteSettle {
     required this.grade,
     required this.hintCount,
     required this.replay,
+    this.durationMs = 0,
+    this.firstVoiceMs,
   });
 
   factory ReciteSettle.fromJson(Map<String, dynamic> json) {
@@ -259,6 +268,11 @@ class ReciteSettle {
       grade: json['grade']?.toString() ?? '',
       hintCount: _toHintCount(json['hint_count']),
       replay: json['replay'] == true,
+      // 契约 §9.4：服务端回带已落库的用时 / 首声延迟，结算页以它为准。
+      durationMs: _toInt(json['duration_ms']),
+      firstVoiceMs: json['first_voice_ms'] == null
+          ? null
+          : _toInt(json['first_voice_ms']),
     );
   }
 
@@ -272,6 +286,14 @@ class ReciteSettle {
   final String grade;
   final Map<int, int> hintCount;
   final bool replay;
+
+  /// 服务端落库的总用时（毫秒，契约 §9.4 响应回带）。
+  ///
+  /// `0` = 服务端未回带（旧版服务端 / 字段缺失）→ 调用方回退到客户端本地计时。
+  final int durationMs;
+
+  /// 服务端落库的首次发声延迟（毫秒）；`null` = 本次没发声过，或服务端未回带。
+  final int? firstVoiceMs;
 
   int get hintTotal =>
       (hintCount[1] ?? 0) + (hintCount[2] ?? 0) + (hintCount[3] ?? 0);

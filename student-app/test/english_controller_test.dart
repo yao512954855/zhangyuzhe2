@@ -430,20 +430,19 @@ void main() {
     expect(settle, isNotNull);
   });
 
-  // U16：提示升档 1→2→3，计数累计，封顶 3。
-  test('U16 提示三档升级并累计计数，封顶 3', () {
+  // U16 变体（2026-09-25 裁决 B）：英语侧提示**封顶一档**，不再虚升到 2/3 档。
+  test('U16 提示封顶一档：第二次点击不再升档、计数不涨', () {
     final fake = FakePracticeRepository();
     final c = makeContainer(fake);
     ctrl(c).start(sessionOf([wordItemWithSpell()]));
     ctrl(c).escalateHint();
+    expect(stateOf(c).hintLevel, kEnglishMaxHintLevel);
+    expect(stateOf(c).usedHintCount, 1);
+    // 到顶后再点无效：二/三档需服务端下发答案，英语通道没有该来源（§八 #71）。
     ctrl(c).escalateHint();
     ctrl(c).escalateHint();
-    expect(stateOf(c).hintLevel, 3);
-    expect(stateOf(c).usedHintCount, 3);
-    // 第 4 次无效。
-    ctrl(c).escalateHint();
-    expect(stateOf(c).hintLevel, 3);
-    expect(stateOf(c).usedHintCount, 3);
+    expect(stateOf(c).hintLevel, kEnglishMaxHintLevel);
+    expect(stateOf(c).usedHintCount, 1);
   });
 
   // U17：键盘提交时 retryCount 反映当前步失败数；used_keyboard=1。

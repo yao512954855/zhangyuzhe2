@@ -17,11 +17,18 @@ qa/
 ├── e2e/
 │   ├── e2e.sh             # 端到端驱动（含 E2E-06 真停服换库重启）
 │   └── e2e_core.py        # 场景断言本体（scenarios / restore-prepare / restore-verify）
+├── perf/                  # 非功能压测 + 需求矩阵缺口补验（QA-01 新增）
+│   ├── _bootstrap.sh      # 同 smoke 的那一份起停逻辑（复用，不重写）
+│   ├── nonfunc.sh         # 非功能：NF-01 P95 / NF-02 判分延迟 / NF-05 WS 上限 / NF-07 安全
+│   ├── nonfunc_core.py    # 非功能断言本体（18 条，真 uvicorn :8822）
+│   ├── gaps.sh            # 功能矩阵缺口：年级隔离 / 全字段落库 / 部署交付物 / 二期无实现
+│   └── gaps_core.py       # 缺口断言本体（8 条，真 uvicorn :8823）
 ├── fixtures/
 │   ├── make_fixtures.py   # 生成导入用 Excel（学生 / 词条 / 课文）
 │   ├── README.md          # 每个 fixture 的预期校验结果（valid/invalid 行数）
 │   └── *.xlsx
 ├── reports/               # 验收报告（按日期）
+├── perf_nonfunc_2026-09-25.txt / perf_gaps_2026-09-25.txt   # 上面两个脚本的证据留存
 ├── audio/  audio_cn/  audio_neg/   # ASR 预研用的音频样本
 └── ASR预研报告.md / ASR模型选型报告.md
 ```
@@ -34,6 +41,12 @@ env -u PYTHONPATH bash qa/smoke/smoke.sh
 
 # 端到端（约 40 秒，因为 E2E-06 会真的停服、换库、再启服）
 env -u PYTHONPATH bash qa/e2e/e2e.sh
+
+# 非功能压测（约 70 秒：含 61 个账号 + 60 路 WS + 5 秒排队超时）
+env -u PYTHONPATH bash qa/perf/nonfunc.sh
+
+# 需求矩阵缺口补验（约 20 秒）
+env -u PYTHONPATH bash qa/perf/gaps.sh
 
 # 造测试 Excel
 env -u PYTHONPATH backend/.venv/Scripts/python.exe qa/fixtures/make_fixtures.py
@@ -82,6 +95,22 @@ env -u PYTHONPATH backend/.venv/Scripts/python.exe qa/fixtures/make_fixtures.py
 
 **刻意不重复实现**：已经由各包真机烟测覆盖得更细的场景（E2E-01/02/03），
 这里只做映射，不写第二份会漂的代码。
+
+### 非功能（`perf/nonfunc_core.py`，18 条）
+
+| 项 | 断言要点 |
+|---|---|
+| NF-01 接口响应 | 5 个接口各 300 次，P95 < 300ms、非 200 请求数 = 0（实测最差 17.8ms） |
+| NF-02 判分延迟 | `judge_text` / `judge_spell` 各 3000 次，P95 < 100ms（实测 0.036 / 0.058ms） |
+| NF-05 WS 上限 | **61 个不同账号**；前 60 路全握手成功；第 61 路排队 5.0s 后收 `50001` + 友好提示 + `action=abort`；释放后可重连；同账号第 2 路把第 1 路踢下线（关闭码 4002） |
+| NF-07 安全 | 错误响应不泄露路径/堆栈/DB 名；前端源码无硬编码密钥；登录限流**精确**命中 5 次额度；登录失败不泄露用户是否存在；无鉴权头时按 IP 计数同样限流 |
+| NF-03 / NF-09 | **如实 `skip`**（人工计时 / 真实日历时间），见第五节 |
+
+### 需求矩阵缺口（`perf/gaps_core.py`，8 条）
+
+补的是**功能矩阵里 pytest 覆盖不到**的维度：`G1/G2` 年级维度隔离（多年级内容互不串、
+管理端 `?grade=` 过滤）、`G3` 答题记录全字段落库、`G4` 部署交付物与手册章节、
+`G5` 二期功能（SRS/大屏/家长端）源码零命中。
 
 ---
 
@@ -162,6 +191,26 @@ cd admin-web && npx vite build --outDir dist_qa_verify   # 验完删掉
 **QA-01 用 8820**。UDP 发现端口 **9527 固定且不可配**（服务端是模块级常量），
 所以任何两个烟测**不能同时在跑** —— 启动预检会直接 `exit 2`，别把它当偶发失败。
 
+### 7. 验收脚本自身的坑（不是产品缺陷，但会让结论跑偏）
+
+**a) 断言要跟着实现走，别跟着印象走。** 三个真实事例，全都写进了
+`qa/reports/2026-09-25.md` §5.5：
+
+| 现象 | 真根因 | 教训 |
+|---|---|---|
+| 限流探测恒回 `10001`，看着像「限流没生效」 | 登录 payload **漏了必填的 `role`**，Pydantic 参数校验先挡下来 | 探业务码前先确认**能过参数校验**；`10001` 是校验错、`20002` 才是「用户名或密码错」 |
+| 我一度把根因记成「用户名含下划线、格式非法」 | `clean_username()` 只做全角→半角 + 去空格，**不校验字符集** | 写结论前回读源码，别把「看起来像」当成根因 |
+| 「第 61 路被接受」 | 首版用**同一个 token** 开 60 路 → 被 U11 踢旧连接，并发位只占 1~2 个 | 并发类断言必须用**不同账号**；同时把「同账号踢旧」单独验一条 |
+
+**b) 想精确断言限流，就给探针一个独立 `ident`。** `_identity()`（`rate_limit.py:96-103`）
+是「有 `Authorization` 就按该头哈希、没有就退化成来源 IP」。无限流的 `ident` 会与
+脚本先前的登录**共用同一个桶**，额度剩多少全凭运气 → 断言只能含糊写「出现过 `10005`」。
+给探针固定一个假 Bearer（中间件**不解 JWT**，只取哈希）即得全新桶，才能断言
+「前 5 次 `20002`、第 6 次起 `10005`」。退化到 IP 的行为另用**一条宽松断言**覆盖即可。
+
+**c) 证据文件必须与源码同代。** 改了断言却忘了重跑，`qa/perf_*.txt` 里留的还是旧文案
+（本项目真发生过一次）。**跑一遍再归档**，并核对 `SUMMARY` 行数。
+
 ---
 
 ## 五、已知跳过项（如实列出，不假装覆盖）
@@ -171,3 +220,6 @@ cd admin-web && npx vite build --outDir dist_qa_verify   # 验完删掉
 | 手机真扫码唤起 App | 无头环境没有真手机，也无法断言 App 的 `bjsys://` scheme 注册 | 已机器化验证 `qr_content` 格式 + 二维码画布真有像素（`smoke_core.py` #04、WEB-03 烟测 U12/U13） |
 | 真机换网段后的 IP 自动恢复 | 需要真机 + 真网络变更 | `backend/scripts/smoke_be08.py` 覆盖 UDP 真往返与状态落盘 |
 | ASR 识别率（真人录音） | 见 `ASR预研报告.md` §4.0b | **不可跳过**，但属于预研任务，不是本目录脚本的职责 |
+| NF-03 实时识别延迟 < 1.5s | 要求**人工计时×10**；Mock ASR 没有真实云端往返，本机数字不构成验收证据 | `nonfunc.sh` 如实 `skip` 并打印原因 |
+| NF-09 连续 7 天备份可恢复 | 需要**真实日历时间** | 单次备份 + **真停服换库恢复**已由 `smoke` #39 与 E2E-06 覆盖 |
+| G4 按手册实际部署一遍 | 需真机 + 真路由器 + ≥2 台手机 | `gaps.sh` 只验交付物齐全与手册章节，如实 `skip` 实际部署 |

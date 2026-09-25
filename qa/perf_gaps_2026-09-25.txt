@@ -1,0 +1,25 @@
+== QA-01 缺口补验：起真 uvicorn :8823（临时库 smoke.db，Mock ASR）==
+?? 后端已就绪
+
+
+== G1 / G2 年级维度隔离 ==
+[OK] #01 G1 前置：3 年级 / 4 年级各导入 1 个单元（同一份逻辑，跨年级文件）    g3_created=2 g4_created=2
+[OK] #02 G1 学生偏好 3 年级：只看到 3 年级单元（4 年级不串进来）    units=['Unit 3 Apple']
+[OK] #03 G1 切到 4 年级：只看到 4 年级单元（筛选随偏好即时生效）    units=['Unit 4 Robot']
+[OK] #04 G2 管理端 /api/units?grade=3 只返回 3 年级单元    units=['Unit 3 Apple']
+
+== G3 记录全字段落库 ==
+[OK] #05 G3 记录全字段落库（重试 / 提示 / 键盘降级 / 首次发声延迟）    retry=2 hint_level=2 hint_cnt=1 keyboard=1 first_voice=640 duration=2400
+
+== G4 部署交付物 ==
+[OK] #06 G4 局域网部署交付物齐全（手册 + 服务注册 + 备份脚本）    齐 4 件：ops/README.md、ops/install_service.ps1、ops/uninstall_service.ps1、ops/backup.bat
+[OK] #07 G4 手册含「固定 IP」与「备份/恢复」章节（可照做）    固定IP章节=True 备份恢复章节=True
+[--] SKIP G4 按手册实际部署一遍（真机 + 真路由器 + 真手机）    需要真实局域网环境与至少 2 台手机；手册已交付，执行属上线前人工项
+
+== G5 二期无实现 ==
+[OK] #09 G5 二期功能（SRS / 大屏 / 家长端）在源码中无实现，仅预留    命中 0 处
+
+SUMMARY pass=8 total=8 skipped=1 failed=0
+✅ QA-01 缺口补验 通过
+
+✅ QA-01 缺口补验 通过

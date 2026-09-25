@@ -68,8 +68,19 @@ def client():
     同一个 pytest 进程里若同时收集了别的测试模块（如 `test_be01_bootstrap.py`），
     对方的 fixture 会把 `DB_PATH` 改成它自己的临时库。谁在跑，谁负责声明。
     """
+    # ⚠️ 这几个 env 必须**整套**重设，不能只重设 DB_PATH。
+    #
+    # 踩过的坑：原先只重设 DB_PATH，与 be03 / be05 等模块在同一次 pytest 里混跑时，
+    # `JWT_SECRET` 与 `ADMIN_INIT_PASSWORD` 还是**上一个被 import 的模块**留下的值
+    # → 本模块的 admin 登录直接 20002 → 所有需要 token 的用例连锁失败（实测 20 failed）。
+    # 而单独跑 `pytest app/tests/test_be02_accounts.py` 是全绿的，这类问题极难定位。
     os.environ["DB_PATH"] = str(_DB_FILE)
     os.environ["BACKUP_DIR"] = str(_TMP_DIR / "backups")
+    os.environ["JWT_SECRET"] = TEST_JWT_SECRET
+    os.environ["JWT_TTL_HOURS"] = "12"
+    os.environ["ADMIN_INIT_USERNAME"] = TEST_ADMIN_USERNAME
+    os.environ["ADMIN_INIT_PASSWORD"] = TEST_ADMIN_PASSWORD
+    os.environ["LOG_LEVEL"] = "WARNING"
     reset_config_cache()
     assert get_settings().db_file == _DB_FILE, "DB_PATH 被子进程里别的测试模块改掉了"
 
@@ -795,6 +806,53 @@ def test_class_duplicate_name_rejected(client):
         "/api/classes", params={"status": "all"}, headers=_auth(token)
     ).json()
     assert all_of["data"]["total"] == 2
+
+
+def test_class_options_public_and_minimal(client):
+    """契约 §4.1 补充：注册页班级选项**免鉴权**、字段最小、只给活跃班级。
+
+    三条都是硬要求，缺一条这接口就白开：
+
+    1. **免鉴权** —— 注册发生在登录之前；要 token 的话注册页永远拉不到，
+       UI 规范 §7.3「班级选择用卡片列表」就只能永远显示「先不选」；
+    2. **字段最小** —— 别把 `student_count` / `unassigned_count` 漏给未登录者；
+    3. **只要活跃班级** —— 已归档的班不再接收新学生。
+    """
+    token = _admin_token(client)
+    kept = _make_class(client, token, "三年级二班", 3, "first")
+    gone = _make_class(client, token, "四年级一班", 4, "first")
+    assert (
+        client.patch(
+            f"/api/classes/{gone}", json={"status": "archived"}, headers=_auth(token)
+        ).json()["code"]
+        == 0
+    )
+
+    # ① 不带 Authorization 头也能拿到（注册页就是这个状态）
+    body = client.get("/api/classes/options").json()
+    assert body["code"] == 0, body
+    items = body["data"]["items"]
+    assert [i["id"] for i in items] == [kept], "归档班级不应出现在选项里"
+    assert body["data"]["total"] == 1
+
+    # ② 只有最小字段
+    assert set(items[0]) == {"id", "name", "grade", "semester"}, "字段收窄是这接口的意义"
+    assert items[0]["name"] == "三年级二班"
+
+    # ③ 对照：§4.1 那个管理端接口仍然要鉴权（未带 token → 10002）
+    assert client.get("/api/classes").json()["code"] == 10002
+
+
+def test_class_options_grade_filter(client):
+    """`grade` 筛选在选项接口上同样生效（注册页可能让学生先选年级再选班）。"""
+    token = _admin_token(client)
+    g3 = _make_class(client, token, "三年级二班", 3, "first")
+    _make_class(client, token, "四年级一班", 4, "first")
+
+    body = client.get("/api/classes/options", params={"grade": 3}).json()
+    assert body["code"] == 0, body
+    assert [i["id"] for i in body["data"]["items"]] == [g3]
+    assert body["data"]["total"] == 1
 
 
 def test_import_template_download(client):

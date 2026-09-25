@@ -76,7 +76,12 @@ def remaining(key: str, limit: int, window_seconds: int = WINDOW_SECONDS) -> int
 
 
 def reset(key: str) -> None:
-    """清零某个 key 的计数（测试用 / 登录成功后调用）。"""
+    """清零某个 key 的计数 —— **仅供测试基建使用**，生产代码不调用。
+
+    契约 §5.4 规定登录**每次尝试都计数**（不看成功与否），因此**刻意不在
+    "登录成功后"清零** —— 那会让限流形同虚设（偶尔成功一次即可无限重试）。
+    见 `docs/dev/02` §八 #77。
+    """
     with _lock:
         _hits.pop(key, None)
 

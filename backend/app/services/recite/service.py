@@ -474,6 +474,13 @@ class ReciteService:
                 missed_chars=chars,
                 target_chars=engine.target_chars if engine else None,
                 replay=True,
+                # 幂等重放：从库里读回当时的值，保证反复结算显示一致。
+                duration_ms=_as_int(row.get("duration_ms"), 0),
+                first_voice_ms=(
+                    _as_int(row.get("first_voice_ms"), 0)
+                    if row.get("first_voice_ms") is not None
+                    else None
+                ),
             )
 
         engine = cls._peek_engine(recitation_id, student_id)
@@ -513,6 +520,8 @@ class ReciteService:
             missed_chars=result.missed_chars,
             target_chars=engine.target_chars,
             replay=False,
+            duration_ms=int(result.duration_ms),
+            first_voice_ms=result.first_voice_ms,
         )
 
     @classmethod
@@ -529,6 +538,8 @@ class ReciteService:
         missed_chars: list[Any],
         target_chars: list[str] | None,
         replay: bool,
+        duration_ms: int,
+        first_voice_ms: int | None,
     ) -> dict[str, Any]:
         detail: list[dict[str, Any]] = []
         for raw in missed_chars or []:
@@ -548,6 +559,10 @@ class ReciteService:
             "score": round(float(score), 2),
             "grade": grade,
             "hint_count": {str(k): _as_int(v, 0) for k, v in (hint_count or {}).items()},
+            # 契约 §9.4：把**已落库**的用时 / 首声延迟回带，作为结算页的唯一口径。
+            # 客户端本地计时会在切后台 / 杀进程时失真，且与学生报告、管理端统计不同源。
+            "duration_ms": int(duration_ms),
+            "first_voice_ms": None if first_voice_ms is None else int(first_voice_ms),
             "replay": bool(replay),
         }
 

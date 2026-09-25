@@ -1,10 +1,14 @@
-/// 提示按钮 + 三档提示内容 —— F12。
+/// 提示按钮（**英语一期只有一档**）—— F12。
 ///
-/// 卡壳时（静音 8 秒或主动点）给三档提示：
+/// 2026-09-25 裁决 **B**（见需求 §5.7「学科范围」、`docs/dev/02-实现约定与复用经验.md` §八 #71）：
+/// 需求 §5.7 的三档提示**划归语文**，英语侧只剩**一档**可用：
 /// - 一档：显示占位框数量（客户端已知 `target_len`，本地可渲染）；
-/// - 二档 / 三档：首字母 / 完整答案 —— **需服务端下发答案**，但 §9 无英语 hint
-///   端点、且 §9.1 明文「组卷响应绝不含答案」，客户端无法本地渲染
-///   （偏离项 D-APP03-02）。这里如实渲染「已升到第几档」并保留占位，待服务端端点补齐。
+/// - 二档（首字母）/ 三档（完整答案）：**需服务端下发答案侧信息**，但 §9.1 明文
+///   「组卷响应**绝不返回答案**」、且 hint 端点只存在于 §9.4 的**语文**背诵通道
+///   → 英语侧**无来源，一期不做**。
+///
+/// 因此按钮在 `kEnglishMaxHintLevel`（= 1）档后**置灰**——
+/// **不再出现「再提示一档」这种点了给不出内容的假入口**（原先的虚指文案已删）。
 ///
 /// 每用一次提示都计入 `usedHintCount`，随答案上报（影响得分，契约 §9.2）。
 library;
@@ -14,8 +18,9 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/age_profile.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/feedback.dart';
+import '../practice_controller.dart';
 
-/// 提示按钮与已升档的提示内容。
+/// 提示按钮与已给出的提示内容。
 class HintButton extends StatelessWidget {
   const HintButton({
     super.key,
@@ -31,23 +36,25 @@ class HintButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final profile = AgeScope.of(context);
+    // 英语一期封顶一档：到顶之后没有更多可给的内容，按钮就必须真的不可点。
+    final canEscalate = hintLevel < kEnglishMaxHintLevel;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         AppButton(
-          label: hintLevel == 0 ? '我卡住了 / 提示' : '再提示一档',
+          label: '我卡住了 / 提示',
           kind: AppButtonKind.secondary,
           icon: Icons.lightbulb_outline_rounded,
-          onPressed: hintLevel >= 3 ? null : onHint,
+          onPressed: canEscalate ? onHint : null,
         ),
         if (hintLevel > 0) ...[
           const SizedBox(height: AgeProfile.elementGap),
           InlineNotice(
             kind: NoticeKind.hint,
             text: placeholderCount > 0
-                ? '已给你第 $hintLevel 档提示：这个词有 $placeholderCount 个字母'
-                : '已给你第 $hintLevel 档提示',
+                ? '已给你一档提示：这个词有 $placeholderCount 个字母'
+                : '已给你一档提示',
           ),
         ],
         // 占用一行提示文案高度，避免内容出现时布局跳动。

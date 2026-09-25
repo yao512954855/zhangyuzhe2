@@ -3,10 +3,11 @@
  * 导入向导 · 步骤 3（词条预览）—— WP-WEB-02 F12
  *
  * 展示汇总（总/有效/无效/重复）+ 将新建的单元（要求用户确认是否自动创建）
- * + on_duplicate（覆盖/跳过）单选 + invalid_rows（分页，可下载错误报告）。
+ * + on_duplicate（覆盖/跳过）单选
+ * + **valid_rows**（将入库的词条明细，分页）与 invalid_rows（失败行分页 + 错误报告下载）。
  *
- * ⚠️ 诚实偏差（见交付报告）：后端 words preview **不返回有效行明细**（接口设计 §6.2 亦未定义），
- * 故「有效行表格」仅以汇总数字呈现，无逐行内容。这是契约本身未提供该字段，前端不越权造数。
+ * 2026-09-25 起后端按契约 §6.2 返回 `valid_rows`。此前预览只给 `summary` 与
+ * `invalid_rows`，管理者看得到「错在哪」却看不到「会进什么」，等于没预览。
  */
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
@@ -28,11 +29,23 @@ const createMissingUnits = ref(true)
 const onDuplicate = ref<DuplicateStrategy>('overwrite')
 const invalidPage = ref(1)
 const invalidPageSize = ref(10)
+const validPage = ref(1)
+const validPageSize = ref(10)
 
 const pagedInvalid = () => {
   const start = (invalidPage.value - 1) * invalidPageSize.value
   return props.data.invalid_rows.slice(start, start + invalidPageSize.value)
 }
+
+/** 有效行分页：`valid_rows` 可能有几百行，一次全渲染会卡。 */
+const pagedValid = () => {
+  const start = (validPage.value - 1) * validPageSize.value
+  return props.data.valid_rows.slice(start, start + validPageSize.value)
+}
+
+/** 类型枚举 → 中文（后端给 `word` / `phrase` / `sentence`）。 */
+const typeLabel = (t: string) =>
+  ({ word: '单词', phrase: '短语', sentence: '句子' })[t] || t
 
 async function downloadErrorReport() {
   try {
@@ -114,6 +127,29 @@ function reDownloadTpl() {
         <el-radio value="overwrite">覆盖（更新内容，但<b>不覆盖状态</b>）</el-radio>
         <el-radio value="skip">跳过（保留库内原词条）</el-radio>
       </el-radio-group>
+    </el-card>
+
+    <!-- valid_rows（将入库的词条明细） -->
+    <el-card shadow="never" class="section">
+      <template #header>将入库的词条（{{ data.valid_rows.length }} 行）</template>
+      <el-table v-if="data.valid_rows.length" :data="pagedValid()" border stripe size="small">
+        <el-table-column prop="row" label="行号" width="70" />
+        <el-table-column prop="unit_name" label="单元" min-width="140" />
+        <el-table-column label="类型" width="80">
+          <template #default="{ row }">{{ typeLabel(row.type) }}</template>
+        </el-table-column>
+        <el-table-column prop="en" label="英文" min-width="130" />
+        <el-table-column prop="cn" label="中文" min-width="130" />
+      </el-table>
+      <el-pagination
+        v-if="data.valid_rows.length > validPageSize"
+        v-model:current-page="validPage"
+        :page-size="validPageSize"
+        :total="data.valid_rows.length"
+        layout="prev, pager, next"
+        style="margin-top: 8px; justify-content: flex-end"
+      />
+      <span v-else class="muted">没有有效行。</span>
     </el-card>
 
     <!-- invalid_rows -->

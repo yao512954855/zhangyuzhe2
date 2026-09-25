@@ -23,6 +23,7 @@ import 'package:student_app/core/storage/local_store.dart';
 import 'package:student_app/core/storage/server_store.dart';
 import 'package:student_app/core/theme/app_theme.dart';
 import 'package:student_app/core/theme/age_profile.dart';
+import 'package:student_app/core/widgets/app_button.dart';
 import 'package:student_app/core/widgets/feedback.dart';
 import 'package:student_app/features/config/practice_session.dart';
 import 'package:student_app/features/english/practice_controller.dart';
@@ -192,6 +193,21 @@ void main() {
     )));
     await tester.pumpAndSettle();
     expect(find.textContaining('有 5 个字母'), findsOneWidget);
+  });
+
+  // 裁决 B（2026-09-25）：英语侧只有一档。到顶后按钮必须置灰，且**不得**再出现
+  // 「再提示一档」这种点了给不出内容的假入口（二/三档需服务端答案，英语通道无来源）。
+  testWidgets('F12 一档到顶后提示按钮置灰，无「再提示一档」假入口', (tester) async {
+    setBigViewport(tester);
+    await tester.pumpWidget(wrap(HintButton(
+      hintLevel: kEnglishMaxHintLevel,
+      placeholderCount: 5,
+      onHint: _noop,
+    )));
+    await tester.pumpAndSettle();
+    final btn = tester.widget<AppButton>(find.byType(AppButton));
+    expect(btn.onPressed, isNull, reason: '一档到顶必须真正不可点');
+    expect(find.text('再提示一档'), findsNothing);
   });
 
   // F8/U7：键盘面板提交回调拿到文本。

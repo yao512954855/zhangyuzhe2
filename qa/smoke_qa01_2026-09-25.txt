@@ -1,0 +1,51 @@
+== QA-01 冒烟：起真 uvicorn :8820（临时库 smoke.db，Mock ASR）==
+?? 后端已就绪
+
+== QA-01 冒烟核心 → http://127.0.0.1:8820（库 smoke.db）==
+[OK] #01 健康检查（db 可达 + 迁移版本 + trace_id）    db=True schema_version=1
+[OK] #02 首次启动自动建 admin 且能登录    ok
+[OK] #03 GET /api/ping 免鉴权 + <50ms + 字段齐    14.4ms fields=['server_name', 'service', 'time', 'version']
+[OK] #04 server/info 的 qr_content 形如 bjsys://ip:port    qr_content='bjsys://192.168.1.79:8820'
+[OK] #05 server/info 带网卡列表与推荐地址标记    interfaces=3
+[OK] #06 UDP 9527 广播发现真往返（magic=BJSYS_HERE）    reply keys=['host', 'magic', 'need_auth', 'port', 'server_name', 'v'] port=8820
+[OK] #07 学生自主注册即用（无需审核）    ok
+[OK] #08 学生可登录    ok
+[OK] #09 学生首页可加载（/api/me/units）    code=0
+[OK] #10 权限隔离：学生调管理端接口一律 10003    units=10003 stats=10003
+[OK] #11 新建班级    ok
+[OK] #12 「未分班」是显式筛选项且包含刚注册的学生    unassigned=[2]
+[OK] #13 单个归班生效（users.class_id 落库）    class_id=1
+[OK] #14 归班后「未分班」不再包含该学生    unassigned=[]
+[OK] #15 词条导入 preview：valid=4 / invalid=1 且错误行定位到第 6 行（Excel 物理行号）    summary={'total': 5, 'valid': 4, 'invalid': 1, 'duplicated': 0} invalid_rows=[6]
+[OK] #16 词条导入 commit：落库 4 条 + 自动建 1 个单元    created=4 units_created=1 words=4
+[OK] #17 学生端能看到刚导入的单元    units=['Unit 1 Hello!']
+[OK] #18 组卷成功且下发的题面不含答案侧字段    items=4
+[OK] #19 英语答题判分正确（exact）+ 落库 1 条    is_correct=True match_type=exact rows=1
+[OK] #20 记录全字段落库（首次发声延迟 / 重试 / 提示 / provider）    first_voice_ms=500
+[OK] #21 word_mastery 物化表随答题更新    rows=1
+[OK] #22 ASR WebSocket 真链路：握手→音频帧→started→判定帧    seen=['started', 'partial', 'partial', 'partial', 'partial', 'final', 'verdict'] err=None
+[OK] #23 无音频落盘（ASR 只留文本）    logs/临时目录均无 wav
+[OK] #24 仅 1 处差异判为 fuzzy 且 can_appeal=true    match_type=fuzzy can_appeal=True
+[OK] #25 学生申诉提交成功    answer_id=2
+[OK] #26 管理端申诉列表默认只返回待复核    pending=[2]
+[OK] #27 复核为成立但**不改变原判分**（硬约束）+ 落审计    before=1 after=1 result=upheld
+[OK] #28 结算成功且给出项级正确率口径    accuracy=0.0 counted=4 empty=0
+[OK] #29 课文导入 preview 通过（段落切分 + 拼音等长校验）    summary={'total': 1, 'valid': 1, 'invalid': 0}
+[OK] #30 课文 commit 落库且带背诵范围    texts=[(1, '背影（节选）')]
+[OK] #31 语文组卷成功（不发 mode）    code=0
+[OK] #32 创建背诵（recitations）    recitation_id=1
+[OK] #33 背诵 feed 推进点亮进度（matched_chars > 0）    matched=12 total=41
+[OK] #34 三档提示：一档返回占位信息    code=0 keys=['content', 'hint_count', 'level', 'pos', 'recitation_id']
+[OK] #35 背诵结算：服务端重算 + 六项结算字段齐 + 落库    grade=待加强 covered=0.2927 finish_reason=manual
+[OK] #36 中途退出：场次标记 abandoned 且已答数据不丢    status=abandoned
+[OK] #37 班级概览有真实数字（人数 / 正确率 / 趋势）    students=1 accuracy=1.0 trend=7
+[OK] #38 单元掌握度可出（正确率 / 难词榜）    word_total=4 accuracy=1.0
+[OK] #39 手动备份产出文件且 integrity_check 通过    files=2 integrity=ok
+[--] SKIP 手机真扫码唤起 App（U13 / E2E-03 的真机部分）    无头环境没有真手机，且无法验证 App 的 bjsys:// scheme 注册；已用 qr_content 格式断言替代
+
+冒烟结果：39/39 通过，1 项跳过，耗时 4.7s
+  跳过：手机真扫码唤起 App（U13 / E2E-03 的真机部分） —— 无头环境没有真手机，且无法验证 App 的 bjsys:// scheme 注册；已用 qr_content 格式断言替代
+SUMMARY pass=39 total=39 skipped=1 failed=0 guard=OK(min=36)
+NAMES db + + trace_id;admin;GET /api/ping + <50ms +;server/info qr_content bjsys://ip:port;server/info;UDP 9527 magic=BJSYS_HERE;-;-;/api/me/units;10003;-;-;users.class_id;-;previewvalid=4 / invalid=1 6 Excel;commit 4 + 1;-;-;exact+ 1;/ / / provider;word_mastery;ASR WebSocket started;ASR;1 fuzzy can_appeal=true;-;-;****+;-;preview +;commit;mode;recitations;feed matched_chars > 0;-;+ +;abandoned;/ /;/;integrity_check
+
+✅ QA-01 冒烟 通过

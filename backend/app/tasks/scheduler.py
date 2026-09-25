@@ -119,7 +119,8 @@ def _daily_asr_rollup() -> dict | None:
     try:
         from app.tasks import asr_daily_rollup  # 延迟导入：BE-07 可能还没落地
     except ImportError:
-        logger.debug("asr_daily_rollup 尚未实现（BE-07），跳过本次聚合。")
+        # BE-07 已落地（tasks/asr_daily_rollup.py 存在）；此分支仅在模块缺失/导入失败时兜底。
+        logger.warning("asr_daily_rollup 模块不可用（导入失败），跳过本次聚合。")
         return None
     return asr_daily_rollup.run_rollup()
 

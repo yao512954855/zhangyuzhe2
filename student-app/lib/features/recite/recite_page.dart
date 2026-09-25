@@ -350,13 +350,17 @@ class _RecitePageState extends ConsumerState<RecitePage> {
     // `result` 在 try/catch 之后已被提升为非空（catch 分支已 return），
     // 但闭包里不保留提升，所以下面仍写 `result!`。
     if (!mounted) return;
+    // 契约 §9.4：结算页的用时 / 首声延迟**以服务端回带为准** —— 它才是与学生报告、
+    // 管理端统计同源的那一份；客户端本地计时在切后台 / 杀进程时会失真，只作兜底。
+    final settleDurationMs = result.durationMs > 0 ? result.durationMs : durationMs;
+    final settleFirstVoiceMs = result.firstVoiceMs ?? firstVoiceMs;
     unawaited(
       Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) => ReciteSettlePage(
             settle: result!,
-            durationMs: durationMs,
-            firstVoiceMs: firstVoiceMs,
+            durationMs: settleDurationMs,
+            firstVoiceMs: settleFirstVoiceMs,
             hasNext: false,
           ),
         ),

@@ -570,6 +570,44 @@ void main() {
       expect(text.chars.join(''), '第二段要背的内容');
       expect(text.paragraphCharCounts, [8]);
     });
+
+    // -----------------------------------------------------------------------
+    // D-APP04-01 的**真因**（2026-09-25 实跑复核）：
+    // 客户端与服务端的「什么算汉字」必须是同一张表（服务端 `PinyinService._HAN_RANGES`
+    // 6 段：扩展A / 基本区 / 兼容表意 F900 / 扩展B / 扩展C~F / 扩展G）。
+    // 客户端原先只有前两段 → 生僻字被丢掉 → `chars.length != total_chars` →
+    // 网格框数与「已背出 N 字」的点亮索引整体错位。
+    //
+    // ⚠️ 这**不是**「标点格」问题：标点两边都剔除（上一条用例已证）。
+    // -----------------------------------------------------------------------
+    test('生僻字不丢：兼容表意（F900 区）与增补平面（20000+）都要进网格', () {
+      final json = {
+        'paragraphs': [
+          {'idx': 0, 'text': '床前\uF900\uF901\u{20000}'},
+        ],
+        'recite_scope': [0],
+      };
+      final text = ReciteText.fromDetail(json);
+      expect(
+        text.chars.length,
+        5,
+        reason: '汉字集必须与服务端 _HAN_RANGES 同源，否则 chars.length != total_chars',
+      );
+      expect(text.paragraphCharCounts, [5]);
+      // 增补平面字是**一个码点**，不能被算成两半
+      expect(text.chars.last.runes.length, 1);
+    });
+
+    test('常用字口径不回退（回归护栏）', () {
+      final json = {
+        'paragraphs': [
+          {'idx': 0, 'text': '床前明月光'},
+        ],
+        'recite_scope': [0],
+      };
+      expect(ReciteText.fromDetail(json).chars.length, 5);
+      expect(ReciteText.fromDetail(json).chars.join(''), '床前明月光');
+    });
   });
 
   // =========================================================================
@@ -633,6 +671,66 @@ void main() {
         _themed(ReciteSettlePage(settle: clean, durationMs: 90000, firstVoiceMs: 500)),
       );
       expect(find.textContaining('没有漏字'), findsOneWidget);
+    });
+  });
+
+  // =========================================================================
+  // 契约 §9.4 —— 结算响应的用时 / 首声延迟（D-APP04-03 的修复护栏）
+  // =========================================================================
+  group('ReciteSettle · 用时同源（契约 §9.4 响应回带）', () {
+    test('解析服务端回带的 duration_ms / first_voice_ms', () {
+      final settle = ReciteSettle.fromJson({
+        'recitation_id': 1,
+        'total_chars': 6,
+        'matched_chars': 6,
+        'missed_count': 0,
+        'missed_detail': <Map<String, dynamic>>[],
+        'covered_ratio': 1.0,
+        'score': 100.0,
+        'grade': '优秀',
+        'hint_count': {'1': 0, '2': 0, '3': 0},
+        'replay': false,
+        'duration_ms': 42000,
+        'first_voice_ms': 1800,
+      });
+      expect(settle.durationMs, 42000);
+      expect(settle.firstVoiceMs, 1800);
+    });
+
+    test('服务端未回带 → durationMs=0、firstVoiceMs=null（调用方据此回退本地计时）', () {
+      final settle = ReciteSettle.fromJson({
+        'recitation_id': 1,
+        'total_chars': 6,
+        'matched_chars': 6,
+        'missed_count': 0,
+        'missed_detail': <Map<String, dynamic>>[],
+        'covered_ratio': 1.0,
+        'score': 100.0,
+        'grade': '优秀',
+        'hint_count': <String, dynamic>{},
+        'replay': false,
+      });
+      expect(settle.durationMs, 0);
+      expect(settle.firstVoiceMs, isNull);
+    });
+
+    test('没发过声时服务端回 null，客户端不能把它当成 0', () {
+      final settle = ReciteSettle.fromJson({
+        'recitation_id': 1,
+        'total_chars': 6,
+        'matched_chars': 0,
+        'missed_count': 6,
+        'missed_detail': <Map<String, dynamic>>[],
+        'covered_ratio': 0.0,
+        'score': 0.0,
+        'grade': '待加强',
+        'hint_count': <String, dynamic>{},
+        'replay': false,
+        'duration_ms': 9000,
+        'first_voice_ms': null,
+      });
+      expect(settle.durationMs, 9000);
+      expect(settle.firstVoiceMs, isNull, reason: 'null 要渲染成「—」，0 会被画成「0 秒」');
     });
   });
 

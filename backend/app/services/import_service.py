@@ -559,6 +559,23 @@ class ImportService:
                 "duplicated": duplicated,
             },
             "new_units": list(new_units.values()),
+            # 有效行明细（契约 §6.2）：与 `invalid_rows` 对称，让预览页能把
+            # 「将入库什么」摆给管理者核对。**只给关键字段** ——
+            # `accepted`（最多 20 条/词）+ 例句 + 音标 + 词性留在 token payload 里不入响应，
+            # 否则一个几百行的文件响应会膨胀好几倍。
+            "valid_rows": [
+                {
+                    "row": item["row"],
+                    "subject": item["subject"],
+                    "grade": item["grade"],
+                    "semester": item["semester"],
+                    "unit_name": item["unit_name"],
+                    "type": item["type"],
+                    "en": item["en"],
+                    "cn": item["cn"],
+                }
+                for item in valid_rows
+            ],
             "invalid_rows": invalid_rows,
             "error_report_url": f"/api/import/report/{token}",
         }

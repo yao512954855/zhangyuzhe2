@@ -20,8 +20,32 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/net/api_exception.dart';
 import '../../core/providers.dart';
 
-/// 纯汉字集合（用于剔除标点/数字/字母，F4）。
-final _hanzi = RegExp(r'[\u4e00-\u9fff\u3400-\u4dbf]');
+/// 汉字码点区间 —— **必须与服务端 `PinyinService._HAN_RANGES` 逐段一致**。
+///
+/// ⚠️ 两份表同源是硬约束：`ReciteText.chars.length` 要恒等于服务端的 `total_chars`
+/// （`len(han_only(content_plain))`），否则网格框数与「已背出 N 字」的索引会整体错位
+/// —— 学生看到框数和实际要背的字数对不上。
+///
+/// 历史 bug（`D-APP04-01`，2026-09-25 实跑定位）：客户端原先只写了「基本区 + 扩展 A」
+/// 两段，**漏了兼容表意（F900 区）与增补平面（20000+）**，含这类字的课文会被切短。
+/// 注意这里给的是**码点**区间（用 `runes` 遍历），增补平面字符是单个码点、不是两个
+/// UTF-16 code unit，所以不能用普通正则的 `\uXXXX` 转义表达。
+const List<List<int>> _hanRanges = [
+  [0x3400, 0x4DBF], // CJK 扩展 A
+  [0x4E00, 0x9FFF], // CJK 基本区
+  [0xF900, 0xFAFF], // CJK 兼容表意文字
+  [0x20000, 0x2A6DF], // CJK 扩展 B
+  [0x2A700, 0x2EBEF], // CJK 扩展 C ~ F
+  [0x30000, 0x3134F], // CJK 扩展 G
+];
+
+/// 单个**码点**是否为汉字（与服务端 `is_han` 同判定）。
+bool _isHan(int codePoint) {
+  for (final range in _hanRanges) {
+    if (codePoint >= range[0] && codePoint <= range[1]) return true;
+  }
+  return false;
+}
 
 /// 一篇课文在「背诵范围」内的展示数据。
 @immutable
@@ -73,10 +97,8 @@ class ReciteText {
         continue;
       }
       final text = para['text']?.toString() ?? '';
-      final hanzi = text.runes
-          .where((r) => _hanzi.hasMatch(String.fromCharCode(r)))
-          .map(String.fromCharCode)
-          .toList();
+      // 用 `runes`（码点）而不是 `code units`：增补平面汉字是单个码点。
+      final hanzi = text.runes.where(_isHan).map(String.fromCharCode).toList();
       if (hanzi.isEmpty) {
         continue;
       }

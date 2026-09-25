@@ -2,10 +2,10 @@
 ///
 /// **学生自主注册即可用，无需审核**：注册成功直接进首页。
 ///
-/// ⚠️ **契约缺口（已上报）**：UI 规范 §7.3 要求「班级选择用卡片列表」，
-/// 但后端 `GET /api/classes` 是 `require_admin`（BE-02 实现），
-/// **学生端拿不到班级列表**，因此本页暂时只能提供「先不选」。
-/// 待后端补一个学生可访问的班级清单接口后，把下面的 `_ClassSection` 接上即可。
+/// 班级选择走**免鉴权**的 `GET /api/classes/options`（契约 §4.1 补充，见
+/// `class_options.dart`）—— 注册发生在登录之前，这条接口要 token 就等于注册页
+/// 永远拉不到班级。**拉不到就退回「先不选」**，不阻断注册（`class_id` 在
+/// 契约 §2.2 本就是可选字段）。
 library;
 
 import 'package:flutter/material.dart';
@@ -19,6 +19,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_button.dart';
 import '../../core/widgets/feedback.dart';
 import 'auth_controller.dart';
+import 'class_options.dart';
 
 /// 注册页。
 class RegisterPage extends ConsumerStatefulWidget {
@@ -34,7 +35,9 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
   final _password = TextEditingController();
   bool _obscure = true;
   String? _error;
-  bool _joinedClass = false;
+
+  /// 选中的班级 id；`null` = 「先不选」（契约 §2.2 里 `class_id` 是可选字段）。
+  int? _classId;
 
   @override
   void dispose() {
@@ -78,6 +81,7 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
             username: _username.text.trim(),
             realName: _realName.text.trim(),
             password: _password.text,
+            classId: _classId,
           );
       if (!mounted) {
         return;
@@ -99,6 +103,7 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
     final profile = AgeScope.of(context);
     final extra = AppExtraColors.of(context);
     final busy = ref.watch(authControllerProvider).busy;
+    final optionsAsync = ref.watch(classOptionsProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('注册')),
@@ -161,8 +166,10 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
               Text('我在哪个班？', style: profile.cardTitleStyle),
               const SizedBox(height: 8),
               _ClassSection(
-                joined: _joinedClass,
-                onChoose: (v) => setState(() => _joinedClass = v),
+                options: optionsAsync.asData?.value ?? const <ClassOption>[],
+                selectedId: _classId,
+                loading: optionsAsync.isLoading,
+                onSelect: (id) => setState(() => _classId = id),
               ),
               if (_error != null) ...[
                 const SizedBox(height: AgeProfile.elementGap),
@@ -179,15 +186,28 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
   }
 }
 
-/// 班级选择区。
+/// 班级选择区 —— 卡片列表（UI 规范 §7.3 明确「不是下拉框」），最后一张是「先不选」。
 ///
-/// 后端暂未提供学生可访问的班级清单，因此这里只呈现「先不选」这一个选项
-/// ——**不伪造一个假的班级列表**：填了不存在的班级只会让学生以为注册成功了。
+/// 数据来自免鉴权的 `GET /api/classes/options`（契约 §4.1 补充）。
+/// **拉不到（网络 / 服务端异常）时不报错、也不伪造班级** —— 只剩「先不选」，
+/// 学生照样能注册，之后由管理者归班。
 class _ClassSection extends StatelessWidget {
-  const _ClassSection({required this.joined, required this.onChoose});
+  const _ClassSection({
+    required this.options,
+    required this.selectedId,
+    required this.loading,
+    required this.onSelect,
+  });
 
-  final bool joined;
-  final ValueChanged<bool> onChoose;
+  final List<ClassOption> options;
+
+  /// 当前选中的班级 id；`null` = 「先不选」。
+  final int? selectedId;
+
+  final bool loading;
+
+  /// 选中回调；`null` 表示选了「先不选」。
+  final ValueChanged<int?> onSelect;
 
   @override
   Widget build(BuildContext context) {
@@ -197,46 +217,90 @@ class _ClassSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SizedBox(
-          height: profile.listItemHeight,
-          child: Material(
-            color: !joined
-                ? Theme.of(context).colorScheme.primaryContainer
-                : extra.card,
-            borderRadius: BorderRadius.circular(12),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(12),
-              onTap: () => onChoose(false),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('先不选', style: profile.bodyStyle),
-                          Text(
-                            '之后让老师帮你加入班级',
-                            style: profile.captionStyle.copyWith(color: extra.textFaint),
-                          ),
-                        ],
+        if (loading)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(
+              '正在看看有哪些班…',
+              style: profile.captionStyle.copyWith(color: extra.textFaint),
+            ),
+          ),
+        for (final option in options) ...[
+          _ClassCard(
+            title: option.name,
+            subtitle: option.subtitle,
+            selected: selectedId == option.id,
+            onTap: () => onSelect(option.id),
+          ),
+          const SizedBox(height: 8),
+        ],
+        _ClassCard(
+          title: '先不选',
+          subtitle: '之后让老师帮你加入班级',
+          selected: selectedId == null,
+          onTap: () => onSelect(null),
+        ),
+      ],
+    );
+  }
+}
+
+/// 单个班级卡片（选中态 = 主色底 + 右侧勾）。
+class _ClassCard extends StatelessWidget {
+  const _ClassCard({
+    required this.title,
+    required this.subtitle,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String title;
+  final String subtitle;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final profile = AgeScope.of(context);
+    final extra = AppExtraColors.of(context);
+    final scheme = Theme.of(context).colorScheme;
+
+    return SizedBox(
+      height: profile.listItemHeight,
+      child: Material(
+        color: selected ? scheme.primaryContainer : extra.card,
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(title, style: profile.bodyStyle),
+                      Text(
+                        subtitle,
+                        style: profile.captionStyle.copyWith(color: extra.textFaint),
                       ),
-                    ),
-                    if (!joined)
-                      Icon(
-                        Icons.check_circle_rounded,
-                        color: Theme.of(context).colorScheme.primary,
-                        size: 22,
-                      ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
+                if (selected)
+                  Icon(
+                    Icons.check_circle_rounded,
+                    color: scheme.primary,
+                    size: 22,
+                  ),
+              ],
             ),
           ),
         ),
-      ],
+      ),
     );
   }
 }

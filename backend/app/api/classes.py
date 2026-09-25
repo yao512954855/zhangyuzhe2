@@ -3,6 +3,7 @@
 | 接口 | 说明 |
 |---|---|
 | `GET   /api/classes` | 分页列表，附 `student_count`；响应另带全局 `unassigned_count` |
+| `GET   /api/classes/options` | **注册页用的班级选项（免鉴权）**，只有 `id`/`name`/`grade`/`semester` |
 | `POST  /api/classes` | 创建；重名返回 `10001` 且提示写清是哪个班重名 |
 | `PATCH /api/classes/{id}` | 改名称 / 备注 / 归档（契约 §14.1：一期用本接口实现归档停用） |
 | `GET   /api/classes/{id}/students/credentials` | 导出「学号-初始密码」对照表（xlsx） |
@@ -30,6 +31,10 @@ from app.services.class_service import ClassService
 from app.services.user_service import UserService
 
 router = APIRouter(prefix="/api/classes", tags=["classes"])
+
+#: `GET /api/classes/options` 一次给全（不分页）。一个学校的班级量级是几十，
+#: 500 已是极宽松上限；超过说明数据异常，宁可少给也不让响应无限膨胀。
+MAX_CLASS_OPTIONS = 500
 
 
 def _opt_int(raw: str | None, field: str) -> int | None:
@@ -78,6 +83,48 @@ async def list_classes(
     )
     resp["data"]["unassigned_count"] = ClassService.unassigned_count()
     return resp
+
+
+@router.get("/options")
+async def class_options(request: Request) -> dict:
+    """注册页的班级选项清单（**免鉴权**）。
+
+    为什么单独开一条免鉴权接口、而不是复用上一条 `GET /api/classes`：
+
+    1. **注册发生在登录之前** —— 学生打开注册页时没有任何 token，带鉴权的接口
+       永远返回 `20002`，UI 规范 §7.3「班级选择用卡片列表」就只能永远显示「先不选」。
+    2. **字段必须收窄** —— 上一条是管理端接口，响应含 `student_count` /
+       `unassigned_count` 等**管理信息**，不能给未登录者看。
+
+    与 `GET /api/ping`（§3.1）同级的公开信息：只暴露**校内公开的班级名**，
+    不含任何个人信息，也不含人数。
+
+    ⚠️ **放在 `/{class_id}` 路由之前注册**：Starlette 按注册顺序匹配，
+    若将来新增 `GET /api/classes/{class_id}`，后注册的路径可能把 `options`
+    当成 `class_id` 吞掉。
+    """
+    qp = request.query_params
+    items, total = ClassService.list_classes(
+        grade=_opt_int(qp.get("grade"), "grade"),
+        semester=_opt_str(qp.get("semester")),
+        status=None,  # 只看活跃班级：已归档的班不再接收新学生
+        page=1,
+        page_size=MAX_CLASS_OPTIONS,
+    )
+    return ok(
+        {
+            "items": [
+                {
+                    "id": int(i["id"]),
+                    "name": i["name"],
+                    "grade": int(i["grade"]),
+                    "semester": i["semester"],
+                }
+                for i in items
+            ],
+            "total": total,
+        }
+    )
 
 
 @router.post("")

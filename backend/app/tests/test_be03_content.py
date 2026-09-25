@@ -375,6 +375,49 @@ def test_u2_words_preview_counts_and_new_units(client):
     assert new_units[0]["grade"] == 3
 
 
+def test_u2b_words_preview_returns_valid_rows(client):
+    """契约 §6.2：预览必须同时给出**有效行明细**，而不只是计数。
+
+    「预览」的意义就是把「将入库什么」摆给管理者看 —— 只给 `summary` 和
+    `invalid_rows`，管理者看得到「错在哪」却看不到「会进什么」，等于没预览。
+
+    三条约束：
+    1. `len(valid_rows) == summary.valid`（不截断，否则这个等式会失效）；
+    2. 与 `invalid_rows` 的行号互补（120 = 118 + 2，不重不漏）；
+    3. **只给关键字段** —— `accepted`（最多 20 条/词）+ 例句 + 音标留在 token payload 里，
+       否则一个几百行的文件响应会膨胀好几倍。
+    """
+    token = _admin_token(client)
+    _make_unit(client, token, "Unit 1 Hello!")
+
+    data = _upload(client, token, "/api/import/words/preview", _words_xlsx(_build_120_rows()))
+    assert data["code"] == 0, data
+
+    valid = data["data"]["valid_rows"]
+    assert len(valid) == data["data"]["summary"]["valid"] == 118
+
+    invalid_rows = {i["row"] for i in data["data"]["invalid_rows"]}
+    valid_rows = {r["row"] for r in valid}
+    assert valid_rows.isdisjoint(invalid_rows), "同一行不可能既有效又无效"
+    assert len(valid_rows | invalid_rows) == 120, "120 行要全覆盖，不重不漏"
+
+    # 顺序与文件一致
+    assert [r["row"] for r in valid] == sorted(r["row"] for r in valid)
+
+    # 字段收窄
+    assert set(valid[0]) == {
+        "row",
+        "subject",
+        "grade",
+        "semester",
+        "unit_name",
+        "type",
+        "en",
+        "cn",
+    }, "长字段（accepted / 例句 / 音标 / 词性）不应进响应"
+    assert valid[0]["en"] and valid[0]["cn"]
+
+
 # ---------------------------------------------------------------------------
 # U3 / U4 / U5 commit 语义
 # ---------------------------------------------------------------------------
