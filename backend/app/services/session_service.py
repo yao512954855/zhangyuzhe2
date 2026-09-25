@@ -1017,6 +1017,221 @@ class SessionService:
             return current_ratio >= 0.8
         return current_ratio > float(row["ratio"] or 0)
 
+    # ==================================================================
+    # 读取侧：「我的记录」场次列表 / 单次详情
+    # 契约 §14.1 缺口 7（2026-09-25 补），接口设计 §9.5
+    # ==================================================================
+    #
+    # 需求 §5.9 一期就要求「按日期列出练习场次与成绩，可查看单次详情」，
+    # 但原契约只有 3 个 POST、读取侧是空的（§八 #75）。以下三个方法补齐；
+    # 正确率口径**复用 `finish_session` 落库时写进 `sessions` 的那两个计数**，
+    # 不另立一套（否则列表、详情、结算页三处数字会互相打架）。
+
+    @staticmethod
+    def list_sessions(
+        *,
+        student_id: int,
+        page: int,
+        page_size: int,
+        content_type: str | None = None,
+        status: str | None = None,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """`GET /api/sessions`（§9.5.1）：我的练习场次列表。
+
+        只查当前学生；按 `started_at DESC, id DESC`（最新在前）。
+        `ongoing` 场次**照样列出**（不隐藏数据），客户端据 `status` 显示「进行中」；
+        能不能进详情由 §9.5.2 在服务端把关。
+        """
+        # where 里全是**字面量片段**，用户输入一律走 params 绑定，不拼字符串。
+        where = ["s.student_id = ?"]
+        params: list[Any] = [int(student_id)]
+        if content_type:
+            where.append("s.content_type = ?")
+            params.append(content_type)
+        if status:
+            where.append("s.status = ?")
+            params.append(status)
+        cond = " AND ".join(where)
+
+        with read_conn() as conn:
+            total_row = conn.execute(
+                f"SELECT COUNT(*) AS c FROM sessions s WHERE {cond}", params
+            ).fetchone()
+            rows = conn.execute(
+                f"""
+                SELECT s.id, s.unit_id, u.name AS unit_name, s.content_type,
+                       s.status, s.total_items, s.correct_items, s.hint_count,
+                       s.score, s.started_at, s.ended_at
+                  FROM sessions s
+                  LEFT JOIN units u ON u.id = s.unit_id
+                 WHERE {cond}
+                 ORDER BY s.started_at DESC, s.id DESC
+                 LIMIT ? OFFSET ?
+                """,
+                [*params, int(page_size), int((page - 1) * page_size)],
+            ).fetchall()
+
+        return [_session_brief(dict(r)) for r in rows], int(total_row["c"] or 0)
+
+    @classmethod
+    def session_detail(cls, *, student_id: int, session_id: int) -> dict[str, Any]:
+        """`GET /api/sessions/{id}`（§9.5.2）：单次场次详情。
+
+        两条安全线（契约明文，改动前先想清楚）：
+
+        1. **越权 === 不存在**：不属于当前学生的场次返回与「不存在」相同的
+           `10004`，否则可以拿它逐个 id 探测别人有没有这个场次。
+        2. **`ongoing` 场次绝不下发逐题明细**：`expected` 就是答案，练习中途
+           返回等于**泄题**。直接以 `10003` 拒绝，返回体里**没有** `items`。
+        """
+        with read_conn() as conn:
+            row = conn.execute(
+                """
+                SELECT s.id, s.student_id, s.unit_id, u.name AS unit_name,
+                       s.content_type, s.status, s.total_items, s.correct_items,
+                       s.hint_count, s.score, s.started_at, s.ended_at
+                  FROM sessions s
+                  LEFT JOIN units u ON u.id = s.unit_id
+                 WHERE s.id = ?
+                """,
+                (int(session_id),),
+            ).fetchone()
+
+            if row is None or int(row["student_id"]) != int(student_id):
+                raise BizError(ErrorCode.NOT_FOUND, "练习场次不存在")
+
+            session = dict(row)
+            if session["status"] == "ongoing":
+                raise BizError(
+                    ErrorCode.FORBIDDEN,
+                    "该场次还没结束，暂时看不到逐题明细",
+                )
+
+            payload = _session_brief(session)
+            if session["content_type"] == "chinese":
+                payload["items"] = None
+                payload["recitations"] = cls._chinese_recitations(
+                    conn, int(session_id)
+                )
+            else:
+                payload["items"] = cls._english_items(conn, int(session_id))
+                payload["recitations"] = None
+
+        return payload
+
+    @classmethod
+    def _english_items(cls, conn: Any, session_id: int) -> list[dict[str, Any]]:
+        """英语场次的逐项明细（**一个词条一行**，F14 的「项」口径）。
+
+        复用 `finish_session` 用的同一份 `_item_statistics`，两处口径不会漂。
+
+        `your_answer` / `expected` 取**最后一条判错**的记录：一项可能先答错、
+        后补答对（说词对了但拼读没做），取「最后一条」会把 `exact` 当成错答原因，
+        前端回显会自相矛盾；没有判错记录（纯粹步数没做完）时退回最后一条有效记录。
+        """
+        items, _empty = cls._item_statistics(conn, int(session_id))
+        out: list[dict[str, Any]] = []
+        for bucket in items.values():
+            valid = bucket.get("valid") or []
+            wrong_records = [r for r in valid if not r["is_correct"]]
+            chosen = (wrong_records or valid)[-1] if valid else None
+            out.append(
+                {
+                    "word_id": (
+                        int(bucket["word_id"]) if int(bucket["word_id"]) > 0 else None
+                    ),
+                    "en": bucket.get("en"),
+                    "cn": bucket.get("cn"),
+                    "state": bucket.get("state"),
+                    "your_answer": (
+                        (chosen.get("answer_text") or chosen.get("asr_text"))
+                        if chosen
+                        else None
+                    ),
+                    "expected": chosen.get("expected") if chosen else None,
+                    "match_type": chosen.get("match_type") if chosen else None,
+                    "steps": sorted(int(s) for s in (bucket.get("steps") or [])),
+                    "hint_level": int(chosen.get("hint_level") or 0) if chosen else 0,
+                    "used_keyboard": (
+                        bool(chosen.get("used_keyboard")) if chosen else False
+                    ),
+                }
+            )
+        return out
+
+    @staticmethod
+    def _chinese_recitations(conn: Any, session_id: int) -> list[dict[str, Any]]:
+        """语文场次的按篇明细（**纯只读**）。
+
+        ⚠️ **绝不调用 `sync_chinese_session()`** —— 那个方法会 UPDATE sessions，
+        在 GET 里调用等于「读接口偷偷写库」。
+
+        `missed_detail[].char` 按 `texts.content_plain[start:end]` 重建
+        （start/end 取自 `recitations.scope_snapshot`）：不采信客户端上报的
+        `missed_chars`，且服务端重启、内存里的背诵引擎丢了以后依然能还原（§9.5.2）。
+
+        只取**已结算**（`finish_reason IS NOT NULL`）的背诵 —— 与
+        `sync_chinese_session` 的统计口径一致，避免「汇总说 1 篇、明细列 2 篇」。
+        """
+        rows = conn.execute(
+            """
+            SELECT r.id, r.text_id, r.scope_snapshot, r.total_chars, r.matched_chars,
+                   r.missed_chars, r.covered_ratio, r.score, r.grade,
+                   r.duration_ms, r.restart_count, r.finish_reason, r.created_at,
+                   t.title AS title, t.content_plain AS content_plain
+              FROM recitations r
+              LEFT JOIN texts t ON t.id = r.text_id
+             WHERE r.session_id = ? AND r.finish_reason IS NOT NULL
+             ORDER BY r.id
+            """,
+            (int(session_id),),
+        ).fetchall()
+
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            item = dict(row)
+            snapshot = _loads_json(item.get("scope_snapshot"), {})
+            if not isinstance(snapshot, dict):
+                snapshot = {}
+            plain = str(item.get("content_plain") or "")
+            start = _as_int(snapshot.get("start"), 0)
+            end = _as_int(snapshot.get("end"), len(plain))
+            target = plain[start:end]
+
+            missed: list[dict[str, Any]] = []
+            for raw in _loads_json(item.get("missed_chars"), []):
+                pos = _as_int(raw, -1)
+                if pos < 0:
+                    continue
+                missed.append(
+                    {"pos": pos, "char": target[pos] if pos < len(target) else None}
+                )
+
+            out.append(
+                {
+                    "recitation_id": int(item["id"]),
+                    "text_id": (
+                        int(item["text_id"]) if item["text_id"] is not None else None
+                    ),
+                    "title": item.get("title"),
+                    "total_chars": int(item["total_chars"] or 0),
+                    "matched_chars": int(item["matched_chars"] or 0),
+                    "covered_ratio": round(float(item["covered_ratio"] or 0.0), 4),
+                    "grade": item.get("grade"),
+                    "score": (
+                        round(float(item["score"]), 2)
+                        if item["score"] is not None
+                        else None
+                    ),
+                    "duration_ms": int(item["duration_ms"] or 0),
+                    "restart_count": int(item["restart_count"] or 0),
+                    "finish_reason": item.get("finish_reason"),
+                    "created_at": item.get("created_at"),
+                    "missed_detail": missed,
+                }
+            )
+        return out
+
 
 def _parse_accepted(raw: Any) -> list[str]:
     """`words.accepted` 是 JSON 数组字符串，解析失败一律当空列表。"""
@@ -1032,3 +1247,67 @@ def _parse_accepted(raw: Any) -> list[str]:
     if isinstance(value, list):
         return [str(x) for x in value]
     return []
+
+
+# ---------------------------------------------------------------------------
+# 读取侧（§9.5）用的小工具
+# ---------------------------------------------------------------------------
+
+
+def _as_int(raw: Any, default: int) -> int:
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return default
+
+
+def _loads_json(raw: Any, default: Any) -> Any:
+    """TEXT 列里存的 JSON → Python 对象；坏了一律回 `default`。
+
+    读侧接口不该因为一行脏数据就 500（`scope_snapshot` 坏了，顶多漏字标不出 `char`）。
+    """
+    if raw is None or raw == "":
+        return default
+    if isinstance(raw, (list, dict)):
+        return raw
+    try:
+        return json.loads(raw)
+    except (TypeError, ValueError):
+        return default
+
+
+def _session_accuracy(correct_items: int, total_items: int) -> float:
+    """场次级正确率 = `correct_items / total_items`（分母 0 → 0.0）。
+
+    英语的 `total_items` 是**项数**（一个词条算一项，F14），语文是**字数**
+    （一个字算一项）—— 同一个公式对两个学科都成立，故不按学科分叉。
+    这两个计数就是 `finish_session` 落库时写进 `sessions` 的那两个，天然同源。
+    """
+    if total_items <= 0:
+        return 0.0
+    return round(correct_items / total_items, 4)
+
+
+def _session_brief(row: dict[str, Any]) -> dict[str, Any]:
+    """`sessions` 行 → 列表 / 详情共用的摘要字段（接口设计 §9.5.1）。"""
+    total = int(row["total_items"] or 0)
+    correct = int(row["correct_items"] or 0)
+    ended_at = row.get("ended_at")
+    return {
+        "session_id": int(row["id"]),
+        "content_type": row["content_type"],
+        "unit_id": int(row["unit_id"]) if row.get("unit_id") is not None else None,
+        "unit_name": row.get("unit_name"),
+        "status": row["status"],
+        "total_items": total,
+        "correct_items": correct,
+        "accuracy": _session_accuracy(correct, total),
+        "score": round(float(row["score"]), 2) if row.get("score") is not None else None,
+        "hint_count": int(row.get("hint_count") or 0),
+        "started_at": row.get("started_at"),
+        "ended_at": ended_at,
+        # `ongoing` 场次没有 `ended_at` → 用时按 0（契约 §9.5.1）。
+        "duration_ms": (
+            _elapsed_ms(row.get("started_at"), ended_at) if ended_at else 0
+        ),
+    }

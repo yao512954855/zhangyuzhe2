@@ -164,21 +164,153 @@ Map<String, dynamic> wrongItemJson({
       'mastery_status': ?masteryStatus,
     };
 
-/// 一个能给 `/api/me/progress` / `/api/me/wrong-words` / `/api/ping`
+/// 构造 `GET /api/sessions`（接口设计 §9.5.1）的一条场次摘要。
+///
+/// `ongoing` 场次按契约给 `score: null` / `ended_at: null` / `duration_ms: 0`
+/// —— 调用方显式传 `null` 覆盖默认值（`score` 的类型是 `double?`）。
+Map<String, dynamic> sessionRecordJson({
+  required int sessionId,
+  String contentType = 'english',
+  int? unitId = 11,
+  String? unitName = 'Unit 1',
+  String status = 'finished',
+  int totalItems = 20,
+  int correctItems = 18,
+  double accuracy = 0.9,
+  double? score = 88.5,
+  int hintCount = 1,
+  String? startedAt = '2026-09-24T09:00:00Z',
+  String? endedAt = '2026-09-24T09:01:36Z',
+  int durationMs = 96000,
+}) =>
+    {
+      'session_id': sessionId,
+      'content_type': contentType,
+      'unit_id': unitId,
+      'unit_name': unitName,
+      'status': status,
+      'total_items': totalItems,
+      'correct_items': correctItems,
+      'accuracy': accuracy,
+      'score': score,
+      'hint_count': hintCount,
+      'started_at': startedAt,
+      'ended_at': endedAt,
+      'duration_ms': durationMs,
+    };
+
+/// 构造 `GET /api/sessions` 的分页响应体。
+Map<String, dynamic> sessionsJson(
+  List<Map<String, dynamic>> items,
+  int total, {
+  int page = 1,
+  int pageSize = 20,
+}) =>
+    {
+      'page': page,
+      'page_size': pageSize,
+      'total': total,
+      'items': items,
+    };
+
+/// 英语场次的一条逐项明细（§9.5.2）。
+Map<String, dynamic> sessionItemJson({
+  int? wordId = 88,
+  String? en = 'classroom',
+  String? cn = '教室',
+  String state = 'correct',
+  String? yourAnswer = 'classroom',
+  String? expected = 'classroom',
+  String? matchType = 'exact',
+  List<int> steps = const [1],
+  int hintLevel = 0,
+  bool usedKeyboard = false,
+}) =>
+    {
+      'word_id': wordId,
+      'en': en,
+      'cn': cn,
+      'state': state,
+      'your_answer': yourAnswer,
+      'expected': expected,
+      'match_type': matchType,
+      'steps': steps,
+      'hint_level': hintLevel,
+      'used_keyboard': usedKeyboard,
+    };
+
+/// 语文场次的一篇背诵明细（含服务端重建的漏字，§9.5.2）。
+Map<String, dynamic> recitationJson({
+  required int recitationId,
+  int? textId = 7,
+  String? title = '静夜思',
+  int totalChars = 40,
+  int matchedChars = 38,
+  double coveredRatio = 0.95,
+  String? grade = '良好',
+  double? score = 86.0,
+  int durationMs = 45000,
+  int restartCount = 0,
+  String? finishReason = 'completed',
+  List<Map<String, dynamic>> missedDetail = const [],
+}) =>
+    {
+      'recitation_id': recitationId,
+      'text_id': textId,
+      'title': title,
+      'total_chars': totalChars,
+      'matched_chars': matchedChars,
+      'covered_ratio': coveredRatio,
+      'grade': grade,
+      'score': score,
+      'duration_ms': durationMs,
+      'restart_count': restartCount,
+      'finish_reason': finishReason,
+      'missed_detail': missedDetail,
+    };
+
+/// 一条漏字（`pos` 是背诵范围内的下标，`char` 由服务端重建）。
+Map<String, dynamic> missedCharJson(int pos, String? char) =>
+    {'pos': pos, 'char': char};
+
+/// 构造 `GET /api/sessions/{id}` 的详情体：英语给 `items`、语文给 `recitations`。
+///
+/// 两个学科**互斥**：不用的那一边显式给 `null`（不是"没取到"，是本来就没有）。
+Map<String, dynamic> sessionDetailJson(
+  Map<String, dynamic> record, {
+  List<Map<String, dynamic>>? items,
+  List<Map<String, dynamic>>? recitations,
+}) =>
+    {
+      ...record,
+      'items': items,
+      'recitations': recitations,
+    };
+
+/// 一个能给 `/api/me/progress` / `/api/me/wrong-words` / `/api/sessions`
 /// 都回默认值的 adapter（各用例再按需要覆盖）。
+///
+/// ⚠️ **`/api/sessions` 这个 path 有两种语义**：`GET` = 我的记录列表（§9.5.1），
+/// `POST` = 创建场次（§9.1）。曾经这里**只按 path 匹配、不看方法**，
+/// 于是列表请求会拿到"创建场次"的响应体，`items` 里那些 `{seq,mode,prompt}`
+/// 被当成场次摘要悄悄解析掉 —— 页面不报错，只是永远显示不出记录
+/// （假适配器不校验 schema 的老坑，见 §八）。
 JsonAdapter defaultAdapter({
   Map<String, dynamic>? progress,
   Map<String, dynamic>? wrongWords,
+  Map<String, dynamic>? sessions,
+  Map<String, dynamic>? sessionDetail,
 }) {
   final prog = progress ?? progressJson();
   final wrong = wrongWords ?? wrongWordsJson(const [], 0);
+  final list = sessions ?? sessionsJson(const [], 0);
   return JsonAdapter((options) {
-    switch (options.uri.path) {
-      case '/api/me/progress':
-        return okBody(prog);
-      case '/api/me/wrong-words':
-        return okBody(wrong);
-      case '/api/sessions':
+    final path = options.uri.path;
+    final method = options.method.toUpperCase();
+
+    if (path == '/api/sessions') {
+      if (method == 'POST') {
+        // 创建场次（§9.1）：这里的形状与"列表"完全不同，别混。
         return okBody({
           'session_id': 9001,
           'unit_id': 11,
@@ -195,6 +327,22 @@ JsonAdapter defaultAdapter({
           'time_limit_ms': 0,
           'started_at': '2026-09-24T09:00:00Z',
         });
+      }
+      return okBody(list);
+    }
+
+    // `GET /api/sessions/{id}`（§9.5.2）。用正则锚定，避免把
+    // `/api/sessions/9/answers` 之类的子路径也吞进来。
+    final detail = RegExp(r'^/api/sessions/(\d+)$').firstMatch(path);
+    if (detail != null && method == 'GET') {
+      return okBody(sessionDetail ?? const <String, dynamic>{});
+    }
+
+    switch (path) {
+      case '/api/me/progress':
+        return okBody(prog);
+      case '/api/me/wrong-words':
+        return okBody(wrong);
       default:
         return okBody(const {});
     }

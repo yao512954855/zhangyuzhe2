@@ -71,7 +71,7 @@ XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 #: 真机联调至少要有这么多用例真跑（防止「改了测试名/文件没被收集」导致假绿）。
 #: 当前实际有 5 条，留 1 条余量。
-MIN_LIVE_TESTS = 4
+MIN_LIVE_TESTS = 7
 
 #: 造数用的年级学期 —— 必须和 Dart 侧 profile 偏好一致。
 SEED_GRADE = 3

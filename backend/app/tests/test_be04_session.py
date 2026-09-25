@@ -1056,3 +1056,307 @@ class TestMyLearning:
         ):
             resp = getattr(client, method)(path)
             assert resp.json()["code"] == 10002, path
+
+
+# ===========================================================================
+# §9.5 我的记录：场次列表 / 单次详情（契约 §14.1 缺口 7，2026-09-25 补）
+# ===========================================================================
+
+
+def _finish(
+    client: TestClient, token: str, session_id: int, reason: str = "completed"
+) -> dict[str, Any]:
+    body = client.post(
+        f"/api/sessions/{session_id}/finish",
+        json={"reason": reason},
+        headers=_auth(token),
+    ).json()
+    assert body["code"] == 0, body
+    return body["data"]
+
+
+def _seed_finished_chinese_session(
+    *, student_id: int, missed_pos: int
+) -> tuple[int, str | None]:
+    """直接造一场**已结算**的语文场次（一篇课文 + 一条 `recitations`）。
+
+    本组只验证**读取侧**，所以不走「WS 背一遍再 settle」那条重链路；
+    但字段与真实落库保持一致：`content_plain` 是**范围内**的汉字序列，
+    `scope_snapshot` 给出 `start`/`end`，`missed_chars` 是**范围下标**数组。
+
+    返回 `(session_id, 期望漏掉的那个字)`；下标越界时期望值为 `None`。
+    """
+    plain = "静夜思明月光"  # 6 个字，`content_plain[0:6]`
+    with write_tx() as conn:
+        unit_id = int(
+            conn.execute(
+                "INSERT INTO units (subject, grade, semester, name, status)"
+                " VALUES ('chinese', 2, 'first', '第1单元-古诗', 'active')"
+            ).lastrowid
+        )
+        text_id = int(
+            conn.execute(
+                """
+                INSERT INTO texts (unit_id, title, author, content_raw, content_plain,
+                                   content_pinyin, paragraphs, recite_scope, total_chars,
+                                   order_no, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'active')
+                """,
+                (
+                    unit_id,
+                    "静夜思",
+                    "李白",
+                    plain,
+                    plain,
+                    "jing ye si ming yue guang",
+                    json.dumps(
+                        [{"idx": 0, "text": plain, "chars": 6, "recite": True}]
+                    ),
+                    "[0]",
+                    6,
+                ),
+            ).lastrowid
+        )
+        session_id = int(
+            conn.execute(
+                """
+                INSERT INTO sessions (student_id, unit_id, content_type, strategy,
+                                      total_items, correct_items, hint_count, score,
+                                      status, started_at, ended_at)
+                VALUES (?, ?, 'chinese', '{}', 6, 5, 1, 86.0, 'finished',
+                        '2026-09-25T10:02:00Z', '2026-09-25T10:09:40Z')
+                """,
+                (student_id, unit_id),
+            ).lastrowid
+        )
+        conn.execute(
+            """
+            INSERT INTO recitations (session_id, student_id, text_id, scope_snapshot,
+                                     transcript, total_chars, matched_chars, missed_chars,
+                                     hint_count, restart_count, duration_ms, covered_ratio,
+                                     score, grade, finish_reason, created_at)
+            VALUES (?, ?, ?, ?, ?, 6, 5, ?, ?, 0, 45000, 0.8333, 86.0, '良好',
+                    'completed', '2026-09-25T10:09:40Z')
+            """,
+            (
+                session_id,
+                student_id,
+                text_id,
+                json.dumps({"scope": [0], "start": 0, "end": 6}),
+                "静夜思明月",
+                json.dumps([missed_pos]),
+                json.dumps({"1": 1, "2": 0, "3": 0}),
+            ),
+        )
+    return session_id, (plain[missed_pos] if 0 <= missed_pos < len(plain) else None)
+
+
+class TestSessionRecords:
+    """§9.5 读取侧：列表 / 详情的口径与**两条安全线**。"""
+
+    # ------------------------------------------------------------------ 列表
+
+    def test_list_only_mine_and_desc(self, client):
+        """只回自己的场次；按 `started_at DESC, id DESC`（同秒时用 id 兜底）。"""
+        unit = _seed_unit()
+        _seed_words(unit, 3)
+        token_a, _ = _new_student(client, "20260001")
+        token_b, _ = _new_student(client, "20260002")
+
+        other = _start(client, token_b, unit)
+        _finish(client, token_b, other["session_id"])
+
+        first = _start(client, token_a, unit)
+        _finish(client, token_a, first["session_id"])
+        second = _start(client, token_a, unit)
+        _finish(client, token_a, second["session_id"])
+
+        body = client.get("/api/sessions", headers=_auth(token_a)).json()
+        assert body["code"] == 0
+        ids = [it["session_id"] for it in body["data"]["items"]]
+        assert ids == [second["session_id"], first["session_id"]], ids
+        assert other["session_id"] not in ids, "不能看到别人的场次"
+
+    def test_list_pagination_and_total(self, client):
+        unit = _seed_unit()
+        _seed_words(unit, 1)
+        token, _ = _new_student(client)
+        for _ in range(3):
+            _finish(client, token, _start(client, token, unit)["session_id"])
+
+        page1 = client.get(
+            "/api/sessions?page=1&page_size=2", headers=_auth(token)
+        ).json()["data"]
+        assert (page1["page"], page1["page_size"], page1["total"]) == (1, 2, 3)
+        assert len(page1["items"]) == 2
+
+        page2 = client.get(
+            "/api/sessions?page=2&page_size=2", headers=_auth(token)
+        ).json()["data"]
+        assert len(page2["items"]) == 1
+
+    def test_list_filters_and_invalid_values(self, client):
+        """过滤生效；**非法取值必须报错**而不是静默当「不过滤」。"""
+        unit = _seed_unit()
+        _seed_words(unit, 1)
+        token, _ = _new_student(client)
+        done = _start(client, token, unit)
+        _finish(client, token, done["session_id"])
+        running = _start(client, token, unit)  # 留着，不结算
+
+        ongoing = client.get(
+            "/api/sessions?status=ongoing", headers=_auth(token)
+        ).json()["data"]
+        assert [i["session_id"] for i in ongoing["items"]] == [running["session_id"]]
+        # `ongoing` 还没成绩：如实给 null / 0，不编一个数出来
+        assert ongoing["items"][0]["score"] is None
+        assert ongoing["items"][0]["duration_ms"] == 0
+
+        finished = client.get(
+            "/api/sessions?status=finished", headers=_auth(token)
+        ).json()["data"]
+        assert [i["session_id"] for i in finished["items"]] == [done["session_id"]]
+
+        cn = client.get(
+            "/api/sessions?content_type=chinese", headers=_auth(token)
+        ).json()["data"]
+        assert cn["total"] == 0
+
+        bad_type = client.get(
+            "/api/sessions?content_type=eng", headers=_auth(token)
+        ).json()
+        assert bad_type["code"] == 10001, bad_type
+        bad_status = client.get(
+            "/api/sessions?status=nope", headers=_auth(token)
+        ).json()
+        assert bad_status["code"] == 10001, bad_status
+
+    def test_list_accuracy_matches_sessions_columns(self, client):
+        """`accuracy` 必须等于 `sessions` 落库的两个计数之比（与结算同源）。"""
+        unit = _seed_unit()
+        ids = _seed_words(unit, 4)
+        token, _ = _new_student(client)
+        sid = _start(client, token, unit)["session_id"]
+
+        for word_id in ids[:3]:  # 3 题答对
+            en = _sql("SELECT en FROM words WHERE id = ?", (word_id,))[0]["en"]
+            _answer_ok(client, token, sid, word_id=word_id, asr_text=en)
+        _answer_ok(client, token, sid, word_id=ids[3], asr_text="完全不对")
+
+        _finish(client, token, sid)
+
+        item = client.get("/api/sessions", headers=_auth(token)).json()["data"]["items"][0]
+        total = _scalar("SELECT total_items FROM sessions WHERE id = ?", (sid,))
+        correct = _scalar("SELECT correct_items FROM sessions WHERE id = ?", (sid,))
+        assert item["total_items"] == total
+        assert item["correct_items"] == correct
+        assert item["accuracy"] == round(correct / total, 4)
+        assert 0 < item["accuracy"] < 1, "造数没生效（全对或全错都不该出现）"
+
+    def test_list_duration_from_timestamps_not_client(self, client):
+        """`duration_ms` 由服务端按 `ended_at − started_at` 算，不采信客户端。"""
+        unit = _seed_unit()
+        _seed_words(unit, 1)
+        token, _ = _new_student(client)
+        sid = _start(client, token, unit)["session_id"]
+        _finish(client, token, sid)
+
+        with write_tx() as conn:
+            conn.execute(
+                "UPDATE sessions SET started_at = ?, ended_at = ? WHERE id = ?",
+                ("2026-09-25T09:00:00Z", "2026-09-25T09:02:40Z", sid),
+            )
+
+        item = client.get("/api/sessions", headers=_auth(token)).json()["data"]["items"][0]
+        assert item["duration_ms"] == 160_000
+
+    # ------------------------------------------------------------------ 详情
+
+    def test_detail_english_items(self, client):
+        """英语场次：一个词条一行，`state ∈ {correct, wrong, empty}`。"""
+        unit = _seed_unit()
+        ids = _seed_words(unit, 4)
+        token, _ = _new_student(client)
+        sid = _start(client, token, unit)["session_id"]
+
+        for word_id in ids[:2]:
+            en = _sql("SELECT en FROM words WHERE id = ?", (word_id,))[0]["en"]
+            _answer_ok(client, token, sid, word_id=word_id, asr_text=en)
+        _answer_ok(client, token, sid, word_id=ids[2], asr_text="完全不对")
+        _answer_ok(client, token, sid, word_id=ids[3], asr_text="")  # 识别为空
+
+        _finish(client, token, sid)
+
+        data = client.get(f"/api/sessions/{sid}", headers=_auth(token)).json()["data"]
+        assert data["content_type"] == "english"
+        assert data["recitations"] is None
+        assert len(data["items"]) == 4
+        assert {i["state"] for i in data["items"]} == {"correct", "wrong", "empty"}
+
+        wrong = [i for i in data["items"] if i["state"] == "wrong"][0]
+        assert wrong["your_answer"] == "完全不对"
+        assert wrong["expected"] == _sql(
+            "SELECT en FROM words WHERE id = ?", (ids[2],)
+        )[0]["en"]
+
+        empty = [i for i in data["items"] if i["state"] == "empty"][0]
+        assert empty["expected"] is None, "空项没有答案可复盘，不给编造"
+
+    def test_detail_ongoing_hides_expected(self, client):
+        """**安全线 2**：练习还没结束，绝不能把 `expected` 下发下去（等于泄题）。"""
+        unit = _seed_unit()
+        word = _seed_word(unit, "apple", "苹果")
+        token, _ = _new_student(client)
+        sid = _start(client, token, unit)["session_id"]
+        _answer_ok(client, token, sid, word_id=word, asr_text="apple")
+
+        resp = client.get(f"/api/sessions/{sid}", headers=_auth(token))
+        body = resp.json()
+        assert body["code"] == 10003, body
+        assert "items" not in (body.get("data") or {})
+        assert "apple" not in resp.text, "拒绝时也不能顺手把答案带出来"
+
+    def test_detail_foreign_and_missing_same_code(self, client):
+        """**安全线 1**：别人的场次与不存在的场次**同码同文案**，不给探测信号。"""
+        unit = _seed_unit()
+        _seed_words(unit, 1)
+        token_a, _ = _new_student(client, "20260001")
+        token_b, _ = _new_student(client, "20260002")
+        sid = _start(client, token_a, unit)["session_id"]
+
+        foreign = client.get(f"/api/sessions/{sid}", headers=_auth(token_b)).json()
+        missing = client.get("/api/sessions/999999", headers=_auth(token_b)).json()
+        assert foreign["code"] == 10004
+        assert missing["code"] == 10004
+        assert foreign["message"] == missing["message"]
+
+    def test_detail_chinese_missed_detail(self, client):
+        """语文场次：按篇给明细，漏字 `char` 由 `content_plain[start:end]` 重建。"""
+        token, student = _new_student(client)
+        sid, expected_char = _seed_finished_chinese_session(
+            student_id=student, missed_pos=2
+        )
+        assert expected_char == "思"
+
+        data = client.get(f"/api/sessions/{sid}", headers=_auth(token)).json()["data"]
+        assert data["content_type"] == "chinese"
+        assert data["items"] is None
+        assert len(data["recitations"]) == 1
+        recitation = data["recitations"][0]
+        assert recitation["title"] == "静夜思"
+        assert recitation["missed_detail"] == [{"pos": 2, "char": "思"}]
+
+    def test_detail_chinese_out_of_range_pos_is_null(self, client):
+        """脏数据兜底：漏字下标越界只让 `char` 为 `null`，不许 500。"""
+        token, student = _new_student(client)
+        sid, _ = _seed_finished_chinese_session(student_id=student, missed_pos=99)
+
+        body = client.get(f"/api/sessions/{sid}", headers=_auth(token)).json()
+        assert body["code"] == 0, body
+        assert body["data"]["recitations"][0]["missed_detail"] == [
+            {"pos": 99, "char": None}
+        ]
+
+    def test_records_endpoints_require_auth(self, client):
+        for path in ("/api/sessions", "/api/sessions/1"):
+            assert client.get(path).json()["code"] == 10002, path
