@@ -451,6 +451,128 @@ class MasteryService:
             items.append(item)
         return items, total
 
+    # ============================================================ 语文错题本
+
+    #: 上下文片段前后各取几个字。取 4 是折中：再短认不出是哪个词，
+    #: 再长会在窄屏上折行（`content_plain` 是**纯汉字序列**，没有标点可断）。
+    CONTEXT_SPAN = 4
+
+    @classmethod
+    def wrong_chars(
+        cls,
+        student_id: int,
+        *,
+        unit_id: int | None = None,
+        grade: int | None = None,
+        semester: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """语文错题本数据（**漏背过的字**，接口 §8.10）。
+
+        ⚠️ 与 `wrong_words` 的口径**刻意不同**，别照着抄：
+        英语有 `word_mastery` 物化表可 O(1) 取；语文**没有**对应表 ——
+        `recitation_events` 是事件流水，而 DDL 冻结、不新增语文物化表。
+        所以这里**实时聚合** `recitation_events`。
+
+        **代价如实说**：聚合要 JOIN `recitations` 过滤 `student_id`，
+        成本随该生累计背诵次数线性增长（走 `idx_recitations_student`）。
+        一个学生几十次背诵无感；真成热点再评估加物化表（那要解冻 DDL）。
+
+        只统计 `event_type='missed'`：引擎在**学生实际背到该位置却没对上**时
+        才落这个事件（`engine.feed`），"还没背到"不算漏 —— 与 §9.4 的
+        `missed_chars` 同源。`TRIM(char) <> ''` 顺带挡掉历史脏数据。
+
+        Returns:
+            `(items, total)`。`items` 每项 = 一篇课文里的**一个字**，
+            含 `wrong_count` / `last_wrong_at` / `first_pos` /
+            `context_before` / `context_after`（上下文由服务端从
+            `content_plain` 截，客户端不重复实现一遍取字逻辑）。
+        """
+        where = [
+            "r.student_id = ?",
+            "e.event_type = 'missed'",
+            "e.char IS NOT NULL",
+            "TRIM(e.char) <> ''",
+            "t.status = 'active'",
+        ]
+        params: list[Any] = [int(student_id)]
+
+        if unit_id is not None:
+            where.append("t.unit_id = ?")
+            params.append(int(unit_id))
+        if grade is not None:
+            where.append("u.grade = ?")
+            params.append(int(grade))
+        if semester:
+            where.append("u.semester = ?")
+            params.append(semester)
+
+        sql_where = " AND ".join(where)
+        joins = """
+            FROM recitation_events e
+            JOIN recitations r ON r.id = e.recitation_id
+            JOIN texts t       ON t.id = r.text_id
+            JOIN units u       ON u.id = t.unit_id
+        """
+
+        with read_conn() as conn:
+            total = int(
+                conn.execute(
+                    f"""
+                    SELECT COUNT(*) AS c FROM (
+                        SELECT 1 {joins} WHERE {sql_where}
+                        GROUP BY r.text_id, e.char
+                    )
+                    """,
+                    params,
+                ).fetchone()["c"]
+            )
+
+            rows = conn.execute(
+                f"""
+                SELECT
+                    r.text_id, t.title AS text_title, t.unit_id, u.name AS unit_name,
+                    e.char,
+                    COUNT(*) AS wrong_count,
+                    MAX(e.created_at) AS last_wrong_at,
+                    MIN(e.pos) AS first_pos
+                {joins}
+                WHERE {sql_where}
+                GROUP BY r.text_id, e.char
+                ORDER BY wrong_count DESC, last_wrong_at DESC, r.text_id, e.char
+                LIMIT ? OFFSET ?
+                """,
+                (*params, int(page_size), (int(page) - 1) * int(page_size)),
+            ).fetchall()
+
+            plains = cls._content_plains(conn, {int(r["text_id"]) for r in rows})
+
+        span = cls.CONTEXT_SPAN
+        items: list[dict[str, Any]] = []
+        for r in rows:
+            item = dict(r)
+            plain = plains.get(int(item["text_id"]) or 0, "")
+            pos = int(item["first_pos"] or 0)
+            item["char"] = str(item["char"])
+            item["context_before"] = plain[max(0, pos - span) : pos]
+            item["context_after"] = plain[pos + 1 : pos + 1 + span]
+            items.append(item)
+        return items, total
+
+    @staticmethod
+    def _content_plains(conn: Any, text_ids: set[int]) -> dict[int, str]:
+        """一次把本页涉及的课文正文取回（避免在循环里 N 次查询）。"""
+        ids = sorted(i for i in text_ids if i > 0)
+        if not ids:
+            return {}
+        holder = ",".join("?" for _ in ids)
+        rows = conn.execute(
+            f"SELECT id, content_plain FROM texts WHERE id IN ({holder})",
+            ids,
+        ).fetchall()
+        return {int(r["id"]): (r["content_plain"] or "") for r in rows}
+
     # ================================================================== 进度总览
 
     @classmethod

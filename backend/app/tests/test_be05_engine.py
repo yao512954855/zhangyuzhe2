@@ -1100,3 +1100,198 @@ class TestCrossPackageRegression:
         assert "content_pinyin" not in body["data"]
         assert "content_plain" not in body["data"]
         assert body["data"]["scope_snapshot"] == {"start": 0, "end": 7}
+
+
+# ===========================================================================
+# §8.10 语文错题本（`GET /api/me/wrong-chars`，A5）
+# ===========================================================================
+
+
+class TestChineseWrongBook:
+    """语文错题本。**放在 BE-05 的测试文件里是有意的**：它的数据源是
+    `recitation_events`（由 BE-05 的引擎写），所以每个用例都**真跑一遍背诵**
+    —— 在测试里手插 `recitation_events` 会绕开真实口径，测的就不是生产行为。
+
+    两条最容易混的分界线各有一个用例钉死：
+    ① 「**背到了那儿却没对上**」才算漏；中途结束、剩下没背的字
+       会进 `settle.missed_detail`（§9.4，结算页要回看）但**不进错题本**
+       —— `engine.finish()` 刻意不补 `missed` 事件；
+    ② `noise`（整段背错，需求 §6.3「等学生自我纠正」）**不算漏**。
+    """
+
+    #: 目标课文「我爱北京天安门」；喂「我爱天门」会漏 北(2) / 京(3) / 安(5)。
+    TEXT = "我爱北京天安门"
+    FEED = "我爱天门"
+
+    @staticmethod
+    def _recite(client: TestClient, token: str, unit_id: int, text_id: int, fed: str) -> int:
+        """开一场 → 建一次背诵 → 喂 `fed` → 结算（事件随结算落库）。"""
+        session_id = _start_chinese_session(client, token, unit_id)
+        rec = client.post(
+            "/api/recitations",
+            json={"session_id": session_id, "text_id": text_id, "scope": []},
+            headers=_auth(token),
+        ).json()
+        assert rec["code"] == 0, rec
+        rid = int(rec["data"]["recitation_id"])
+
+        feed = client.post(
+            f"/api/recitations/{rid}/feed", json={"partial_text": fed}, headers=_auth(token)
+        ).json()
+        assert feed["code"] == 0, feed
+
+        settle = client.post(
+            f"/api/recitations/{rid}/settle",
+            json={"transcript": fed, "finish_reason": "manual"},
+            headers=_auth(token),
+        ).json()
+        assert settle["code"] == 0, settle
+        return rid
+
+    @staticmethod
+    def _wrong_chars(client: TestClient, token: str, **params: Any) -> dict[str, Any]:
+        resp = client.get("/api/me/wrong-chars", params=params, headers=_auth(token))
+        assert resp.json()["code"] == 0, resp.json()
+        return resp.json()["data"]
+
+    def test_missed_chars_listed_with_context(self, client):
+        """真链路：漏过的字按课文列出，带次数与上下文，且 `first_pos` 指得准。"""
+        token, _ = _register(client)
+        unit_id, text_id = _seed_text_unit(paragraphs=[self.TEXT], title="天安门")
+        self._recite(client, token, unit_id, text_id, self.FEED)
+
+        data = self._wrong_chars(client, token)
+        assert data["total"] == 3
+        assert {(i["char"], i["wrong_count"]) for i in data["items"]} == {
+            ("北", 1),
+            ("京", 1),
+            ("安", 1),
+        }
+
+        by_char = {i["char"]: i for i in data["items"]}
+        assert by_char["北"]["text_title"] == "天安门"
+        assert by_char["北"]["unit_name"] == "第1单元-天安门"
+        assert by_char["北"]["context_before"] == "我爱"
+        assert by_char["北"]["context_after"] == "京天安门"
+        assert by_char["安"]["context_before"] == "爱北京天"
+        assert by_char["安"]["context_after"] == "门"
+
+        # 口径自检：`first_pos` 必须真的指向那个字（下标与正文错位是这类接口最常见的静默错）
+        plain = _sql("SELECT content_plain FROM texts WHERE id = ?", (text_id,))[0][
+            "content_plain"
+        ]
+        assert plain == self.TEXT
+        for item in data["items"]:
+            assert plain[int(item["first_pos"])] == item["char"]
+
+    def test_only_returns_own_records(self, client):
+        """错题本**只回自己**。
+
+        反向验证：把 `MasteryService.wrong_chars` 的 `r.student_id = ?` 去掉后，
+        本用例必须转红（B 会看到 A 的 3 个漏字）。
+        """
+        token_a, _ = _register(client, "20260001")
+        token_b, _ = _register(client, "20260002")
+        unit_id, text_id = _seed_text_unit(paragraphs=[self.TEXT], title="天安门")
+        self._recite(client, token_a, unit_id, text_id, self.FEED)
+
+        assert self._wrong_chars(client, token_a)["total"] == 3
+
+        b = self._wrong_chars(client, token_b)
+        assert b["total"] == 0
+        assert b["items"] == []
+
+    def test_unreached_chars_not_in_book(self, client):
+        """⚠️ 分界线①：中途结束、**剩下没背的**字进结算明细，但不进错题本。"""
+        token, _ = _register(client)
+        unit_id, text_id = _seed_text_unit(paragraphs=[self.TEXT], title="天安门")
+        rid = self._recite(client, token, unit_id, text_id, "我爱")  # 只背到第 2 个字
+
+        detail = json.loads(
+            _sql("SELECT missed_chars FROM recitations WHERE id = ?", (rid,))[0]["missed_chars"]
+        )
+        assert detail == [2, 3, 4, 5, 6], "结算页应该看到这 5 个字"
+        assert self._wrong_chars(client, token)["total"] == 0, "但它们不是「漏背」"
+
+    def test_noise_not_counted(self, client):
+        """⚠️ 分界线②：整段背错记 `noise`，不算漏字。"""
+        token, _ = _register(client)
+        unit_id, text_id = _seed_text_unit(paragraphs=[self.TEXT], title="天安门")
+        self._recite(client, token, unit_id, text_id, "哈哈哈哈哈哈")
+
+        types = [e["event_type"] for e in _sql("SELECT event_type FROM recitation_events")]
+        assert types == ["noise"]
+        assert self._wrong_chars(client, token)["total"] == 0
+
+    def test_wrong_count_accumulates_and_orders(self, client):
+        """同一个字漏两次要**合并成一条** `wrong_count=2`，并按次数降序排出。"""
+        token, _ = _register(client)
+        unit_id, text_a = _seed_text_unit(paragraphs=[self.TEXT], title="天安门")
+        text_b = _insert_text(unit_id, ["春眠不觉晓"], title="春晓", order_no=1)
+
+        # ① 天安门背两次，两次都漏 北/京/安 → 各 2 次
+        self._recite(client, token, unit_id, text_a, self.FEED)
+        self._recite(client, token, unit_id, text_a, self.FEED)
+        # ② 春晓背一次，漏 不/觉 → 各 1 次
+        self._recite(client, token, unit_id, text_b, "春眠晓")
+
+        data = self._wrong_chars(client, token)
+        assert data["total"] == 5, "同一个字要合并，不是 8 条"
+        counts = [i["wrong_count"] for i in data["items"]]
+        assert counts == [2, 2, 2, 1, 1]
+        assert {i["char"] for i in data["items"][:3]} == {"北", "京", "安"}
+        assert {i["char"] for i in data["items"][3:]} == {"不", "觉"}
+
+    def test_inactive_text_excluded(self, client):
+        """课文停用后不该再出现在错题本（点进去也背不了）。"""
+        token, _ = _register(client)
+        unit_id, text_id = _seed_text_unit(paragraphs=[self.TEXT], title="天安门")
+        self._recite(client, token, unit_id, text_id, self.FEED)
+        assert self._wrong_chars(client, token)["total"] == 3
+
+        with write_tx() as conn:
+            conn.execute("UPDATE texts SET status = 'inactive' WHERE id = ?", (text_id,))
+
+        assert self._wrong_chars(client, token)["total"] == 0
+
+    def test_filters_and_paging(self, client):
+        """`unit_id` / `grade`+`semester` 过滤，以及分页（`total` 是全量）。"""
+        token, _ = _register(client)
+        unit_id, text_id = _seed_text_unit(paragraphs=[self.TEXT], title="天安门")
+        other_unit, _ = _seed_text_unit(paragraphs=[self.TEXT], title="别的单元")
+        self._recite(client, token, unit_id, text_id, self.FEED)
+
+        assert self._wrong_chars(client, token, unit_id=unit_id)["total"] == 3
+        assert self._wrong_chars(client, token, unit_id=other_unit)["total"] == 0
+        # `_seed_text_unit` 固定造 chinese / 7 / first
+        assert self._wrong_chars(client, token, grade=7, semester="first")["total"] == 3
+        assert self._wrong_chars(client, token, grade=3, semester="first")["total"] == 0
+
+        p1 = self._wrong_chars(client, token, page=1, page_size=2)
+        p2 = self._wrong_chars(client, token, page=2, page_size=2)
+        assert p1["total"] == p2["total"] == 3
+        assert len(p1["items"]) == 2 and len(p2["items"]) == 1
+        assert not (
+            {i["char"] for i in p1["items"]} & {i["char"] for i in p2["items"]}
+        ), "两页不能重复"
+
+    def test_empty_when_nothing_missed(self, client):
+        """一次都没背过 → 空列表 + `total=0`（不是报错、也不是 404）。"""
+        token, _ = _register(client)
+        assert self._wrong_chars(client, token) == {
+            "items": [],
+            "total": 0,
+            "page": 1,
+            "page_size": 20,
+        }
+
+    def test_wrong_words_still_english_only(self, client):
+        """交叉回归：新增 §8.10 **没有**把英语错题本（§8.8）牵连成两种形状。"""
+        token, _ = _register(client)
+        unit_id, text_id = _seed_text_unit(paragraphs=[self.TEXT], title="天安门")
+        self._recite(client, token, unit_id, text_id, self.FEED)
+
+        resp = client.get("/api/me/wrong-words", headers=_auth(token)).json()
+        assert resp["code"] == 0
+        assert resp["data"]["total"] == 0
+        assert resp["data"]["items"] == []

@@ -140,6 +140,25 @@ class HomeRepository {
       '/api/me/wrong-words',
       query: {'page': 1, 'page_size': 1},
     );
+    return _totalOf(data);
+  }
+
+  /// `GET /api/me/wrong-chars`（接口设计 §8.10）—— 首页「错题本（12 个字）」。
+  ///
+  /// 与 [fetchWrongCount] **同一个取数姿势**（只要 `total`）：
+  /// 两个端点、两个口径（英语词条 vs 语文字），但「首页只关心有几个」
+  /// 这件事是一样的。
+  Future<int> fetchWrongCharsCount() async {
+    final data = await api.get<Map<String, dynamic>>(
+      '/api/me/wrong-chars',
+      query: {'page': 1, 'page_size': 1},
+    );
+    return _totalOf(data);
+  }
+
+  /// 从分页响应里取 `total`。**形状对不上就返回 0，不抛** ——
+  /// 首页一个角标数字不值得让整页进错误态。
+  int _totalOf(Map<String, dynamic>? data) {
     final total = data?['total'];
     if (total is num) {
       return total.toInt();

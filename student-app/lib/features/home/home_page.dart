@@ -22,6 +22,7 @@ import '../config/practice_config_page.dart';
 import '../config/practice_launcher.dart';
 import '../config/practice_config_controller.dart';
 import '../config/practice_strategy.dart';
+import '../mine/wrong_book_page.dart';
 import '../theme/theme_switcher_sheet.dart';
 import 'choice_card.dart';
 import 'grade_semester_picker.dart';
@@ -128,9 +129,9 @@ class _HomePageState extends ConsumerState<HomePage> {
               const SizedBox(height: AgeProfile.elementGap),
             ],
 
-          // P4 的常驻快捷入口：「只练错题（N 个）」
+          // P4 的常驻快捷入口：「只练错题（N 个）」（英语）/「错题本（N 个字）」（语文）
           _WrongWordsCard(
-            count: data.wrongCount,
+            count: subject == Subject.english ? data.wrongCount : data.wrongCharsCount,
             subject: subject,
             onTap: () => _openWrongPicker(data, subject),
           ),
@@ -175,17 +176,25 @@ class _HomePageState extends ConsumerState<HomePage> {
     }
   }
 
-  /// 「只练错题」：**先选单元**再进配置页。
+  /// 错题入口：**英语先选单元，语文直接进错题本页**。
   ///
-  /// 为什么不直接开练：错题是按单元组织的，而首页拿到的单元列表里
-  /// **没有 `with_error` 字段**（契约 §8.3 未下发，见 偏离 #44），
-  /// 所以客户端无法判断哪个单元有错题。与其猜一个，不如让学生点一下 ——
-  /// 选中的单元如果确实没错题，配置页会明确告诉他"这个单元还没有错题"。
+  /// 两者不同不是偷懒，是数据形状决定的：
+  /// - **英语**错题是**词条、按单元组织**，而首页拿到的单元列表里
+  ///   **没有 `with_error`**（契约 §8.3 未下发，见偏离 #44）→
+  ///   客户端判断不出哪个单元有错题。与其猜一个，不如让学生点一下
+  ///   （选中的单元确实没错题时，配置页会明说）。
+  /// - **语文**错题是**课文里的字、按课文组织**，错题本页自己就会列出
+  ///   是哪几篇 —— 不需要先选单元，多一层选择只是让学生多点一次。
   Future<void> _openWrongPicker(HomeData data, Subject subject) async {
-    // 兜底：语文侧没有错题数据（错题本一期只覆盖英语词条），
-    // 组卷时的 scope=wrong 会被后端直接拒掉 —— 不要让学生走到那一步。
     if (subject != Subject.english) {
-      showAppSnack(context, '语文错题本还没上线，先按课文背吧');
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => WrongBookPage(
+            initialSubject: Subject.chinese,
+            now: widget.now,
+          ),
+        ),
+      );
       return;
     }
     final units = data.units.bySubject(subject);
@@ -244,12 +253,13 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
 }
 
-/// 「只练错题（N 个）」常驻卡（UI 规范 P4 明确要求"不用进二级页面"）。
+/// 错题常驻卡（UI 规范 P4 明确要求「不用进二级页面」）。
 ///
-/// ⚠️ **错题本一期只覆盖英语词条**（`backend/app/api/me_learning.py` 模块说明
-/// 「契约 §14.1 缺口 6，一期只覆盖英语词条」），语文侧没有错题数据。
-/// 语文 Tab 上必须**如实说明还没上线**，而不是显示一个英语的词数 ——
-/// 更不能给一个点下去必然被后端拒绝的入口。
+/// **两个学科的文案与去向不同**，别为对称硬凑成一个：
+/// - 英语：`只练错题（N 个）` → 选单元 → 配置页 `scope=wrong` → 直接开练；
+/// - 语文：`错题本（N 个字）` → 进错题本页（按课文分组，再「重背这篇」）。
+///   语文不会写「只练错题」—— 背诵是按课文逐字走的，后端没有"只背这几个字"
+///   这种模式，写「只练错题」就是骗学生。
 class _WrongWordsCard extends StatelessWidget {
   const _WrongWordsCard({required this.count, required this.subject, required this.onTap});
 
@@ -261,15 +271,18 @@ class _WrongWordsCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final profile = AgeScope.of(context);
     final extra = AppExtraColors.of(context);
-    final available = subject == Subject.english;
-    final enabled = available && count > 0;
+    final isEnglish = subject == Subject.english;
+    final enabled = count > 0;
 
-    final title = !available
-        ? '语文错题本还没上线'
-        : (enabled ? '只练错题（$count 个）' : '只练错题');
-    final hint = !available
-        ? '先按课文背，背过的篇目会打上标记'
-        : (enabled ? '把做错过的词再练一遍' : '还没有错题，先正常练几遍吧');
+    final String title;
+    final String hint;
+    if (isEnglish) {
+      title = enabled ? '只练错题（$count 个）' : '只练错题';
+      hint = enabled ? '把做错过的词再练一遍' : '还没有错题，先正常练几遍吧';
+    } else {
+      title = enabled ? '错题本（$count 个字）' : '错题本';
+      hint = enabled ? '漏背过的字，点进去重背那几篇' : '还没有漏背的字，先按课文背几篇吧';
+    }
 
     return Material(
       color: extra.card,

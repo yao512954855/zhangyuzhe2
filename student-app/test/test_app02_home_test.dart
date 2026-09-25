@@ -411,7 +411,7 @@ void main() {
       expect(find.text('还没有错题，先正常练几遍吧'), findsOneWidget);
     });
 
-    testWidgets('语文 Tab 上如实说"还没上线"，不显示英语的词数、也不可点', (tester) async {
+    testWidgets('语文 Tab 显示**语文自己的**错字数，不拿英语的数字充数', (tester) async {
       useTallScreen(tester);
       await local.setGradeSemester(grade: 3, semester: 1);
 
@@ -420,6 +420,7 @@ void main() {
           repo: FakeHomeRepository(
             units: pageWith([englishUnitJson(), chineseUnitJson()]),
             wrongCount: 12,
+            wrongCharsCount: 7,
           ),
         ),
       );
@@ -428,16 +429,66 @@ void main() {
       await tester.tap(find.text('语文'));
       await tester.pumpAndSettle();
 
-      // 错题本一期只覆盖英语词条（后端明说），语文侧没有这个数据 ——
-      // 显示「只练错题（12 个）」等于把英语的数字挂在语文 Tab 下
+      // 两个端点两个口径（§8.8 英语是「词」、§8.10 语文是「字」）——
+      // 把英语的「12 个」挂到语文 Tab 下就是假数据。
       expect(find.text('只练错题（12 个）'), findsNothing);
-      expect(find.text('语文错题本还没上线'), findsOneWidget);
-      expect(find.textContaining('先按课文背'), findsOneWidget);
+      expect(find.text('错题本（7 个字）'), findsOneWidget);
+      expect(find.text('漏背过的字，点进去重背那几篇'), findsOneWidget);
 
-      // 点不动（否则会走到后端必然拒绝的 scope=wrong）
-      await tester.tap(find.text('语文错题本还没上线'));
+      // ⚠️ 文案是「错题本」不是「只练错题」：点进去是错题本页（按课文分组、
+      //    再「重背这篇」），背诵没有"只背这几个字"这种模式，别骗学生。
+      expect(find.textContaining('只练错题'), findsNothing);
+    });
+
+    testWidgets('语文还没漏背过字 → 如实说，不给一个编出来的数字', (tester) async {
+      useTallScreen(tester);
+      await local.setGradeSemester(grade: 3, semester: 1);
+
+      await tester.pumpWidget(
+        boot(
+          repo: FakeHomeRepository(
+            units: pageWith([englishUnitJson(), chineseUnitJson()]),
+            wrongCount: 12,
+            wrongCharsCount: 0,
+          ),
+        ),
+      );
       await tester.pumpAndSettle();
-      expect(find.text('练哪个单元的错题？'), findsNothing);
+
+      await tester.tap(find.text('语文'));
+      await tester.pumpAndSettle();
+
+      // ⚠️ 别断 `find.text('错题本')` —— 底部 Tab 标签**也叫**「错题本」，
+      //    会命中两个。断 hint（唯一）+ 「没有数字就不编」更有意义。
+      expect(find.text('还没有漏背的字，先按课文背几篇吧'), findsOneWidget);
+      expect(find.textContaining('个字'), findsNothing,
+          reason: '一个错字都没有时，不能编一个数字出来');
+    });
+
+    testWidgets('语文点错题卡**不走英语那条「先选单元」的路**', (tester) async {
+      useTallScreen(tester);
+      await local.setGradeSemester(grade: 3, semester: 1);
+
+      await tester.pumpWidget(
+        boot(
+          repo: FakeHomeRepository(
+            units: pageWith([englishUnitJson(), chineseUnitJson()]),
+            wrongCount: 12,
+            wrongCharsCount: 7,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('语文'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('错题本（7 个字）'));
+      // 语文进的是错题本页（会去拉 §8.10），不是配置页那条 `scope=wrong`。
+      // 这里只用固定 pump：真页面首屏在拉数据，加载动画会让 pumpAndSettle 等不完。
+      for (var i = 0; i < 4; i++) {
+        await tester.pump(const Duration(milliseconds: 200));
+      }
+      expect(find.text('练哪个单元的错题？'), findsNothing, reason: '语文不该先弹单元选择');
     });
   });
 
@@ -479,7 +530,8 @@ void main() {
         await tester.pump(const Duration(milliseconds: 200));
       }
       expect(find.text('错题本还在做'), findsNothing, reason: '占位页应当已经消失');
-      expect(find.text('把练错的词再练一遍'), findsOneWidget, reason: '真「我的」页的错题本入口');
+      expect(find.text('练错的词、漏背的字，都能在这儿重练'), findsOneWidget,
+          reason: '真「我的」页的错题本入口');
     });
   });
 }

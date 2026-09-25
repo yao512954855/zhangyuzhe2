@@ -26,6 +26,7 @@ class HomeData {
     required this.units,
     this.progress,
     this.wrongCount = 0,
+    this.wrongCharsCount = 0,
     this.preferencePending = false,
   });
 
@@ -35,8 +36,14 @@ class HomeData {
   /// 拉失败不该让整个首页变成错误页（U10 要的是"不崩溃"）。
   final ProgressOverview? progress;
 
-  /// 错题总数（「只练错题」常驻卡上的数字）。
+  /// 英语错题总数（「只练错题（N 个）」卡上的数字，§8.8）。
   final int wrongCount;
+
+  /// 语文错字总数（「错题本（N 个字）」卡上的数字，§8.10）。
+  ///
+  /// **与 `wrongCount` 分开存**：两张卡两个端点、两个口径（词条 vs 字），
+  /// 合成一个字段后，切 Tab 时数字会串。
+  final int wrongCharsCount;
 
   /// 年级学期已存在本机、但还没同步到服务端（断网时选过）。
   final bool preferencePending;
@@ -44,19 +51,24 @@ class HomeData {
   /// 数据来自缓存（断网降级）。
   bool get offline => units.fromCache;
 
-  /// 有没有错题可练（决定「只练错题」卡是否可用）。
+  /// 英语有没有错题可练（决定「只练错题」卡是否可用）。
   bool get hasWrongWords => wrongCount > 0;
+
+  /// 语文有没有错字可看（决定「错题本」卡是否可用）。
+  bool get hasWrongChars => wrongCharsCount > 0;
 
   HomeData copyWith({
     UnitsPage? units,
     ProgressOverview? progress,
     int? wrongCount,
+    int? wrongCharsCount,
     bool? preferencePending,
   }) =>
       HomeData(
         units: units ?? this.units,
         progress: progress ?? this.progress,
         wrongCount: wrongCount ?? this.wrongCount,
+        wrongCharsCount: wrongCharsCount ?? this.wrongCharsCount,
         preferencePending: preferencePending ?? this.preferencePending,
       );
 }
@@ -84,6 +96,7 @@ class HomeController extends AsyncNotifier<HomeData> {
       units: units.value,
       progress: await _loadProgress(),
       wrongCount: await _loadWrongCount(),
+      wrongCharsCount: await _loadWrongCharsCount(),
       preferencePending: stillPending || _repo.hasPendingPreference(),
     );
   }
@@ -103,6 +116,17 @@ class HomeController extends AsyncNotifier<HomeData> {
   Future<int> _loadWrongCount() async {
     try {
       return await _repo.fetchWrongCount();
+    } on ApiException {
+      return 0;
+    }
+  }
+
+  /// 语文错字数的口径与上一条**完全一致**（失败按 0、不牵连整页）。
+  /// 两个请求互不依赖，所以串行发也只是一次往返的差别 ——
+  /// 不值得为它引入 `Future.wait` 的并发复杂度。
+  Future<int> _loadWrongCharsCount() async {
+    try {
+      return await _repo.fetchWrongCharsCount();
     } on ApiException {
       return 0;
     }

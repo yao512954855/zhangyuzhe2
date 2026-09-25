@@ -9,7 +9,10 @@
 /// 本文件覆盖：
 /// - U1 / F1：只练错题复用生产组卷，`strategy.scope == "wrong"`；
 /// - 红线：英语发 `mode`、语文**绝不**发 `mode`（`PracticeConfig.toRequest` 如实）；
-/// - 契约缺口：一期只有英语错题（`PracticeScope.wrong` 仅在英语路径可用）。
+/// - **`PracticeScope.wrong` 只在英语路径可用**：语文错题本走的是
+///   `GET /api/me/wrong-chars`（§8.10）+ `scope=lesson` + `text_ids`，
+///   **不是** `scope=wrong`；语文配置页给 `wrong` 选项会是死路。
+///   语文侧的渲染与组卷断言在 `test_app05_wrong_chars_test.dart`。
 library;
 
 import 'package:flutter_test/flutter_test.dart';
@@ -71,7 +74,7 @@ void main() {
     });
   });
 
-  group('契约缺口：一期只覆盖英语错题', () {
+  group('语文不带 wrong 范围：语文错题本走的是 lesson + text_ids，不是 scope=wrong', () {
     test('英语可用 wrong 范围；语文 availableScopes 不含 wrong', () {
       final english = PracticeConfig(
         unit: const UnitItem(unitId: 11, subject: Subject.english, name: 'U', wordTotal: 24),
@@ -82,7 +85,8 @@ void main() {
         scope: PracticeScope.unit,
       ).availableScopes;
       expect(english, contains(PracticeScope.wrong));
-      expect(chinese, isNot(contains(PracticeScope.wrong)), reason: '语文一期无错题接口，不给 wrong 选项');
+      expect(chinese, isNot(contains(PracticeScope.wrong)),
+          reason: '语文错题本用 lesson + text_ids 组卷（§8.10），给 wrong 是死路');
     });
   });
 }

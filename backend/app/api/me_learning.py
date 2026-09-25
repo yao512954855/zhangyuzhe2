@@ -272,6 +272,69 @@ def my_wrong_words(request: Request, user: CurrentUser = Depends(get_current_use
 
 
 # ---------------------------------------------------------------------------
+# §8.10 语文错题本（漏背过的字）
+# ---------------------------------------------------------------------------
+
+
+@router.get("/api/me/wrong-chars")
+def my_wrong_chars(request: Request, user: CurrentUser = Depends(get_current_user)):
+    """`GET /api/me/wrong-chars`（§8.10）—— 语文错题本。
+
+    **为什么不塞进 §8.8 的 `items`**：英语错题是**词条**（`en`/`cn`/`phonetic`），
+    语文错题是**「课文 + 字」**，两者字段没有交集。合成一个端点后客户端要按
+    `subject` 分叉解析同一份 `items`，是「一个端点两种形状」——
+    接口设计里最容易长歪的一类。宁多一个端点。
+
+    查询参数与 §8.8 对齐：`unit_id` / `grade` / `semester` 全可选，
+    `page` / `page_size` 默认 `1` / `20`。**只回自己**（`WHERE r.student_id = ?`）。
+
+    「重背这篇」**不新增接口**：复用 `POST /api/sessions`（§9.1），
+    传 `content_type='chinese'` + `strategy.scope_detail.text_ids=[text_id]` ——
+    这正是客户端配置页「选课文」走的同一条路（`_create_chinese_session`）。
+    """
+    page_no, page_size = parse_pagination(request)
+    unit_id = _to_int(_opt(request, "unit_id"), "unit_id")
+
+    grade: int | None = None
+    semester: str | None = None
+    if unit_id is None:
+        grade_raw = _opt(request, "grade")
+        grade = _to_int(grade_raw, "grade")
+        semester = _opt(request, "semester")
+        if grade is None or semester is None:
+            pref_grade, pref_semester = _preference(user)
+            grade = grade if grade is not None else pref_grade
+            semester = semester if semester is not None else pref_semester
+
+    items, total = MasteryService.wrong_chars(
+        user.id,
+        unit_id=unit_id,
+        grade=grade,
+        semester=semester,
+        page=page_no,
+        page_size=page_size,
+    )
+
+    payload: list[dict[str, Any]] = []
+    for item in items:
+        payload.append(
+            {
+                "text_id": int(item["text_id"]),
+                "text_title": item["text_title"],
+                "unit_id": int(item["unit_id"]),
+                "unit_name": item["unit_name"],
+                "char": item["char"],
+                "wrong_count": int(item["wrong_count"] or 0),
+                "last_wrong_at": item["last_wrong_at"],
+                "first_pos": int(item["first_pos"] or 0),
+                "context_before": item["context_before"],
+                "context_after": item["context_after"],
+            }
+        )
+    return page(payload, total, page_no, page_size)
+
+
+# ---------------------------------------------------------------------------
 # §8.9 学生申诉
 # ---------------------------------------------------------------------------
 

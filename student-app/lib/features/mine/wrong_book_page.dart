@@ -1,15 +1,18 @@
-/// 错题本 —— WP-APP-05 F1（U1 / U2）。
+/// 错题本 —— WP-APP-05 F1（U1 / U2）+ A5 语文侧。
 ///
-/// 数据来自 `GET /api/me/wrong-words`（契约 §8.8，一期**只覆盖英语词条**，
-/// 见契约 §14.1 缺口 6）：只返回 `wrong_count > 0` 的词条，按错误次数降序。
+/// **两个学科两个端点、两套模型**：
+/// - 英语：`GET /api/me/wrong-words`（契约 §8.8）→ 本文件，
+///   按**单元**分组，每单元一个「只练错题」（复用 `POST /api/sessions`
+///   的 `scope='wrong'`）；
+/// - 语文：`GET /api/me/wrong-chars`（接口设计 §8.10）→
+///   `wrong_char_book.dart`，按**课文**分组，每篇一个「重背这篇」。
 ///
-/// 页面按单元分组展示，每个单元组带一个「只练错题」按钮：复用
-/// `practiceConfigProvider` 的 `start(unit, scope: wrong)` + `submit()`，
-/// 走生产代码的 `PracticeConfig.toRequest()`（绝不在测试里手写请求体），
-/// 再交给 `openPracticeSession` 进练习页。
+/// 页面顶部用学科切换把两者分开。**不做「合并成一个列表」** ——
+/// 一个是词条、一个是「课文里的一个字」，混在一起学生看不懂，
+/// 代码里也会长出一堆 `if (subject == ...)`。
 ///
-/// ⚠️ 语文错题本后端尚无接口（契约 §14.1 缺口 6），页面底部如实说明，
-/// **不给一个点了必报错的入口**（红线 4）。
+/// 「只练错题」走生产代码的 `PracticeConfig.toRequest()`
+/// （绝不在测试里手写请求体），再交给 `openPracticeSession` 进练习页。
 library;
 
 import 'dart:async';
@@ -21,12 +24,15 @@ import '../../core/net/api_exception.dart';
 import '../../core/providers.dart';
 import '../../core/theme/age_profile.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/util/format.dart';
 import '../../core/widgets/app_button.dart';
 import '../../core/widgets/feedback.dart';
 import '../config/practice_config_controller.dart';
 import '../config/practice_strategy.dart';
 import '../config/practice_launcher.dart';
+import '../home/choice_card.dart';
 import '../home/models.dart';
+import 'wrong_char_book.dart';
 
 // ---------------------------------------------------------------------------
 // 数据模型
@@ -212,7 +218,17 @@ class WrongBookController extends Notifier<WrongBookState> {
   @override
   WrongBookState build() {
     // 进入即加载；先给一个 loading 态，再异步补齐。
-    _load(page: 1, replace: true);
+    //
+    // ⚠️ **必须 `Future.microtask` 推迟一帧**（原来直接调 `_load(...)`，是真缺陷）：
+    // `_load` 第一行就是 `state = state.copyWith(...)`，而在 `build()` 里
+    // 同步读 `state` 会抛
+    // 「Bad state: Tried to read the state of an uninitialized provider」
+    // —— provider 根本没建起来，页面永远停在空白。
+    //
+    // 为什么潜伏到现在才暴露：老用例要么只测纯函数、要么用固定 `pump`
+    // 从「我的」页间接进错题本，**没有一条真的把错题本渲染出来过**。
+    // 是 A5 新增的「两个端点不能串」用例第一次把英语页签渲染出来才炸的。
+    Future.microtask(() => _load(page: 1, replace: true));
     return const WrongBookState();
   }
 
@@ -292,36 +308,87 @@ int _int(Object? value) {
 // 页面
 // ---------------------------------------------------------------------------
 
-/// 错题本页（F1）。
-class WrongBookPage extends ConsumerWidget {
-  const WrongBookPage({super.key});
+/// 错题本页（F1）。默认停在英语页签；首页语文「错题本」卡会带来
+/// [initialSubject] = `Subject.chinese`，直接停在语文。
+class WrongBookPage extends StatefulWidget {
+  const WrongBookPage({
+    super.key,
+    this.initialSubject = Subject.english,
+    this.now,
+  });
+
+  final Subject initialSubject;
+
+  /// 可注入的「当前时间」（让「今天 / 昨天」在单测里稳定）。
+  final DateTime? now;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final state = ref.watch(wrongBookProvider);
+  State<WrongBookPage> createState() => _WrongBookPageState();
+}
+
+class _WrongBookPageState extends State<WrongBookPage> {
+  late Subject _subject = widget.initialSubject;
+
+  @override
+  Widget build(BuildContext context) {
     final profile = AgeScope.of(context);
-    final extra = AppExtraColors.of(context);
 
     return Scaffold(
       appBar: AppBar(title: Text('错题本', style: profile.pageTitleStyle)),
-      body: RefreshIndicator(
-        onRefresh: () => ref.read(wrongBookProvider.notifier).reload(),
-        child: _Body(state: state, profile: profile, extra: extra),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AgeProfile.screenEdgeInset,
+              AgeProfile.screenEdgeInset,
+              AgeProfile.screenEdgeInset,
+              0,
+            ),
+            // 与首页学科切换**同一个组件**（卡片式，不是下拉框）——
+            // 学生在两个页面看到的是同一种交互语言。
+            child: ChoiceGroup<Subject>(
+              options: Subject.values,
+              selected: _subject,
+              labelOf: (value) => value.label,
+              onSelect: (value) => setState(() => _subject = value),
+            ),
+          ),
+          Expanded(
+            child: _subject == Subject.english
+                ? _EnglishWrongBook(now: widget.now)
+                : WrongCharsView(now: widget.now),
+          ),
+        ],
       ),
     );
   }
 }
 
+/// 英语错题本（§8.8）—— 按单元分组。
+class _EnglishWrongBook extends ConsumerWidget {
+  const _EnglishWrongBook({this.now});
+
+  /// 可注入的「当前时间」（让「今天 / 昨天」在单测里稳定）。
+  final DateTime? now;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final state = ref.watch(wrongBookProvider);
+    final profile = AgeScope.of(context);
+
+    return RefreshIndicator(
+      onRefresh: () => ref.read(wrongBookProvider.notifier).reload(),
+      child: _Body(state: state, profile: profile, now: now),
+    );
+  }
+}
+
 class _Body extends ConsumerWidget {
-  const _Body({
-    required this.state,
-    required this.profile,
-    required this.extra,
-  });
+  const _Body({required this.state, required this.profile, this.now});
 
   final WrongBookState state;
   final AgeProfile profile;
-  final AppExtraColors extra;
+  final DateTime? now;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -336,22 +403,21 @@ class _Body extends ConsumerWidget {
     }
     if (state.isEmpty) {
       return ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(AgeProfile.screenEdgeInset),
-        children: [
-          const EmptyView(
+        children: const [
+          EmptyView(
             title: '还没有错题',
             hint: '练错的词会收在这里，方便你回头再练一遍',
             icon: Icons.sentiment_very_satisfied_outlined,
           ),
-          const SizedBox(height: AgeProfile.elementGap),
-          _chineseNote(extra),
         ],
       );
     }
 
     final children = <Widget>[];
     for (final group in state.groups) {
-      children.add(_UnitGroupCard(group: group));
+      children.add(_UnitGroupCard(group: group, now: now));
       children.add(const SizedBox(height: AgeProfile.elementGap));
     }
     if (state.hasMore) {
@@ -369,34 +435,21 @@ class _Body extends ConsumerWidget {
         ),
       );
     }
-    children.add(const SizedBox(height: AgeProfile.elementGap));
-    children.add(_chineseNote(extra));
 
     return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.all(AgeProfile.screenEdgeInset),
       children: children,
     );
   }
-
-  Widget _chineseNote(AppExtraColors extra) => Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: extra.card,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: extra.divider, width: 0.5),
-        ),
-        child: Text(
-          '错题本目前支持英语；语文的错题整理还在准备中。',
-          style: profile.captionStyle.copyWith(color: extra.textSub),
-        ),
-      );
 }
 
 /// 单个单元的错题分组卡。
 class _UnitGroupCard extends ConsumerWidget {
-  const _UnitGroupCard({required this.group});
+  const _UnitGroupCard({required this.group, this.now});
 
   final WrongUnitGroup group;
+  final DateTime? now;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -429,7 +482,7 @@ class _UnitGroupCard extends ConsumerWidget {
             ),
             const SizedBox(height: 8),
             for (final word in group.items) ...[
-              _WordRow(word: word, extra: extra, profile: profile),
+              _WordRow(word: word, extra: extra, profile: profile, now: now),
               const SizedBox(height: 6),
             ],
             const SizedBox(height: 8),
@@ -479,14 +532,20 @@ class _WordRow extends StatelessWidget {
     required this.word,
     required this.extra,
     required this.profile,
+    this.now,
   });
 
   final WrongWord word;
   final AppExtraColors extra;
   final AgeProfile profile;
+  final DateTime? now;
 
   @override
   Widget build(BuildContext context) {
+    // 需求 §5.9：「显示错误次数、**最近一次错误时间**」——两个都要给。
+    final day = formatRelativeDay(word.lastWrongAt, now: now);
+    final detail = day.isEmpty ? '错 ${word.wrongCount} 次' : '错 ${word.wrongCount} 次 · $day';
+
     return Row(
       children: [
         Expanded(
@@ -504,7 +563,7 @@ class _WordRow extends StatelessWidget {
         ),
         const SizedBox(width: 8),
         Text(
-          '错 ${word.wrongCount} 次',
+          detail,
           style: profile.captionStyle.copyWith(color: extra.hint),
         ),
       ],

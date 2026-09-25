@@ -127,3 +127,49 @@ String formatDurationMs(int ms) {
   }
   return '$minutes 分 ${seconds.toString().padLeft(2, '0')} 秒';
 }
+
+/// 服务端下发的 UTC ISO8601 → 「今天 / 昨天 / N 天前 / `yyyy-mm-dd`」。
+///
+/// 用于错题本的「最近一次」这类**按天**的展示（需求 §5.9）。
+/// 传空或解析不出来时返回 `''`，调用方据此**整段不显示**而不是显示
+/// 「1970-01-01」——宁可少一行，也不要给一个看起来是数据的错值。
+///
+/// ⚠️ **必须先 `toLocal()` 再比日期**。服务端存的是 UTC（`...Z`），
+/// 北京 00:00–08:00 之间发生的背诵，UTC 日期还停在**前一天**；
+/// 直接拿 UTC 日期去和学生眼里的「今天」比，会整整差一天。
+/// （同一个坑在 `v_class_today_activity` 上踩过，见契约 §14.1 第 14 项。）
+String formatRelativeDay(String? iso, {DateTime? now}) {
+  if (iso == null || iso.isEmpty) {
+    return '';
+  }
+  final parsed = DateTime.tryParse(iso);
+  if (parsed == null) {
+    return '';
+  }
+  final local = parsed.toLocal();
+  // ⚠️ `DateTime.tryParse` **会归一化越界字段，而不是拒绝** ——
+  // `'0000-00-00'` 解析出来是 `-1-11-30`（月份 0 回退成上一年的 12 月），
+  // 既不抛异常也不为 null，直接显示就是一行"看着像数据"的垃圾。
+  // 所以这里再加一道年份区间闸：超出合理范围一律当脏数据。
+  if (local.year < 1970 || local.year > 2200) {
+    return '';
+  }
+  final clock = (now ?? DateTime.now()).toLocal();
+  final thatDay = DateTime(local.year, local.month, local.day);
+  final today = DateTime(clock.year, clock.month, clock.day);
+  final days = today.difference(thatDay).inDays;
+
+  // 未来时间（时钟漂移）按「今天」处理，不显示「-1 天前」这种怪东西。
+  if (days <= 0) {
+    return '今天';
+  }
+  if (days == 1) {
+    return '昨天';
+  }
+  if (days < 7) {
+    return '$days 天前';
+  }
+  final month = local.month.toString().padLeft(2, '0');
+  final day = local.day.toString().padLeft(2, '0');
+  return '${local.year}-$month-$day';
+}

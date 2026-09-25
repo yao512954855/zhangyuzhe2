@@ -3,10 +3,12 @@
 与 `test/test_app05_*.dart`（假适配器组件测试）的分工：
 - 组件测试跑得快，但所有 HTTP 都走**假适配器**，只能证明"客户端按自己的
   想象解析响应"；
-- **这里只验「真后端」这件事**，且聚焦 APP-05 专属的两条链：
-  ① 答错 → `/api/me/wrong-words` 真能查到这道题（错题本页的数据源）；
-  ② `scope=wrong` 组卷出的题**全部来自**错题本（"只练错题"整条链）。
-  这两条若只靠假适配器，永远发现不了"字段名对不上 / 后端静默退化"的问题。
+- **这里只验「真后端」这件事**，且聚焦 APP-05 专属的三条链：
+  ① 答错 → `/api/me/wrong-words` 真能查到这道题（英语错题本页的数据源）；
+  ② `scope=wrong` 组卷出的题**全部来自**错题本（英语"只练错题"整条链）；
+  ③ **真背一遍课文并漏字** → `/api/me/wrong-chars` 真能查到那个字（§8.10，A5 新增）
+     —— 数据源是 `recitation_events`（由背诵引擎写），**手插事件表测不出真口径**。
+  这三条若只靠假适配器，永远发现不了"字段名对不上 / 后端静默退化"的问题。
 
 跑法：
     cd student-app
@@ -15,10 +17,12 @@
 它会：
     ① 用临时库拉起一个真 uvicorn（默认 127.0.0.1:8893）
     ② 等 /api/ping 就绪
-    ③ 管理员登录 → 两步式导入英语词条（3 年级上学期）
-    ④ **造数（真 HTTP）**：注册学生 → 练一遍故意答错 2 题 → 制造错题
+    ③ 管理员登录 → 两步式导入英语词条 + 语文课文（3 年级上学期）
+    ④ **造数（真 HTTP）**：注册学生 → 练一遍故意答错 2 题 → 制造英语错题
        → 验证 `/api/me/wrong-words` 真能查到 → 验证 `scope=wrong` 组卷出的题
          全部来自错题
+       → **真背两遍课文（各漏同一个字）** → 验证 `/api/me/wrong-chars`
+         收录该字且 `wrong_count=2`（§8.10）
     ⑤ 跑 `flutter test test/smoke_app05_live_test.dart`（复用上面造好的账号与错题）
     ⑥ 关服务、清理临时库
 
@@ -70,8 +74,9 @@ ADMIN_PASSWORD = "Smoke-App05-Pass"
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 #: 真机联调至少要有这么多用例真跑（防止「改了测试名/文件没被收集」导致假绿）。
-#: 当前实际有 5 条，留 1 条余量。
-MIN_LIVE_TESTS = 7
+#: 当前实际有 10 条（原 7 + A5 新增 3 条 §8.10），留 0 余量：
+#: 少跑一条就判失败 —— 这一层原本就是用来「证明真的跑了」的。
+MIN_LIVE_TESTS = 10
 
 #: 造数用的年级学期 —— 必须和 Dart 侧 profile 偏好一致。
 SEED_GRADE = 3
@@ -85,6 +90,19 @@ SMOKE_PASSWORD = "smoke05pass"
 SMOKE_REAL_NAME = "烟测生"
 #: 故意答错多少个词条（制造错题本数据）。
 WRONG_N = 2
+
+#: 语文课文正文与「学生背出来的样子」——**故意漏掉「霜」**（下标 9）。
+#: 引擎是顺序对齐，漏中间一个字会被稳定判成 `missed`（已用引擎单跑验证过），
+#: 所以下面 Dart 侧可以**断言到具体字与上下文**，而不是只断「非空」。
+CHINESE_TEXT_TITLE = "静夜思"
+CHINESE_TEXT_AUTHOR = "李白"
+CHINESE_TEXT_BODY = "床前明月光疑是地上霜举头望明月低头思故乡"
+CHINESE_FEED = "床前明月光疑是地上举头望明月低头思故乡"
+#: 漏掉的那个字（下标 `MISS_POS`）——Dart 侧据此核对 `first_pos` 与上下文。
+MISS_CHAR = "霜"
+MISS_POS = 9
+#: 背几遍（每遍都漏同一个字）→ 验证 `wrong_count` 真的在累加。
+RECITE_TIMES = 2
 
 
 # ---------------------------------------------------------------------------
@@ -223,8 +241,35 @@ def _words_xlsx() -> bytes:
     return buffer.getvalue()
 
 
+def _texts_xlsx() -> bytes:
+    """一篇课文（3 年级上学期）—— 供 §8.10 语文错题本链路造漏字。
+
+    单元格布局与 `smoke_app04.py` 的 `_texts_xlsx()` **完全一致**
+    （学科/年级/学期/单元名/课文标题/作者/段落正文/背诵范围），
+    背诵范围留空 = 全篇。
+    """
+    import openpyxl
+
+    rows = [
+        [
+            "语文", SEED_GRADE, SEED_SEMESTER_LONG, "第一单元",
+            CHINESE_TEXT_TITLE, CHINESE_TEXT_AUTHOR, CHINESE_TEXT_BODY, "",
+        ],
+    ]
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "语文课文"
+    sheet.append(["学科", "年级", "学期", "单元名", "课文标题", "作者", "段落正文", "背诵范围"])
+    for row in rows:
+        sheet.append(row)
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    return buffer.getvalue()
+
+
 def _seed(port: int) -> bool:
-    """管理员登录 → 导入英语词条 → 注册学生 → 练错 2 题 → 验证错题本链路。"""
+    """管理员登录 → 导入英语词条 + 语文课文 → 注册学生 → 练错 2 题 + 背漏 1 字
+    → 验证英语错题本（§8.8）/ 语文错题本（§8.10）两条链路。"""
     import httpx
 
     base = f"http://{HOST}:{port}"
@@ -378,6 +423,119 @@ def _seed(port: int) -> bool:
             print(f"❌ 只练错题组出了非错题：{out_ids} ⊄ {ww_ids}", flush=True)
             return False
         print(f"  只练错题验证：组出 {len(out_ids)} 题，全部来自错题本 ✅", flush=True)
+
+        # ---- 造数 语文课文（§8.10 的数据基础）----
+        tfiles = {"file": ("texts.xlsx", _texts_xlsx(), XLSX_MIME)}
+        tprev = c.post("/api/import/texts/preview", files=tfiles, headers=admin).json()
+        if tprev.get("code") != 0:
+            print(f"❌ 课文 preview 失败：{tprev}", flush=True)
+            return False
+        tcommit = c.post(
+            "/api/import/texts/commit",
+            json={"preview_token": tprev["data"]["preview_token"]},
+            headers=admin,
+        ).json()
+        if tcommit.get("code") != 0:
+            print(f"❌ 课文 commit 失败：{tcommit}", flush=True)
+            return False
+        print(f"  造数 语文课文：{tcommit['data']}", flush=True)
+
+        cunits = c.get("/api/me/units", headers=student).json()["data"]["items"]
+        cunit = next((u for u in cunits if u["subject"] == "chinese"), None)
+        if cunit is None:
+            print(f"❌ 找不到造数的语文单元：{cunits}", flush=True)
+            return False
+        cunit_id = cunit["unit_id"]
+
+        ctexts = c.get(f"/api/units/{cunit_id}/texts", headers=student).json()
+        if ctexts.get("code") != 0:
+            print(f"❌ 拉课文列表失败：{ctexts}", flush=True)
+            return False
+        # ⚠️ §8.6 的列表键是 **`texts`**（不是 `items`）—— 写错会 `KeyError('items')`。
+        #    这里也顺手核一下 §8.7 的字段：`id` / `title` 必须都在。
+        ctext = next(
+            (t for t in ctexts["data"]["texts"] if t["title"] == CHINESE_TEXT_TITLE), None
+        )
+        if ctext is None:
+            print(f"❌ 找不到课文 {CHINESE_TEXT_TITLE}：{ctexts['data']['texts']}", flush=True)
+            return False
+        ctext_id = ctext["id"]
+
+        # ---- 真背 `RECITE_TIMES` 遍，每遍都漏掉同一个字 ----
+        for i in range(RECITE_TIMES):
+            csess = c.post(
+                "/api/sessions",
+                json={"unit_id": cunit_id, "content_type": "chinese"},
+                headers=student,
+            ).json()
+            if csess.get("code") != 0:
+                print(f"❌ 语文组卷失败：{csess}", flush=True)
+                return False
+            rec = c.post(
+                "/api/recitations",
+                json={"session_id": csess["data"]["session_id"], "text_id": ctext_id, "scope": []},
+                headers=student,
+            ).json()
+            if rec.get("code") != 0:
+                print(f"❌ 开始背诵失败：{rec}", flush=True)
+                return False
+            rid = rec["data"]["recitation_id"]
+
+            fed = c.post(
+                f"/api/recitations/{rid}/feed",
+                json={"partial_text": CHINESE_FEED},
+                headers=student,
+            ).json()
+            if fed.get("code") != 0:
+                print(f"❌ 上报朗读进度失败：{fed}", flush=True)
+                return False
+            stl = c.post(
+                f"/api/recitations/{rid}/settle",
+                json={"transcript": CHINESE_FEED, "finish_reason": "manual"},
+                headers=student,
+            ).json()
+            if stl.get("code") != 0:
+                print(f"❌ 背诵结算失败：{stl}", flush=True)
+                return False
+            missed = [d["char"] for d in stl["data"].get("missed_detail") or []]
+            if missed != [MISS_CHAR]:
+                print(
+                    f"❌ 第 {i + 1} 遍应只漏「{MISS_CHAR}」，实际漏 {missed} —— 引擎行为变了？",
+                    flush=True,
+                )
+                return False
+            print(f"  第 {i + 1} 遍背诵：漏字 {missed} ✅", flush=True)
+
+        # ---- 验证 ③：语文错题本真能查到那个字，且次数在累加 ----
+        wc = c.get("/api/me/wrong-chars", headers=student).json()
+        if wc.get("code") != 0:
+            print(f"❌ 查语文错题本失败：{wc}", flush=True)
+            return False
+        wc_items = wc["data"]["items"]
+        target = next((w for w in wc_items if w["char"] == MISS_CHAR), None)
+        if target is None:
+            print(f"❌ 背漏「{MISS_CHAR}」但语文错题本里没有：{wc_items}", flush=True)
+            return False
+        if int(target["wrong_count"]) != RECITE_TIMES:
+            print(
+                f"❌ 「{MISS_CHAR}」的 wrong_count={target['wrong_count']}，"
+                f"背漏 {RECITE_TIMES} 遍应为 {RECITE_TIMES}（次数没累加）。",
+                flush=True,
+            )
+            return False
+        # 口径自检：`first_pos` 必须真的指向那个字（下标错位是这类接口最常见的静默错）
+        plain = CHINESE_TEXT_BODY
+        if int(target["first_pos"]) != MISS_POS or plain[MISS_POS] != MISS_CHAR:
+            print(
+                f"❌ 「{MISS_CHAR}」的 first_pos={target['first_pos']}（应为 {MISS_POS}）。",
+                flush=True,
+            )
+            return False
+        print(
+            f"  语文错题本验证：{len(wc_items)} 个字，"
+            f"「{MISS_CHAR}」错 {target['wrong_count']} 次、位置 {target['first_pos']} ✅",
+            flush=True,
+        )
 
     return True
 

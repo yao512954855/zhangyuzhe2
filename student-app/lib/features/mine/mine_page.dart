@@ -54,7 +54,7 @@ class MinePage extends ConsumerWidget {
             extra: extra,
             icon: Icons.error_outline_rounded,
             title: '错题本',
-            subtitle: '把练错的词再练一遍',
+            subtitle: '练错的词、漏背的字，都能在这儿重练',
             onTap: () => _push(context, const WrongBookPage()),
           ),
           const SizedBox(height: 12),

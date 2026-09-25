@@ -9,7 +9,12 @@
 /// - `/api/me/progress` 的字段齐全且都是数字（我的记录 / 统计页直接拼字符串）；
 /// - `GET /api/sessions` / `GET /api/sessions/{id}`（契约 §14.1 缺口 7 → §9.5）：
 ///   列表字段、`started_at DESC` 排序、`ongoing` 场次的 `score` 为 `null`，
-///   以及**防泄题线** —— 进行中的场次拒绝下发逐题明细，结算后才给 `expected`。
+///   以及**防泄题线** —— 进行中的场次拒绝下发逐题明细，结算后才给 `expected`；
+/// - `GET /api/me/wrong-chars`（**§8.10，A5 新增**）：字段是 `char` / `text_title` /
+///   `first_pos` / `context_before|after`，**与 §8.8 的词条形状毫无交集** ——
+///   两个端点的字段名**必须各自核一遍**，别以为"错题本嘛，差不多"。
+///   尤其 `first_pos`：下标与正文错位是这类接口最常见的**静默**错误
+///   （页面照样渲染，只是上下文取错位置），所以这里拿真课文正文**逐字核对**。
 ///
 /// 由 `scripts/smoke_app05.py`（先起后端 + 造错题）自动执行。
 ///
@@ -40,6 +45,14 @@ const _port = int.fromEnvironment('APP05_SMOKE_PORT', defaultValue: 8893);
 /// 造数用的烟测学生账号（Python 造好、这里登录，二者通过 --dart-define 对齐）。
 const _user = String.fromEnvironment('APP05_SMOKE_USER', defaultValue: 'smoke05');
 const _pass = String.fromEnvironment('APP05_SMOKE_PASSWORD', defaultValue: 'smoke05pass');
+
+/// 造数用的语文课文（**必须与 `scripts/smoke_app05.py` 里的常量逐字一致**）。
+/// Python 侧真背一遍并故意漏掉 `_missChar`，这里拿同一份正文核对上下文。
+const _textBody = '床前明月光疑是地上霜举头望明月低头思故乡';
+const _missChar = '霜';
+const _missPos = 9;
+/// Python 侧背了 2 遍 → `wrong_count` 必须是 2（验证次数真的在累加）。
+const _reciteTimes = 2;
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -216,6 +229,130 @@ void main() {
       expect(p['streak_days'], isA<int>());
       expect(p['accuracy'], isA<num>(), reason: '正确率口径是数字（0.0），不是 null');
       expect(p['today'], isA<Map>(), reason: '今日统计是对象');
+    });
+  });
+
+  // ======================================================= 语文错题本（§8.10）
+  group('真后端 · 语文错题本（A5，§8.10 —— 独立端点，别与 §8.8 串）', () {
+    test('GET /api/me/wrong-chars 字段逐个核对 + 上下文来自真课文正文', () async {
+      if (!backendUp) {
+        markTestSkipped('后端未启动');
+        return;
+      }
+      final (_, api) = await bootStudent();
+      final raw = await api.get<Map<String, dynamic>>('/api/me/wrong-chars');
+      final data = raw!;
+      final items = (data['items'] as List).cast<Map>().cast<Map<String, dynamic>>();
+      expect(items, isNotEmpty, reason: 'smoke_app05.py 已真背漏一个字，不该为空');
+
+      for (final it in items) {
+        expect(it['text_id'], isA<int>(), reason: '§8.10 应有 text_id');
+        expect(it['text_title'], isA<String>(), reason: '§8.10 应有 text_title');
+        expect(it['unit_id'], isA<int>(), reason: '§8.10 应有 unit_id');
+        expect(it['unit_name'], isA<String>(), reason: '§8.10 应有 unit_name');
+        expect(it['char'], isA<String>(), reason: '§8.10 应有 char');
+        expect((it['char'] as String).length, 1, reason: '错题单位是「一个字」');
+        expect(it['wrong_count'], isA<int>());
+        expect(it['wrong_count'] as int > 0, isTrue, reason: '只列漏过的字');
+        expect(it['first_pos'], isA<int>());
+        expect(it['context_before'], isA<String>());
+        expect(it['context_after'], isA<String>());
+        // §8.8 的字段**不该**出现在这里（两个端点两个形状，串了就是 bug）
+        expect(it.containsKey('word_id'), isFalse, reason: '§8.10 不是词条，别混字段');
+        expect(it.containsKey('en'), isFalse, reason: '§8.10 不是词条，别混字段');
+      }
+
+      // ⚠️ 核心断言：`first_pos` 必须真的指向那个字，上下文必须真的来自正文。
+      //    下标错位这类 bug 页面照样渲染（只是上下文取错），只有拿正文核对才抓得到。
+      final miss = items.firstWhere((it) => it['char'] == _missChar);
+      final pos = miss['first_pos'] as int;
+      expect(pos, _missPos, reason: 'Python 侧算出的位置就是 $_missPos');
+      expect(_textBody[pos], _missChar, reason: '正文 $_missPos 处应当是「$_missChar」');
+      expect(
+        miss['context_before'],
+        _textBody.substring(pos - 4 < 0 ? 0 : pos - 4, pos),
+        reason: '上下文由服务端从 content_plain 截，必须与正文一致',
+      );
+      expect(
+        miss['context_after'],
+        _textBody.substring(pos + 1, pos + 5 > _textBody.length ? _textBody.length : pos + 5),
+        reason: '上下文由服务端从 content_plain 截，必须与正文一致',
+      );
+      // 背了 N 遍、每遍都漏同一个字 → 次数必须累加（不能每遍覆盖成 1）
+      expect(miss['wrong_count'], _reciteTimes);
+    });
+
+    test('语文「重背这篇」走生产 toRequest()：content_type=chinese + scope=lesson + text_ids，且不发 mode', () async {
+      if (!backendUp) {
+        markTestSkipped('后端未启动');
+        return;
+      }
+      final (local, api) = await bootStudent();
+      final repo = HomeRepository(api: api, store: local);
+
+      // 课文 id 从 §8.10 的响应里拿（页面「重背这篇」也是这么拿的）
+      final raw = await api.get<Map<String, dynamic>>('/api/me/wrong-chars');
+      final items = (raw!['items'] as List).cast<Map>().cast<Map<String, dynamic>>();
+      expect(items, isNotEmpty, reason: '没有漏字就没法测「重背这篇」');
+      final textId = items.first['text_id'] as int;
+
+      final page = await repo.fetchUnits();
+      final unit =
+          page.value.items.firstWhere((u) => u.subject == Subject.chinese);
+
+      // **走生产代码的请求体构造** —— 这条用例的价值一半在于 `toRequest()` 的字段名。
+      // 语文分支的坑是「多发了 `mode`」：早先塞了 `'recite'`，
+      // 被 Pydantic 的枚举拦成 `10001`，**语文练习从 App 一条都发不出去**。
+      // 假适配器不校验请求体，单测永远看不见。
+      final config = PracticeConfig(
+        unit: unit,
+        scope: PracticeScope.lesson,
+        selectedTextIds: {textId},
+      );
+      final body = config.toRequest();
+      final strategy = body['strategy'] as Map;
+      expect(body['content_type'], 'chinese');
+      expect(strategy['scope'], 'lesson', reason: '语文重背走 lesson + text_ids，不是 wrong');
+      expect(
+        strategy.containsKey('mode'),
+        isFalse,
+        reason: '语文不发 mode（发了会被 Pydantic 拦成 10001，语文一条练习都发不出去）',
+      );
+      expect((strategy['scope_detail'] as Map)['text_ids'], <int>[textId]);
+      expect(strategy['scope'], isNot('wrong'), reason: '语文没有「只背这几个字」模式');
+
+      final data = await api.post<Map<String, dynamic>>('/api/sessions', body: body);
+      expect(data, isNotNull, reason: '后端必须接受语文 lesson + text_ids 组卷');
+      final paper = (data!['items'] as List).cast<Map>().cast<Map<String, dynamic>>();
+      expect(paper, isNotEmpty, reason: '组卷应给出课文');
+      expect(data['session_id'], isA<int>());
+      // 语文 `items` 是**课文清单**（`text_id`/`title`/`recite_scope`），不是词条
+      expect(paper.first['text_id'], isA<int>(), reason: '语文 items 是课文清单，不是词条');
+      expect(
+        paper.map((e) => e['text_id']).contains(textId),
+        isTrue,
+        reason: '选中的课文必须真出现在卷面里（否则 text_ids 被静默忽略了）',
+      );
+    });
+
+    test('两个端点互不串台：§8.10 只回「课文+字」，§8.8 只回「词条」', () async {
+      if (!backendUp) {
+        markTestSkipped('后端未启动');
+        return;
+      }
+      final (_, api) = await bootStudent();
+      final wc = await api.get<Map<String, dynamic>>('/api/me/wrong-chars');
+      final ww = await api.get<Map<String, dynamic>>('/api/me/wrong-words');
+
+      final charItem = (wc!['items'] as List).first as Map<String, dynamic>;
+      final wordItem = (ww!['items'] as List).first as Map<String, dynamic>;
+
+      // 字段集合**没有一个是重合的** —— 这正是「不合并成同一端点」的理由，
+      // 合成一份 items 后客户端就得按 subject 分叉解析，是接口最容易长歪的一类。
+      expect(charItem.containsKey('char'), isTrue);
+      expect(charItem.containsKey('en'), isFalse);
+      expect(wordItem.containsKey('en'), isTrue);
+      expect(wordItem.containsKey('char'), isFalse);
     });
   });
 

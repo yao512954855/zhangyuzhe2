@@ -1,0 +1,35 @@
+⏳ 启动后端 127.0.0.1:8893 …
+✅ 后端就绪
+
+▶ 造数（3 年级 上学期：英语 6 词条 + 制造 2 道错题）
+
+  造数 英语词条：{'created': 6, 'updated': 0, 'skipped': 0, 'units_created': 1}
+  错题本验证：答错 2 题，错题本收录 2 题：[1, 2]
+  只练错题验证：组出 2 题，全部来自错题本 ✅
+  造数 语文课文：{'created': 1, 'updated': 0, 'units_created': 1}
+  第 1 遍背诵：漏字 ['霜'] ✅
+  第 2 遍背诵：漏字 ['霜'] ✅
+  语文错题本验证：1 个字，「霜」错 2 次、位置 9 ✅
+✅ 造数完成
+
+▶ flutter test test/smoke_app05_live_test.dart
+
+Flutter assets will be downloaded from https://storage.flutter-io.cn. Make sure you trust this source!
+00:00 +0: loading D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app05_live_test.dart
+00:00 +0: (setUpAll)
+00:00 +0: 真后端 · 探活与登录（证明真请求真的发出去了） HttpOverrides 已解开：/api/ping 返回契约字段 service=="bjsys"
+00:00 +1: 真后端 · 探活与登录（证明真请求真的发出去了） 登录烟测学生 → token 落地（后续请求自动带 Authorization）
+00:00 +2: 真后端 · 错题本数据源（U1 / F1 红线：字段逐个核对） GET /api/me/wrong-words 字段逐个核对（WrongWord 模型靠这些字段渲染）
+00:00 +3: 真后端 · 错题本数据源（U1 / F1 红线：字段逐个核对） POST /api/sessions scope=wrong（走生产 toRequest）→ 题全部来自错题本
+00:00 +4: 真后端 · 进度总览（U3 / U4 / F2 / F3 的数据源） GET /api/me/progress 字段齐全且都是数字（我的记录/统计页直接拼字符串）
+00:00 +5: 真后端 · 语文错题本（A5，§8.10 —— 独立端点，别与 §8.8 串） GET /api/me/wrong-chars 字段逐个核对 + 上下文来自真课文正文
+00:00 +6: 真后端 · 语文错题本（A5，§8.10 —— 独立端点，别与 §8.8 串） 语文「重背这篇」走生产 toRequest()：content_type=chinese + scope=lesson + text_ids，且不发 mode
+00:00 +7: 真后端 · 语文错题本（A5，§8.10 —— 独立端点，别与 §8.8 串） 两个端点互不串台：§8.10 只回「课文+字」，§8.8 只回「词条」
+00:00 +8: 真后端 · 我的记录场次列表 / 单次详情（契约 §14.1 缺口 7 → §9.5） GET /api/sessions：字段逐个核对 + 只回自己 + started_at 倒序
+00:00 +9: 真后端 · 我的记录场次列表 / 单次详情（契约 §14.1 缺口 7 → §9.5） GET /api/sessions/{id}：ongoing 拒绝逐题明细（防泄题）→ 结算后才给 expected
+00:00 +10: (tearDownAll)
+00:01 +10: All tests passed!
+
+✅ 真机联调 ran 10 通过 / 0 跳过（flutter test 退出码 0）
+
+✅ 烟测通过

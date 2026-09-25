@@ -66,6 +66,7 @@ class FakeHomeRepository implements HomeRepository {
     this.texts,
     this.words,
     this.wrongCount = 0,
+    this.wrongCharsCount = 0,
     this.failUnitsWith,
   });
 
@@ -77,6 +78,9 @@ class FakeHomeRepository implements HomeRepository {
   final List<WordItem>? words;
 
   final int wrongCount;
+
+  /// 语文错字数（§8.10）；与英语的 [wrongCount] **分开**，别混用。
+  final int wrongCharsCount;
 
   /// 非空时 `fetchUnits` 抛这个异常（模拟断网 / 服务端出错）。
   final ApiException? failUnitsWith;
@@ -105,6 +109,9 @@ class FakeHomeRepository implements HomeRepository {
 
   @override
   Future<int> fetchWrongCount() async => wrongCount;
+
+  @override
+  Future<int> fetchWrongCharsCount() async => wrongCharsCount;
 
   @override
   Future<List<TextBrief>> fetchTexts(int unitId) async => texts ?? const [];

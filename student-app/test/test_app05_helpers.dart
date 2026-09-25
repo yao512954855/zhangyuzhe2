@@ -164,6 +164,44 @@ Map<String, dynamic> wrongItemJson({
       'mastery_status': ?masteryStatus,
     };
 
+/// 构造 `GET /api/me/wrong-chars` 的契约响应体（接口设计 §8.10，语文错题本）。
+///
+/// 与英语的 [wrongWordsJson] **是两个端点、两套字段** —— 别互相套用。
+Map<String, dynamic> wrongCharsJson(List<Map<String, dynamic>> items, int total) =>
+    {
+      'items': items,
+      'total': total,
+    };
+
+/// 一条错字（`GET /api/me/wrong-chars` 的 `items[]`）。
+///
+/// `context_before` / `context_after` 由**服务端**从 `content_plain` 截好，
+/// 客户端不自己算 —— 所以夹具里也照契约给。
+Map<String, dynamic> wrongCharItemJson({
+  required int textId,
+  required String char,
+  int unitId = 11,
+  String textTitle = '背影',
+  String unitName = '第1单元',
+  int wrongCount = 1,
+  String? lastWrongAt,
+  int firstPos = 0,
+  String contextBefore = '',
+  String contextAfter = '',
+}) =>
+    {
+      'text_id': textId,
+      'text_title': textTitle,
+      'unit_id': unitId,
+      'unit_name': unitName,
+      'char': char,
+      'wrong_count': wrongCount,
+      'last_wrong_at': ?lastWrongAt,
+      'first_pos': firstPos,
+      'context_before': contextBefore,
+      'context_after': contextAfter,
+    };
+
 /// 构造 `GET /api/sessions`（接口设计 §9.5.1）的一条场次摘要。
 ///
 /// `ongoing` 场次按契约给 `score: null` / `ended_at: null` / `duration_ms: 0`
@@ -298,11 +336,13 @@ Map<String, dynamic> sessionDetailJson(
 JsonAdapter defaultAdapter({
   Map<String, dynamic>? progress,
   Map<String, dynamic>? wrongWords,
+  Map<String, dynamic>? wrongChars,
   Map<String, dynamic>? sessions,
   Map<String, dynamic>? sessionDetail,
 }) {
   final prog = progress ?? progressJson();
   final wrong = wrongWords ?? wrongWordsJson(const [], 0);
+  final chars = wrongChars ?? wrongCharsJson(const [], 0);
   final list = sessions ?? sessionsJson(const [], 0);
   return JsonAdapter((options) {
     final path = options.uri.path;
@@ -343,6 +383,8 @@ JsonAdapter defaultAdapter({
         return okBody(prog);
       case '/api/me/wrong-words':
         return okBody(wrong);
+      case '/api/me/wrong-chars':
+        return okBody(chars);
       default:
         return okBody(const {});
     }
