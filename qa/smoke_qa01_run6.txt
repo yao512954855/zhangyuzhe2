@@ -1,0 +1,2 @@
+❌ TCP 8820 已被占用。换一个：SMOKE_PORT=8821 bash qa/smoke/smoke.sh
+   查占用：netstat -ano | grep LISTENING | grep :8820

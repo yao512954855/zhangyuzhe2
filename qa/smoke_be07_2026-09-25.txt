@@ -1,0 +1,61 @@
+== BE-07 统计看板烟测（http://127.0.0.1:8895）==
+[PASS] 管理者登录  |  {'code': 0, 'message': 'ok', 'data': {'access_token': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwicm9sZSI6ImFkbWluIiwiaWF0IjoxNzkw
+[PASS] 学生登录（用于鉴权反例）  |  {'code': 0, 'message': 'ok', 'data': {'access_token': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI3Iiwicm9sZSI6InN0
+[PASS] U1 班级概览 code=0  |  {'code': 0, 'message': 'ok', 'data': {'class_id': 1, 'class_name': '烟测五年级(1)班', 'grade': 5, 'semester': 'first', 'school_year': '2026-2027', 'status': 'active',
+[PASS] U1 学生数 = 5  |  student_count=5
+[PASS] U1 今日活跃 = 5（北京时间切天生效）  |  active=5 today=2026-09-25
+[PASS] U1 趋势 = 7 个点（缺天补零）  |  n=7
+[PASS] U1 正确率 = 10/15 ≈ 0.6667  |  accuracy=0.6667 counted=15
+[PASS] U1 分母排除 empty（15 而不是 20）  |  counted=15 answer=20
+[PASS] U1 错题 Top 有值且次数正确  |  top=[{'word_id': 3, 'en': 'smoke2', 'cn': '烟测词2', 'unit_id': 1, 'unit_name': '烟测 Unit 1', 'error_count': 5, 'student_count': 5}]
+[PASS] U1 平均用时非空  |  answer=3000 session=12000
+[PASS] U1 完成率 = 3/4（4 个词里练过 3 个，第 4 个只有空结果）  |  3/4
+[PASS] U2 单元掌握度 code=0  |  {'code': 0, 'message': 'ok', 'data': {'unit_id': 1, 'unit_name': '烟测 Unit 1', 'subject': 'english', 'grade': 5, 'semester': 'first', 'status': 'active', 'word_t
+[PASS] U2 词条数 = 4  |  4
+[PASS] U2 学生数 = 5  |  5
+[PASS] U2 未完成学生 = 5（都只练了 3/4）  |  n=5
+[PASS] U2 难词榜按正确率升序  |  accs=[0.0, 1.0, 1.0]
+[PASS] U2 只有空结果的词不进难词榜  |  word_ids=[3, 1, 2]
+[PASS] U2 已掌握比例 = 1/4  |  mastered=1 ratio=0.25
+[PASS] U3 个人报告 code=0  |  {'code': 0, 'message': 'ok', 'data': {'student_id': 2, 'username': 'smoke000', 'real_name': '烟测学生0', 'status': 'active', 'class_id': 1, 'class_name': '烟测五年级(1)班
+[PASS] U3 正确率与班级/单元一致（U5 口径唯一）  |  student=0.6667 class=0.6667 unit=0.6667
+[PASS] U3 场次 / 练习天数 / 已掌握  |  session=1 days=1 mastered=1
+[PASS] U3 最近场次带单元名  |  烟测 Unit 1
+[PASS] U4 2 exact + 1 wrong + 1 empty → 2/3（不是 2/4）  |  accuracy=0.6667 counted=3 answer=4
+[PASS] U6 默认只返回待复核  |  total=1
+[PASS] U6 申诉记录带学生与词条信息  |  username=smoke000 match_type=wrong
+[PASS] U8 audio_available 恒为 false  |  False
+[PASS] U7 复核 code=0  |  {'code': 0, 'message': 'ok', 'data': {'appeal_id': 3, 'result': 'upheld', 'remark': '烟测：确认学生读对了', 'previous_result': None, 'changed': True, 'is_correct': 0, 'me
+[PASS] U7 返回 is_correct 未变  |  before=0 after=0
+[PASS] U7 复核结论已落盘（status=upheld 能查到）  |  total=1
+[PASS] U7 ⛔ is_correct 未被改动  |  before=0 now=0
+[PASS] U7 复核备注从审计回读到列表  |  remark=烟测：确认学生读对了
+[PASS] U7 复核人姓名可见  |  管理者
+[PASS] U7 复核后从待复核列表消失  |  total=0
+[PASS] U12 审计日志可查  |  total=2
+[PASS] U12 按动作筛选（前缀匹配）  |  total=1 detail={'result': 'upheld', 'remark': '烟测：确认学生读对了', 'previous_result': None, 'is_correct_unchanged': 0, 'student_id': 2, 'word_id': 3, 'expected': 'smoke2', 'asr_text': 'heard', 'match_type': 'wrong'}
+[PASS] U12 LIKE 通配符被转义（`%` 不匹配全表）  |  total=0
+[PASS] U10 ASR 用量 code=0  |  {'code': 0, 'message': 'ok', 'data': {'date_from': '2026-09-19', 'date_to': '2026-09-25', 'provider': None, 'detail_keep_days': 90, 'daily': [{'stat_date': '202
+[PASS] U10 按天 × 厂商有数据  |  daily=[{'stat_date': '2026-09-25', 'provider': 'aliyun', 'call_count': 4, 'total_audio_ms': 4500, 'avg_latency_ms': 250, 'ok_count': 3, 'empty_count': 0, 'failed_count': 1, 'failure_rate': 0.25, 'source': 'detail'}]
+[PASS] U10 调用次数 = 4（3 ok + 1 error）  |  call_count=4
+[PASS] U10 失败率 = 1/4（empty 不算失败）  |  failure_rate=0.25
+[PASS] U10 平均延迟只算 ok 行 = 250  |  avg_latency_ms=250
+[PASS] U10 音频总时长 = 3×1200 + 900  |  total_audio_ms=4500
+[PASS] U10 按厂商汇总有 aliyun  |  [{'provider': 'aliyun', 'call_count': 4, 'total_audio_ms': 4500, 'ok_count': 3, 'empty_count': 0, 'failed_count': 1, 'avg_latency_ms': 250, 'failure_rate': 0.25}]
+[PASS] U13 班级导出返回 xlsx  |  status=200 magic=b'PK' len=5391
+[PASS] U13 响应头是下载语义  |  attachment; filename*=UTF-8''%E7%83%9F%E6%B5%8B%E4%BA%94%E5%B9%B4%E7%BA%A7%281%29%E7%8F%AD_%E6%88%90%E7%BB%A9%E5%8D%95.xlsx
+[PASS] U13 xlsx 能被解析且行数正确（5 学生 + 表头）  |  max_row=6 headers=['学号', '姓名', '班级', '练习场次', '答题数', '有效题数', '正确题数', '正确率', '已掌握词数', '最近练习时间']
+[PASS] U13 导出的正确率与接口口径一致（66.7%）  |  66.7%
+[PASS] U13 学生导出返回 xlsx  |  status=200 magic=b'PK'
+[PASS] 鉴权 无 token /api/stats/class/1 → 10002  |  code=10002
+[PASS] 鉴权 无 token /api/appeals → 10002  |  code=10002
+[PASS] 鉴权 无 token /api/audit-logs → 10002  |  code=10002
+[PASS] 鉴权 无 token /api/stats/asr → 10002  |  code=10002
+[PASS] 鉴权 学生 token → 10003  |  code=10003
+[PASS] 参数 紧凑日期格式被拒（YYYYMMDD → 10001 + 字段名）  |  10001 date_from 格式应为 YYYY-MM-DD
+[PASS] 参数 越界不静默夹值（top_n=999 → 10001）  |  code=10001
+[PASS] 参数 单元不存在 → 30001  |  code=30001
+== 已收尸（子进程 + 临时目录）==
+
+烟测结果：56/56 通过
+SUMMARY pass=56 total=56 failed=0

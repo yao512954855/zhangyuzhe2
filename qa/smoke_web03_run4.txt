@@ -1,0 +1,11 @@
+[OK] U1 create-class-ui
+[OK] U2 students-import-45-with-2-invalid
+[OK] U2b student-error-report-download
+[OK] U3 batch-assign-3-students
+[OK] U4 unassigned-filter
+[OK] U5 reset-password-then-login
+[OK] U6 disable-student-blocks-login
+[!!] exception  POST /api/answers/1/appeal 失败：code=10001 message=参数不正确：参数
+
+RESULT 7/7 PASS
+LOG D:\helloagent\zhanglaoshi_zhangyuze\admin-web\logs\smoke_web03.txt

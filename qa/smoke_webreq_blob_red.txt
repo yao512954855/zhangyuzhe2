@@ -1,0 +1,8 @@
+[OK] C1 json-channel-error
+[!!] C2 blob-channel-error  (实际拿到：{"threw":false,"ctor":"Blob","type":"application/json","size":162,"head":"{\"code\":10001,\"message\":\"模板类型「nosuch2」不存在，只能是 words（英语词条）或 texts（语文课文）\",\"data\":null,\"trace_id\":\"a472683fefa7\"}","xlsxMagic":null} —— 这就是"静默下载假文件"现场)
+[OK] C3 blob-real-template-words
+[OK] C4 blob-real-template-students
+[OK] C5 blob-channel-http404
+
+烟测结果：4/5 未通过
+日志：D:\helloagent\zhanglaoshi_zhangyuze\admin-web\logs\smoke_webreq_blob.txt

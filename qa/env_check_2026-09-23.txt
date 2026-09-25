@@ -1,0 +1,31 @@
+Flutter assets will be downloaded from https://storage.flutter-io.cn. Make sure you trust this source!
+Doctor summary (to see all details, run flutter doctor -v):
+[!] Flutter (Channel stable, 3.47.5, on Microsoft Windows [版本 10.0.19045.6332], locale zh-CN)
+    ! The flutter binary is not on your path. Consider adding D:\2install\flutter\flutter_windows_3.47.5-stable\flutter\bin to your path.
+    ! The dart binary is not on your path. Consider adding D:\2install\flutter\flutter_windows_3.47.5-stable\flutter\bin to your path.
+[☠] Windows Version (the doctor check crashed)
+    X Due to an error, the doctor check did not complete. If the error message below is not helpful, please let us know about this issue at https://github.com/flutter/flutter/issues.
+    X Error: Flutter failed to run "wmic os get Caption,OSArchitecture". The flutter tool cannot access the file or directory.
+      Please ensure that the SDK and/or project is installed in a location that has read/write permissions for the current user.
+[X] Android toolchain - develop for Android devices
+    X Unable to locate Android SDK.
+      Install Android Studio from: https://developer.android.com/studio/index.html
+      On first launch it will assist you in installing the Android SDK components.
+      (or visit https://flutter.dev/to/windows-android-setup for detailed instructions).
+      If the Android SDK has been installed to a custom location, please use
+      `flutter config --android-sdk` to update to that location.
+
+[√] Chrome - develop for the web
+[☠] Visual Studio - develop Windows apps (the doctor check crashed)
+    X Due to an error, the doctor check did not complete. If the error message below is not helpful, please let us know about this issue at https://github.com/flutter/flutter/issues.
+    X Error: %PROGRAMFILES(X86)% environment variable not found.
+[!] Proxy Configuration
+    ! NO_PROXY is not set
+[☠] Connected device (the doctor check crashed)
+    X Due to an error, the doctor check did not complete. If the error message below is not helpful, please let us know about this issue at https://github.com/flutter/flutter/issues.
+    X Error: Flutter failed to run "reg query HKEY_CURRENT_USER\Software\Microsoft\Edge\BLBeacon /v version". The flutter tool cannot access the file or directory.
+      Please ensure that the SDK and/or project is installed in a location that has read/write permissions for the current user.
+[!] Network resources
+    X An HTTP error occurred while checking "https://github.com/": Proxy failed to establish tunnel (502 Bad Gateway)
+
+! Doctor found issues in 7 categories.

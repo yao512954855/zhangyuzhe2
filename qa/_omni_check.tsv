@@ -1,0 +1,22 @@
+cat__spell	0.96	CAT	C A T	CAT	1	1
+dog__spell	0.8	DOG	D O G	DOG	1	1
+pen__spell	1.92	PEN	P E N	PEN	1	1
+bus__spell	1.2	BUS	B U S	BUS	1	1
+red__spell	1.28	RED	U I E D	UIED	0	0
+bed__spell	1.2	BED	B E D	BED	1	1
+bag__spell	0.96	BAG	B A G	BAG	1	1
+pig__spell	0.88	PIG	B I G	BIG	0	1
+class__spell	2.16	CLASS	C L A S S	CLASS	1	1
+apple__spell	1.68	APPLE	A P P L E	APPLE	1	1
+water__spell	1.6	WATER	W A T E R	WATER	1	0
+happy__spell	1.52	HAPPY	H A P P Y	HAPPY	1	1
+pencil__spell	2.4	PENCIL	P E N C I L	PENCIL	1	0
+school__spell	2.0	SCHOOL	S C H O O L	SCHOOL	1	1
+little__spell	2.08	LITTLE	L I T T L E	LITTLE	1	1
+teacher__spell	2.56	TEACHER	T E A C H E R	TEACHER	1	1
+student__spell	2.88	STUDENT	S T U D E N T	STUDENT	1	1
+classroom__spell	4.88	CLASSROOM	C L A S S R O O M	CLASSROOM	1	1
+beautiful__spell	3.68	BEAUTIFUL	B E A U T I F U L	BEAUTIFUL	1	1
+restaurant__spell	4.32	RESTAURANT	R E S T A U R A N T	RESTAURANT	1	0
+dictionary__spell	5.76	DICTIONARY	D I C T I O N A R Y	DICTIONARY	1	1
+breakfast__spell	2.72	BREAKFAST	B R E A K F A S T	BREAKFAST	1	1

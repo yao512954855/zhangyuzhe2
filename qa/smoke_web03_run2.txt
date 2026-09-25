@@ -1,0 +1,1 @@
+[!!] env-port-busy  vite端口 5285 已被占用，请先释放或改 SMOKE_*_PORT

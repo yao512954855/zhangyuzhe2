@@ -1,0 +1,21 @@
+[OK] U1 create-class-ui
+[OK] U2 students-import-45-with-2-invalid
+[OK] U2b student-error-report-download
+[OK] U3 batch-assign-3-students
+[OK] U4 unassigned-filter
+[OK] U5 reset-password-then-login
+[OK] U6 disable-student-blocks-login
+[OK] U7 class-overview-consistency
+[OK] U8 range-switch-30-days
+[OK] U9 unit-mastery-hard-words
+[OK] U10 student-report-three-blocks
+[OK] U11 appeal-review-keeps-judgement
+[OK] U11b appeal-page-disclaimer
+[OK] U12 server-address-page
+[OK] U13 qr-content-format
+[SKIP] U13x manual-qr-scan  (SKIPPED: 已机器化验证 qr_content 格式 + 二维码画布真有像素（U12/U13）；真机扫码属人工验收项)
+[OK] U14 empty-state-with-action
+[OK] GUARD case-count-floor
+
+RESULT 17/18 PASS
+LOG D:\helloagent\zhanglaoshi_zhangyuze\admin-web\logs\smoke_web03.txt

@@ -1,0 +1,41 @@
+== 启动后端 ==
+后端预检：admin 登录 OK
+== 启动 vite dev server ==
+== 启动无头浏览器 ==
+浏览器：Edg/140.0.3485.94
+CDP session：E960455E4850717705C1E6896F762D64
+[OK] U1 新建班级：UI 弹窗提交后列表与接口都能看到，且初始学生数为 0    dom=true api={"id":1,"name":"SmokeClassUI_1790301613724","grade":3,"semester":"first","students":0}
+[OK] U2 导入 45 行（2 行非法）：预览列出错误行（第 7、45 行）；确认后 created=43、invalid=2    preview={"total":45,"valid":43,"invalid":2,"duplicated":0} rows=[8,46] commit={"created":43,"updated":0,"skipped":2,"classes":[],"credentials_url":"/api/classes/0/students/credentials?token=qnM1puUjirCY_o9App1nOW2ktcBpsw8q"}
+[OK] U2b 名单错误报告可下载：error_report_url 经 toApiPath 归一化后取回真实 xlsx（PK 魔数）    {"raw":"/api/import/report/BlyIwwYlJJWg1uR0dQKKKaMZBLRysTr8","head":"PK","size":5166}
+自主注册：self1790301613724 → id=?
+[OK] U3 批量归班 3 名学生：班级学生数变 3，且这 3 人不再出现在「未分班」筛选里    {"batch":{"success_count":3,"failed_count":0,"success_ids":[44,43,42],"failed":[],"unassigned_count":41},"classCount":3,"stillUnassigned":[]}
+[OK] U4 「未分班」是显式筛选项：自主注册（reg_source=self、class_id=null）的学生出现在其中    {"total":41,"hit":{"id":45,"source":"self","cls":null}}
+[OK] U5 重置密码：新密码可登录（code=0），旧密码失效（非 0）    reset=true new=0 old=20002
+[OK] U6 停用学生：状态变 disabled，且该生登录被拒（20003 ACCOUNT_DISABLED）    status=disabled loginCode=20003
+== 造数：英语单元 + 词条 ==
+英语单元 id=1 词条=["apple","banana","cat","dog","elephant"]
+  · 触发限流 10005（POST /api/auth/login），等 15s 让滑动窗口滑过去后重试 #1
+  · 触发限流 10005（POST /api/auth/login），等 15s 让滑动窗口滑过去后重试 #2
+  · 触发限流 10005（POST /api/auth/login），等 15s 让滑动窗口滑过去后重试 #3
+练习1 match=["loose","exact","exact","exact","exact"]
+练习2 match=["loose","loose","wrong","empty","wrong"]
+  · 触发限流 10005（POST /api/auth/login），等 15s 让滑动窗口滑过去后重试 #1
+申诉已提交：answer_id=1 match=loose → {"answer_id":1,"appealed":true}
+== 造数：语文课文 + 一次背诵 ==
+语文单元 id=2 课文《静夜思》背诵字数=20
+背诵：recitation_id=1 matched=20/20
+[OK] U7 班级概览：3 人/今日活跃 2/完成率=已练÷词条总数/正确率=计分正确÷计分题/7 天趋势/错题榜非空，派生数字自洽    {"student_count":3,"active":2,"today_active":2,"today_items":10,"completion_ratio":1,"practiced":5,"scope":5,"accuracy":0.7778,"correct":7,"counted":9,"answers":10,"avg_answer_ms":2200,"avg_session_ms":11000,"trend_len":7,"top":2,"from":"2026-09-19","to":"2026-09-25"}
+[OK] U8 日期范围切换：近 30 天趋势点数=30（近 7 天=7），且极窄区间聚合结果相应收缩    {"wide_len":30,"wide_from":"2026-08-27","wide_to":"2026-09-25","narrow_len":1,"narrow_answers":10}
+[OK] U9 单元掌握度：难词榜按正确率升序且 cat/elephant=50% 会被标红；未完成学生=「练过但没练完」的人（s2 因 1 题识别为空少练 1 词 → missing=1）    {"word_total":5,"accuracy":0.7778,"mastered_ratio":0,"student_count":2,"practiced":5,"hard":[{"en":"cat","acc":0.5,"counted":2},{"en":"elephant","acc":0.5,"counted":2},{"en":"apple","acc":1,"counted":2},{"en":"banana","acc":1,"counted":2},{"en":"dog","acc":1,"counted":1}],"asc":true,"hard_under60":["cat","elephant"],"unfinished":[{"u":"s179030161372443","missing":1}],"s2name":"s179030161372443","s3name":"s179030161372442"}
+[OK] U10 学生报告：最近场次（含英语+语文两类）、背诵记录、错词表三块齐全（错词含 cat/elephant）    {"username":"s179030161372443","accuracy":0.5,"correct":2,"counted":4,"mastered":0,"sessions":2,"recitations":1,"wrong":2,"wrong_total":2,"wrongEns":["cat","elephant"],"sessionTypes":["chinese","english"]}
+[OK] U11 申诉复核「驳回」：列表状态变为 rejected、仍从待复核列表消失，且 is_correct 与复核前完全一致（复核不改判分）    {"found":true,"res":{"appeal_id":1,"result":"rejected","remark":"烟测：维持原判","previous_result":null,"changed":true,"is_correct":1,"message":"复核完成"},"stillPending":false,"afterStatus":"rejected","afterIsCorrect":1,"afterRemark":"烟测：维持原判","beforeIsCorrect":1,"matchType":"loose"}
+[OK] U11b 申诉复核页：页面显式说明「复核只作质量数据、不改判分」，且有「待复核」分档    {"path":"/admin/stats/appeals","hasNote":true,"hasTabs":true}
+[OK] U12 服务地址页：二维码 ≥240×240 且真的画出了点阵；网卡地址表非空；推荐地址有标记；含扫码说明与手动输入兜底    {"w":280,"h":280,"dark":78400,"rows":3,"hasRecTag":true,"hasScanHint":true,"hasManual":true,"hasAllIfaces":true,"hasRecommended":true}
+[OK] U13 二维码内容格式：qr_content 形如 bjsys://<ip>:<port>，且页面把明文地址也渲染出来（识别失败可手输）    {"qr_content":"bjsys://192.168.1.79:8817","current_url":"http://192.168.1.79:8817","discovery_port":9527,"app_port":8817,"shownOnPage":true}
+[SKIP] U13x U13「用手机扫码唤起 App」：无真手机、无法断言 App 的 URL scheme 注册，需人工验收    SKIPPED: 已机器化验证 qr_content 格式 + 二维码画布真有像素（U12/U13）；真机扫码属人工验收项
+[OK] U14 无数据状态：筛选无结果时渲染引导性空状态 + 主操作按钮（不是空白页）    {"hasEmpty":true,"text":"没有符合条件的学生导入学生","buttonText":"导入学生","tableRows":0}
+[OK] GUARD 用例数下限：实际 16 >= 期望值 14    count=16
+
+==========================================================================
+烟测结果：17/18 通过（含 1 个跳过项）
+==========================================================================

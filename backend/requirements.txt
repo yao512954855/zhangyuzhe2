@@ -1,0 +1,45 @@
+# ============================================================
+# 背记系统 后端依赖
+#
+# 契约要求（《01-共享契约冻结》§1）：版本必须**写死到具体版本**，
+# 不使用 `^` / `~` / `>=`，避免不同 Agent 装出不同环境。
+#
+# 生成依据：backend/.venv 实测安装结果（2026-09-23，Python 3.13.12）
+# 安装命令：backend/.venv/Scripts/pip.exe install -r backend/requirements.txt
+# ============================================================
+
+# ---------- Web 框架与运行时 ----------
+fastapi==0.141.1
+uvicorn[standard]==0.53.0
+python-multipart==0.0.32
+
+# ---------- 配置与数据校验 ----------
+pydantic==2.13.5
+pydantic-settings==2.15.0
+python-dotenv==1.2.3
+PyYAML==6.0.3
+
+# ---------- 鉴权 ----------
+PyJWT==2.14.0
+bcrypt==5.0.0
+
+# ⚠️ 依赖偏离说明（已上报）：
+#   契约 §1 原写 `passlib[bcrypt]`，实测 passlib 1.7.4 与 bcrypt >= 4.1 **不兼容** ——
+#   passlib 初始化时执行自检代码并传入超过 72 字节的密码，bcrypt 5.x 直接抛
+#   `ValueError: password cannot be longer than 72 bytes`，CryptContext 无法初始化。
+#   passlib 自 2020 年起停止维护。故改为**直接调用 bcrypt 原生 API**，
+#   对外接口（hash_password / verify_password）保持不变，其他工作包无感知。
+#   详见 backend/app/core/security.py 顶部注释。
+
+# ---------- Excel 与拼音 ----------
+openpyxl==3.1.5
+pypinyin==0.51.0
+
+# ---------- 语音（WP-BE-06）----------
+# `websockets` 是 BE-06 流式 ASR 的**直接依赖**（原来只是 uvicorn[standard] 的传递依赖）。
+# 契约 §1 要求「版本写死到具体版本」，传递依赖一旦被上游放宽就会漂移，因此显式钉住。
+websockets==17.1
+
+# ---------- 测试 ----------
+pytest==9.1.1
+httpx==0.28.1          # 同时用于 BE-06 的非流式 ASR 调用（无需再引 aiohttp）

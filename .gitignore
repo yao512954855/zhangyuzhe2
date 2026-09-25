@@ -1,0 +1,83 @@
+# ============================================================
+# 背记系统 .gitignore
+# ⚠️ 密钥类文件（.env / asr.yaml）绝不入库，只保留 *.example.*
+# ============================================================
+
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ---------- 运行时数据（不入库）----------
+backend/data/
+backend/backups/
+*.db
+*.db-wal
+*.db-shm
+
+# ---------- 运行日志与临时产物（可再生成，不入库）----------
+# ⚠️ 只排除 *.log（应用运行日志，每次运行都变、且会无限增长）；
+#    烟测**结论**是 smoke_*.txt，保留入库当验收证据。
+*.log
+backend/.smoketmp/
+qa/tmp/
+
+# ---------- 密钥与本地配置（硬红线）----------
+.env
+.env.*
+.env.local
+asr.yaml
+backend/.env
+backend/asr.yaml
+
+# 模板必须保留
+!backend/.env.example
+!backend/asr.example.yaml
+!*.example.yaml
+# 管理端开发配置——文件自述「随仓库提交，不含任何密钥」且经人工核对属实，
+# 是**唯一**允许入库的 .env.*；其余（如 .env.production/.env.local）一律拦下。
+!admin-web/.env.development
+
+# ---------- Node / 管理端 ----------
+node_modules/
+dist/
+dist-ssr/
+.vite/
+*.local
+npm-debug.log*
+pnpm-debug.log*
+yarn-error.log*
+
+# ---------- Flutter / 学生端 ----------
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+build/
+*.iml
+.gradle/
+student-app/android/local.properties
+student-app/.packages
+# flutter config 写出的本地文件含本机绝对路径，不该入库
+.flutter_settings
+# flutter/dart 工具的本地状态（每台机器不同），不入库
+.flutter_tool_state
+
+# ---------- IDE ----------
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ---------- OS ----------
+Thumbs.db
+Desktop.ini
+.DS_Store

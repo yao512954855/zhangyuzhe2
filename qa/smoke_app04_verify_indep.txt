@@ -1,0 +1,35 @@
+⏳ 启动后端 127.0.0.1:8892（ASR=mock，配置 asr_mock.yaml）…
+✅ 后端就绪
+
+▶ 造数（3 年级 上学期：语文课文 3 篇）
+
+  造数 课文：{'total': 3, 'valid': 3, 'invalid': 0}
+  入库 课文：{'created': 3, 'updated': 0, 'units_created': 1}
+✅ 造数完成
+
+▶ flutter test test/smoke_app04_live_test.dart
+
+Flutter assets will be downloaded from https://storage.flutter-io.cn. Make sure you trust this source!
+00:00 +0: loading D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app04_live_test.dart
+00:00 +0: (setUpAll)
+00:00 +0: 真后端 · 连通性 真实 HTTP 可达（ping 返回服务名与版本，证明请求真发出去了）
+00:00 +1: 真后端 · 创建背诵 /api/recitations（F1 / U1 / U2） create 返回契约字段：recitation_id / total_chars / 每段字数
+00:00 +2: 真后端 · 创建背诵 /api/recitations（F1 / U1 / U2） F1 响应不下发正文与拼音（安全线 F1）
+00:00 +3: 真后端 · 创建背诵 /api/recitations（F1 / U1 / U2） scope=[] 取课文背诵范围；范围不含首段时切片不错位（BE-05 回归）
+00:01 +4: 真后端 · 喂识别文本 /api/recitations/{id}/feed（F5 / U3） feed 推进 matched_chars，且 newly_matched 是**位置数组**（真契约）
+00:01 +5: 真后端 · 喂识别文本 /api/recitations/{id}/feed（F5 / U3） 重复喂同一段累计文本不重复推进（累计语义）
+00:02 +6: 真后端 · 喂识别文本 /api/recitations/{id}/feed（F5 / U3） 非中文内容判为噪声：不推进、不记错（需求 §6.3）
+00:02 +7: 真后端 · 提示 /api/recitations/{id}/hint（F7 / U6） 三档提示真实梯度：1=空框 / 2=下一个字 / 3=下一个字+后续 4 字
+00:02 +8: 真后端 · 提示 /api/recitations/{id}/hint（F7 / U6） hint_count 按档累计（服务端扣分口径）
+00:03 +9: 真后端 · 重开与断线补报（F9 / F15） restart 把指针与已点亮记录归零，restart_count 递增
+00:03 +10: 真后端 · 重开与断线补报（F9 / F15） events 批量补报被接受，accepted 计数如实返回（F2）
+00:04 +11: 真后端 · 结算 /api/recitations/{id}/settle（F12 / F13 / F5） settle 六项齐、评级是中文，且二次提交走幂等回放
+00:04 +12: 真后端 · 结算 /api/recitations/{id}/settle（F12 / F13 / F5） 服务端重算：客户端谎报 matched_chars=9999 必须无效（F5 防刷分）
+00:05 +13: 真后端 · 控制器走真实状态机（F1→F16） start → feed → hint → restart → settle 全程打通
+00:05 +14: 真后端 · WS /ws/asr 的 task_type=recite（F5 流式通道） partial 帧真的推进服务端 pos，end 后收到 final + verdict
+00:06 +15: (tearDownAll)
+00:06 +15: All tests passed!
+
+✅ 真机联调 ran 15 通过 / 0 跳过（flutter test 退出码 0）
+
+✅ 烟测通过

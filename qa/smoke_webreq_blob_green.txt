@@ -1,0 +1,8 @@
+[OK] C1 json-channel-error
+[OK] C2 blob-channel-error
+[OK] C3 blob-real-template-words
+[OK] C4 blob-real-template-students
+[OK] C5 blob-channel-http404
+
+烟测结果：5/5 通过
+日志：D:\helloagent\zhanglaoshi_zhangyuze\admin-web\logs\smoke_webreq_blob.txt

@@ -1,0 +1,55 @@
+# ============================================================
+# 背记系统 .gitattributes
+#
+# 背景：开发机是 Windows（core.autocrlf 默认为 true），而服务端会部署到
+# 局域网内的 Linux 机器。若不放这份文件，CRLF/LF 会随 checkout 环境漂移，
+# 表现为「没改代码却整仓 diff」以及 shell 脚本在 Linux 上因 \r 报
+# `bad interpreter: /bin/bash^M`。这里统一钉死：
+#   仓库内一律存 LF；只有 Windows 专用脚本在 checkout 时还原成 CRLF。
+# ============================================================
+
+# 默认：文本文件存 LF
+* text=auto eol=lf
+
+# ---- Windows 专用脚本必须 CRLF（否则 cmd.exe / PowerShell 解析出错）----
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# ---- 二进制：禁止任何换行转换 ----
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.bmp binary
+*.webp binary
+*.wav binary
+*.mp3 binary
+*.m4a binary
+*.xlsx binary
+*.xls binary
+*.docx binary
+*.pptx binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.tar binary
+*.apk binary
+*.aab binary
+*.jar binary
+*.keystore binary
+*.jks binary
+*.p12 binary
+*.pfx binary
+*.pem binary
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
+*.db binary
+
+# ---- 生成/锁文件：不参与 diff 统计与语言识别 ----
+package-lock.json -diff -linguist-detectable
+pnpm-lock.yaml   -diff -linguist-detectable
+pubspec.lock     -diff -linguist-detectable

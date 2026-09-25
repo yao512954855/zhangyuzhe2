@@ -1,0 +1,61 @@
+﻿case,target,model,raw_text,normalized,correct,latency_ms,n_words_ts
+apple__spell,APPLE,qwen3-asr-flash,a p p l e。,APPLE,1,406,0
+apple__spell,APPLE,qwen-audio-3.0-asr-flash,A P P L E. ,APPLE,1,1808,8
+apple__spell,APPLE,fun-asr-flash-2026-06-15,A P P L E. ,APPLE,1,307,8
+bag__spell,BAG,qwen3-asr-flash,B A G.,BAG,1,330,0
+bag__spell,BAG,qwen-audio-3.0-asr-flash,bag. ,BAG,1,895,1
+bag__spell,BAG,fun-asr-flash-2026-06-15,B A G. ,BAG,1,259,4
+beautiful__spell,BEAUTIFUL,qwen3-asr-flash,b e a u t i f u l.,BEAUTIFUL,1,475,0
+beautiful__spell,BEAUTIFUL,qwen-audio-3.0-asr-flash,BEAUTIFUL. ,BEAUTIFUL,1,696,4
+beautiful__spell,BEAUTIFUL,fun-asr-flash-2026-06-15,B E A U T I F U L. ,BEAUTIFUL,1,374,15
+bed__spell,BED,qwen3-asr-flash,B E D.,BED,1,337,0
+bed__spell,BED,qwen-audio-3.0-asr-flash,BED. ,BED,1,700,1
+bed__spell,BED,fun-asr-flash-2026-06-15,B E D. ,BED,1,260,4
+breakfast__spell,BREAKFAST,qwen3-asr-flash,b r e a k f a s t。,BREAKFAST,1,388,0
+breakfast__spell,BREAKFAST,qwen-audio-3.0-asr-flash,Breakfast. ,BREAKFAST,1,1098,2
+breakfast__spell,BREAKFAST,fun-asr-flash-2026-06-15,B R E A K F A S T. ,BREAKFAST,1,729,16
+bus__spell,BUS,qwen3-asr-flash,b u s。,BUS,1,362,0
+bus__spell,BUS,qwen-audio-3.0-asr-flash,BUS. ,BUS,1,768,1
+bus__spell,BUS,fun-asr-flash-2026-06-15,B U S. ,BUS,1,312,4
+cat__spell,CAT,qwen3-asr-flash,c a t。,CAT,1,305,0
+cat__spell,CAT,qwen-audio-3.0-asr-flash,C A T. ,CAT,1,4704,4
+cat__spell,CAT,fun-asr-flash-2026-06-15,C A T. ,CAT,1,251,4
+class__spell,CLASS,qwen3-asr-flash,C L A S S。,CLASS,1,443,0
+class__spell,CLASS,qwen-audio-3.0-asr-flash,C L A S S. ,CLASS,1,395,8
+class__spell,CLASS,fun-asr-flash-2026-06-15,C L A S S. ,CLASS,1,295,8
+classroom__spell,CLASSROOM,qwen3-asr-flash,classroom.,CLASSROOM,1,451,0
+classroom__spell,CLASSROOM,qwen-audio-3.0-asr-flash,g l a s s r o o m. ,GLASSROOM,0,1112,16
+classroom__spell,CLASSROOM,fun-asr-flash-2026-06-15,G L A S S R O O M. ,GLASSROOM,0,667,16
+dictionary__spell,DICTIONARY,qwen3-asr-flash,D i c t i o n a r y.,DICTIONARY,1,457,0
+dictionary__spell,DICTIONARY,qwen-audio-3.0-asr-flash,ディクショナリー。,,0,2978,5
+dictionary__spell,DICTIONARY,fun-asr-flash-2026-06-15,D I C T I O N A R Y. ,DICTIONARY,1,341,16
+dog__spell,DOG,qwen3-asr-flash,d o g.,DOG,1,347,0
+dog__spell,DOG,qwen-audio-3.0-asr-flash,dog. ,DOG,1,612,1
+dog__spell,DOG,fun-asr-flash-2026-06-15,D O G. ,DOG,1,275,4
+happy__spell,HAPPY,qwen3-asr-flash,h a p p y。,HAPPY,1,439,0
+happy__spell,HAPPY,qwen-audio-3.0-asr-flash,H A P P Y. ,HAPPY,1,393,8
+happy__spell,HAPPY,fun-asr-flash-2026-06-15,H A P P Y. ,HAPPY,1,323,8
+little__spell,LITTLE,qwen3-asr-flash,l i t t l e。,LITTLE,1,433,0
+little__spell,LITTLE,qwen-audio-3.0-asr-flash,L I T T L E. ,LITTLE,1,1633,10
+little__spell,LITTLE,fun-asr-flash-2026-06-15,L I T T L E. ,LITTLE,1,764,9
+pen__spell,PEN,qwen3-asr-flash,p e n。,PEN,1,382,0
+pen__spell,PEN,qwen-audio-3.0-asr-flash,PEN. ,PEN,1,833,1
+pen__spell,PEN,fun-asr-flash-2026-06-15,P E N. ,PEN,1,331,4
+pencil__spell,PENCIL,qwen3-asr-flash,p n c i l.,PNCIL,0,411,0
+pencil__spell,PENCIL,qwen-audio-3.0-asr-flash,P N C I L. ,PNCIL,0,379,8
+pencil__spell,PENCIL,fun-asr-flash-2026-06-15,P N C I L. ,PNCIL,0,386,8
+restaurant__spell,RESTAURANT,qwen3-asr-flash,r e s t a u r a n t.,RESTAURANT,1,581,0
+restaurant__spell,RESTAURANT,qwen-audio-3.0-asr-flash,Restaurante. ,RESTAURANTE,0,3279,3
+restaurant__spell,RESTAURANT,fun-asr-flash-2026-06-15,R E S T A U R A N T. ,RESTAURANT,1,409,18
+school__spell,SCHOOL,qwen3-asr-flash,S C H O O L.,SCHOOL,1,468,0
+school__spell,SCHOOL,qwen-audio-3.0-asr-flash,SCHOOL. ,SCHOOL,1,10800,2
+school__spell,SCHOOL,fun-asr-flash-2026-06-15,S C H O O L. ,SCHOOL,1,263,10
+student__spell,STUDENT,qwen3-asr-flash,S T U D E N T.,STUDENT,1,620,0
+student__spell,STUDENT,qwen-audio-3.0-asr-flash,「student」,STUDENT,1,387,3
+student__spell,STUDENT,fun-asr-flash-2026-06-15,S T U D E N T. ,STUDENT,1,1034,12
+teacher__spell,TEACHER,qwen3-asr-flash,teacher。,TEACHER,1,371,0
+teacher__spell,TEACHER,qwen-audio-3.0-asr-flash,T E A C H E R. ,TEACHER,1,880,12
+teacher__spell,TEACHER,fun-asr-flash-2026-06-15,T E A C H E R. ,TEACHER,1,272,12
+water__spell,WATER,qwen3-asr-flash,water。,WATER,1,522,0
+water__spell,WATER,qwen-audio-3.0-asr-flash,W A T E R. ,WATER,1,1638,8
+water__spell,WATER,fun-asr-flash-2026-06-15,V O A T E R. ,VOATER,0,311,10

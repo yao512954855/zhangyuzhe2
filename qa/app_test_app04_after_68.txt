@@ -1,0 +1,27 @@
+Flutter assets will be downloaded from https://storage.flutter-io.cn. Make sure you trust this source!
+00:00 +0: loading D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app04_recite_test.dart
+00:00 +0: (setUpAll)
+00:00 +0: CharGrid · 逐字点亮（U1/U2/F2/F3/F4/F16） U1 进入不显示正文：matched=0 时只画空框，目标字一个都不出现
+00:00 +1: CharGrid · 逐字点亮（U1/U2/F2/F3/F4/F16） U2 按字推进：matched=2 时前两个字显示，第三个字是当前空框（不显示）
+00:00 +2: CharGrid · 逐字点亮（U1/U2/F2/F3/F4/F16） F4 标点不进网格：标点只保留布局位置，不渲染字符
+00:00 +3: CharGrid · 逐字点亮（U1/U2/F2/F3/F4/F16） F16 暗色主题下已背字与当前框用不同色彩（不靠亮度）
+00:00 +4: HintBar · 三档提示（U6/U7/U8/F6/F7） U6 一档提示：渲染一排空框 + "还有 N 个字"
+00:00 +5: HintBar · 三档提示（U6/U7/U8/F6/F7） U7 二档提示：显示下一个字
+00:00 +6: HintBar · 三档提示（U6/U7/U8/F6/F7） U7 三档提示：显示下一个字 + 后续窗口
+00:00 +7: HintBar · 三档提示（U6/U7/U8/F6/F7） U8 界面显示当前已用提示次数
+00:00 +8: ReciteTimer · 计时（U11/F11/F14） 不限时：显示已用时间
+00:00 +9: ReciteTimer · 计时（U11/F11/F14） U11/F14 限时到点：显示剩余 00:00 且变警示色（不闪烁）
+00:00 +10: ReciteText · 展示正文切片（U4/F4） 标点被剔除、纯汉字进网格，段落字数保留形状
+00:00 +11: ReciteText · 展示正文切片（U4/F4） 按背诵范围切片：只背第 1 段（idx=1）时只取该段汉字
+00:00 +12: ReciteSettlePage · 结算（U12/U13/F13/F14） U12/F13 六项指标 + 评级齐全
+00:01 +13: ReciteSettlePage · 结算（U12/U13/F13/F14） U13 回看列出漏字位置与字符
+00:01 +14: ReciteSettlePage · 结算（U12/U13/F13/F14） U13 没有漏字时给正向反馈
+00:01 +15: ReciteController · 逻辑（U3/U5/U6/U7/U8/U10） U3 同音字由服务端判：客户端只转发累计文本，matched 随 feed 推进
+00:01 +16: ReciteController · 逻辑（U3/U5/U6/U7/U8/U10） U5 漏念不阻断：feed 短文本只点亮对应字数，后续可继续
+00:01 +17: ReciteController · 逻辑（U3/U5/U6/U7/U8/U10） U6/U7 三档顺序 + 同位置不重复：连要 4 次 → 1/2/3/0
+00:01 +18: ReciteController · 逻辑（U3/U5/U6/U7/U8/U10） U8 手动"我卡住了"降一档并记次数
+00:01 +19: ReciteController · 逻辑（U3/U5/U6/U7/U8/U10） U10 重新开始本段：进度清零，restart_count +1
+00:01 +20: RecitePage · 整页链路（U2/U9/F1/F5/F12） F1 进入只有标题与开始按钮；背出后逐字点亮；暂停/继续；结束并结算
+00:01 +21: RecitePage · 整页链路（U2/U9/F1/F5/F12） F1 没有可背课文时如实引导，不崩
+00:01 +22: (tearDownAll)
+00:01 +22: All tests passed!

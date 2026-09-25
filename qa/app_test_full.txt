@@ -1,0 +1,579 @@
+Flutter assets will be downloaded from https://storage.flutter-io.cn. Make sure you trust this source!
+00:00 +0: loading D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/english_controller_test.dart
+00:00 +0: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/english_controller_test.dart: U1 两步流程 word→spell 各记一条，顺序正确
+00:00 +1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/english_controller_test.dart: U3 答对后停留 result（F6 回显不自动消失）
+00:00 +2: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/english_controller_test.dart: U4 前 2 次失败不弹键盘，停留 result 提示再说一次
+00:00 +3: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/english_controller_test.dart: U5 第 3 次失败自动切键盘
+00:00 +4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/english_controller_test.dart: U6/U8 识别为空不计失败数，停留原步
+00:00 +5: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/english_controller_test.dart: U7 主动切换到键盘态
+00:00 +6: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/english_controller_test.dart: U9 fuzzy 判定可申诉一次，不改判分
+00:00 +7: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/english_controller_test.dart: U9 非 fuzzy/loose 不可申诉
+00:00 +8: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/english_controller_test.dart: U11 限时到点判 timeout，停留 result
+00:00 +9: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/english_controller_test.dart: U13 WS 错误 action=keyboard 强制键盘，retry 不弹键盘
+00:00 +10: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/english_controller_test.dart: U14 完成后结算数据一致，评级随分数
+00:00 +11: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/english_controller_test.dart: U15 中途退出 abandon 标记 abandoned 且保留记录
+00:00 +12: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/english_controller_test.dart: U16 提示三档升级并累计计数，封顶 3
+00:00 +13: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/english_controller_test.dart: U17 键盘兜底提交上报 retryCount 与 usedKeyboard
+00:00 +14: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/english_controller_test.dart: F15 幂等键唯一且带会话号
+00:00 +15: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/english_controller_test.dart: 模式二单步 zhAnswer，答对即完成该题
+00:00 +16: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/english_controller_test.dart: 空场次进入 error 态而非崩溃
+00:06 +17: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/english_widgets_test.dart: U2 逐字母回显 match/wrong/missing/extra 均渲染
+00:07 +18: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app01_live_test.dart: (setUpAll)
+00:07 +19: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app01_live_test.dart: (setUpAll)
+00:07 +20: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app01_live_test.dart: (setUpAll)
+00:07 +21: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app01_live_test.dart: (setUpAll)
+00:08 +22: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app01_live_test.dart: (setUpAll)
+00:08 +23: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app01_live_test.dart: (setUpAll)
+00:08 +24: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app01_live_test.dart: (setUpAll)
+00:08 +25: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app01_live_test.dart: (setUpAll)
+00:08 +26: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app01_live_test.dart: (setUpAll)
+00:08 +27: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app01_live_test.dart: (setUpAll)
+⚠️  后端 127.0.0.1:8810 未启动，真机联调用例已跳过。
+00:12 +27: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app02_live_test.dart: (setUpAll)
+00:12 +27: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app01_live_test.dart: 真后端 · 服务发现与鉴权 探活返回契约字段（接口设计 §3.1）
+  后端未启动
+00:12 +27 ~1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app02_live_test.dart: (setUpAll)
+00:12 +27 ~1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app01_live_test.dart: 真后端 · 服务发现与鉴权 注册 → 拿到 access_token 与 user（契约 §5.2 字段名）
+  后端未启动
+00:12 +27 ~2: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app02_live_test.dart: (setUpAll)
+00:12 +27 ~2: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app01_live_test.dart: 真后端 · 服务发现与鉴权 注册走生产路径（AuthController）→ token 落库、restore 能认出自己
+  后端未启动
+00:12 +27 ~3: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app02_live_test.dart: (setUpAll)
+00:12 +27 ~3: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app01_live_test.dart: 真后端 · 服务发现与鉴权 学号重复 → 20001，文案可直接上屏（U6）
+  后端未启动
+00:12 +27 ~4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app02_live_test.dart: (setUpAll)
+00:12 +27 ~4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app01_live_test.dart: 真后端 · 服务发现与鉴权 密码错误 → 20002，且文案不泄露"学号是否存在"（防枚举）
+  后端未启动
+00:12 +27 ~5: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app02_live_test.dart: (setUpAll)
+00:12 +27 ~5: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app01_live_test.dart: 真后端 · 服务发现与鉴权 正确登录拿到新 token
+  后端未启动
+00:12 +27 ~6: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app02_live_test.dart: (setUpAll)
+00:12 +27 ~6: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app01_live_test.dart: 真后端 · 服务发现与鉴权 管理端角色登录学生入口 → 也是 20002（隔离两端入口）
+  后端未启动
+00:12 +27 ~7: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app02_live_test.dart: (setUpAll)
+00:12 +27 ~7: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app01_live_test.dart: 真后端 · 服务发现与鉴权 无效 token → 10002，且触发登录过期钩子（U8）
+  后端未启动
+00:12 +27 ~8: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app02_live_test.dart: (setUpAll)
+00:12 +27 ~8: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app01_live_test.dart: 真后端 · 服务发现与鉴权 探活走的地址可以不带 token
+  后端未启动
+00:12 +27 ~9: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app02_live_test.dart: (setUpAll)
+00:12 +27 ~9: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app01_live_test.dart: 真后端 · 错误码与响应形状 不存在的路径 → 404 也不会漏出英文给用户
+  后端未启动
+00:12 +27 ~10: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app02_live_test.dart: (setUpAll)
+00:12 +27 ~10: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app01_live_test.dart: 真后端 · 错误码与响应形状 带数字查询参数不会崩（客户端曾在这里踩过坑）
+  后端未启动
+00:12 +27 ~11: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app02_live_test.dart: (setUpAll)
+00:12 +27 ~11: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app03_live_test.dart: (setUpAll)
+⚠️  后端 127.0.0.1:8891 未启动，真机联调用例已跳过。
+00:12 +27 ~11: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app02_live_test.dart: (setUpAll)
+⚠️  后端 127.0.0.1:8812 未启动，真机联调用例已跳过。
+00:12 +27 ~11: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app05_live_test.dart: (setUpAll)
+00:12 +27 ~11: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app03_live_test.dart: 真后端 · 答题 /api/sessions/{id}/answers（F1 / F7 / U7 / U17） 键盘提交 §9.2 请求体被后端接受，返回 is_correct/match_type
+  后端未启动
+00:12 +27 ~12: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app05_live_test.dart: (setUpAll)
+00:12 +27 ~12: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app02_live_test.dart: 真后端 · 首页取数（F1 / F3 / F5 / U5 / U11） 刚注册还没选年级 → /api/me/units 返回空列表而不是报错（F2 引导页靠它）
+  后端未启动
+00:12 +27 ~13: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app05_live_test.dart: (setUpAll)
+00:12 +27 ~13: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app03_live_test.dart: 真后端 · 答题 /api/sessions/{id}/answers（F1 / F7 / U7 / U17） 拼读（step=2）故意拼错 → 返回 diff 且字段齐全（驱动 P7 逐字母回显）
+  后端未启动
+00:12 +27 ~14: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app05_live_test.dart: (setUpAll)
+00:12 +27 ~14: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app02_live_test.dart: 真后端 · 首页取数（F1 / F3 / F5 / U5 / U11） PUT /api/me/profile 之后按偏好返回内容（F3 双向持久化：服务端那一半）
+  后端未启动
+00:12 +27 ~15: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app05_live_test.dart: (setUpAll)
+00:12 +27 ~15: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app03_live_test.dart: 真后端 · 结算 /api/sessions/{id}/finish（F16 / U14 / U15） finish 返回结算字段齐全（total/correct/accuracy/score/wrong_items）
+  后端未启动
+00:12 +27 ~16: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app05_live_test.dart: (setUpAll)
+00:12 +27 ~16: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app02_live_test.dart: 真后端 · 首页取数（F1 / F3 / F5 / U5 / U11） 英语单元字段名逐个核对（词条维度）
+  后端未启动
+00:12 +27 ~17: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app05_live_test.dart: (setUpAll)
+00:12 +27 ~17: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app02_live_test.dart: 真后端 · 首页取数（F1 / F3 / F5 / U5 / U11） §8.3 **不下发** with_error —— 首页「只练错题」不能按单元猜（偏离 #44 的回归）
+  后端未启动
+00:12 +27 ~18: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app05_live_test.dart: (setUpAll)
+00:12 +27 ~18: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app03_live_test.dart: 真后端 · 结算 /api/sessions/{id}/finish（F16 / U14 / U15） 控制器整场 abandon → settle 与后端一致（U15 标记 abandoned）
+  后端未启动
+00:12 +27 ~19: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app05_live_test.dart: (setUpAll)
+00:12 +27 ~19: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app02_live_test.dart: 真后端 · 首页取数（F1 / F3 / F5 / U5 / U11） 语文单元走课文维度（text_total / recited / last_grade）
+  后端未启动
+00:12 +27 ~20: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app05_live_test.dart: (setUpAll)
+00:12 +27 ~20: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app03_live_test.dart: 真后端 · 申诉 /api/answers/{id}/appeal（F11 / U9） appeal 端点可达（能申就申，不能申则中文业务错误）
+  后端未启动
+00:12 +27 ~21: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app05_live_test.dart: (setUpAll)
+00:12 +27 ~21: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app02_live_test.dart: 真后端 · 首页取数（F1 / F3 / F5 / U5 / U11） subject 过滤生效（F4 学科切换的数据侧）
+  后端未启动
+00:12 +27 ~22: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app05_live_test.dart: (setUpAll)
+00:12 +27 ~22: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app03_live_test.dart: 真后端 · 组卷响应不含答案侧字段（F1 / 共通约束） 组卷 items 不下发答案（en/cn/accepted/expected）
+  后端未启动
+00:12 +27 ~23: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app05_live_test.dart: (setUpAll)
+00:12 +27 ~23: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app02_live_test.dart: 真后端 · 首页取数（F1 / F3 / F5 / U5 / U11） /api/me/progress 字段齐全（首页顶部三个数字）
+  后端未启动
+00:12 +27 ~24: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app05_live_test.dart: (setUpAll)
+00:12 +27 ~24: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app02_live_test.dart: 真后端 · 首页取数（F1 / F3 / F5 / U5 / U11） 缓存时间能带上（U10 断网提示要说清"这是什么时候的数据"）
+  后端未启动
+00:12 +27 ~25: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app05_live_test.dart: (setUpAll)
+00:12 +27 ~25: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app02_live_test.dart: 真后端 · 内容与组卷（F9 / F13 / U7） /api/units/{id}/words 学生视图**不含 accepted**（契约禁止清单第 4 条）
+  后端未启动
+00:12 +27 ~26: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app05_live_test.dart: (setUpAll)
+00:12 +27 ~26: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app02_live_test.dart: 真后端 · 内容与组卷（F9 / F13 / U7） /api/units/{id}/texts 学生视图不含正文（只有摘要）
+  后端未启动
+00:12 +27 ~27: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app05_live_test.dart: (setUpAll)
+00:12 +27 ~27: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app02_live_test.dart: 真后端 · 内容与组卷（F9 / F13 / U7） POST /api/sessions 整单元（英语）→ 题序完整、prompt 不含答案
+  后端未启动
+00:12 +27 ~28: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app05_live_test.dart: (setUpAll)
+00:12 +27 ~28: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app02_live_test.dart: 真后端 · 内容与组卷（F9 / F13 / U7） 答错一题 → 错题数变 1 → scope=wrong 组出 1 题（首页「只练错题」整条链）
+  后端未启动
+00:12 +27 ~29: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app05_live_test.dart: (setUpAll)
+00:12 +27 ~29: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app02_live_test.dart: 真后端 · 内容与组卷（F9 / F13 / U7） 没有错题时 scope=wrong 会被后端明确拒绝（不是静默出整单元）
+  后端未启动
+00:12 +27 ~30: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app05_live_test.dart: (setUpAll)
+00:12 +27 ~30: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app02_live_test.dart: 真后端 · 内容与组卷（F9 / F13 / U7） POST /api/sessions 语文 → items 是课文清单（含背诵范围）
+  后端未启动
+00:12 +27 ~31: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app05_live_test.dart: (setUpAll)
+00:12 +27 ~31: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app02_live_test.dart: 真后端 · 内容与组卷（F9 / F13 / U7） 语文「只背选中的课文」= scope_detail.text_ids，后端认这个字段
+  后端未启动
+00:12 +27 ~32: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app05_live_test.dart: (setUpAll)
+00:12 +27 ~32: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app02_live_test.dart: 真后端 · 内容与组卷（F9 / F13 / U7） 英语自定义区间：scope_detail.start/end 被后端用上（不是静默整单元）
+  后端未启动
+00:12 +27 ~33: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app05_live_test.dart: (setUpAll)
+00:12 +27 ~33: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app02_live_test.dart: 真后端 · 断网降级（F15 / U10） 网络失败 → 用缓存并标记 fromCache；业务错误码 → 必须抛出去，不许拿缓存糊弄
+  后端未启动
+00:12 +27 ~34: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app05_live_test.dart: (setUpAll)
+00:13 +28 ~34: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app05_live_test.dart: (setUpAll)
+00:13 +29 ~34: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app05_live_test.dart: (setUpAll)
+00:13 +29 ~34 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app05_live_test.dart: (setUpAll)
+00:13 +29 ~34 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: 路由聚合（F18） 尚未落地的包路由仍是空壳（聚合器能安全读取） [E]
+  Expected: false
+    Actual: <true>
+  
+  package:matcher                                     expect
+  package:flutter_test/src/widget_tester.dart 473:18  expect
+  test\test_app01_app_test.dart 97:7                  main.<fn>.<fn>
+  
+00:13 +30 ~34 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app05_live_test.dart: (setUpAll)
+⚠️  后端 127.0.0.1:8893 未启动，真机联调用例已跳过。
+00:14 +30 ~34 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +30 ~34 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app05_live_test.dart: 真后端 · 探活与登录（证明真请求真的发出去了） HttpOverrides 已解开：/api/ping 返回契约字段 service=="bjsys"
+  后端未启动
+00:14 +30 ~35 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +30 ~35 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app05_live_test.dart: 真后端 · 探活与登录（证明真请求真的发出去了） 登录烟测学生 → token 落地（后续请求自动带 Authorization）
+  后端未启动
+00:14 +30 ~36 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +30 ~36 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app05_live_test.dart: 真后端 · 错题本数据源（U1 / F1 红线：字段逐个核对） GET /api/me/wrong-words 字段逐个核对（WrongWord 模型靠这些字段渲染）
+  后端未启动
+00:14 +30 ~37 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +30 ~37 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app05_live_test.dart: 真后端 · 错题本数据源（U1 / F1 红线：字段逐个核对） POST /api/sessions scope=wrong（走生产 toRequest）→ 题全部来自错题本
+  后端未启动
+00:14 +30 ~38 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +30 ~38 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/smoke_app05_live_test.dart: 真后端 · 进度总览（U3 / U4 / F2 / F3 的数据源） GET /api/me/progress 字段齐全且都是数字（我的记录/统计页直接拼字符串）
+  后端未启动
+00:14 +30 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +31 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +32 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +33 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +34 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +35 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +36 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +37 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +38 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +39 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +40 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +41 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +42 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +43 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +44 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +45 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +46 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +47 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +48 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +49 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +50 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +51 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +52 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +53 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +54 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +55 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +56 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +57 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +58 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +59 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +60 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +61 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +62 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +63 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +64 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +65 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +66 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +67 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +68 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +69 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +70 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +71 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +72 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +73 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +74 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +75 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +76 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +77 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +78 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:14 +79 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 找了一圈没找到 → 展示扫码与手动输入，且不出现技术术语
+00:15 +80 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P1 服务器发现页（U1 / U4） 扫码是主按钮（排在手输前面）
+00:15 +81 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_net_test.dart: 响应解包（契约 §3：HTTP 200 + code 判成败） code = 0 → 返回 data
+00:15 +82 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 用「我的学号」而不是「用户名」，且密码可显示
+00:15 +83 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 用「我的学号」而不是「用户名」，且密码可显示
+00:15 +84 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 用「我的学号」而不是「用户名」，且密码可显示
+00:15 +85 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 用「我的学号」而不是「用户名」，且密码可显示
+00:15 +86 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 用「我的学号」而不是「用户名」，且密码可显示
+00:15 +87 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 用「我的学号」而不是「用户名」，且密码可显示
+00:15 +88 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 用「我的学号」而不是「用户名」，且密码可显示
+00:15 +89 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 用「我的学号」而不是「用户名」，且密码可显示
+00:15 +90 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 用「我的学号」而不是「用户名」，且密码可显示
+00:15 +91 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 用「我的学号」而不是「用户名」，且密码可显示
+00:16 +92 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 用「我的学号」而不是「用户名」，且密码可显示
+00:16 +93 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 用「我的学号」而不是「用户名」，且密码可显示
+00:16 +94 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 用「我的学号」而不是「用户名」，且密码可显示
+00:16 +95 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 用「我的学号」而不是「用户名」，且密码可显示
+00:16 +96 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 用「我的学号」而不是「用户名」，且密码可显示
+00:16 +97 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 用「我的学号」而不是「用户名」，且密码可显示
+00:16 +98 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 用「我的学号」而不是「用户名」，且密码可显示
+00:16 +99 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 用「我的学号」而不是「用户名」，且密码可显示
+00:16 +100 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 用「我的学号」而不是「用户名」，且密码可显示
+00:16 +101 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 用「我的学号」而不是「用户名」，且密码可显示
+00:16 +102 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 用「我的学号」而不是「用户名」，且密码可显示
+00:16 +103 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 用「我的学号」而不是「用户名」，且密码可显示
+00:16 +104 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 用「我的学号」而不是「用户名」，且密码可显示
+00:16 +105 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 用「我的学号」而不是「用户名」，且密码可显示
+00:16 +106 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 用「我的学号」而不是「用户名」，且密码可显示
+00:16 +107 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 用「我的学号」而不是「用户名」，且密码可显示
+00:16 +108 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 用「我的学号」而不是「用户名」，且密码可显示
+00:16 +109 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 用「我的学号」而不是「用户名」，且密码可显示
+00:16 +110 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 用「我的学号」而不是「用户名」，且密码可显示
+00:16 +111 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 用「我的学号」而不是「用户名」，且密码可显示
+00:16 +112 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 用「我的学号」而不是「用户名」，且密码可显示
+00:16 +113 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 用「我的学号」而不是「用户名」，且密码可显示
+00:16 +114 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 用「我的学号」而不是「用户名」，且密码可显示
+00:16 +115 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 用「我的学号」而不是「用户名」，且密码可显示
+00:16 +116 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 用「我的学号」而不是「用户名」，且密码可显示
+00:16 +117 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 用「我的学号」而不是「用户名」，且密码可显示
+00:16 +118 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 用「我的学号」而不是「用户名」，且密码可显示
+00:16 +119 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 用「我的学号」而不是「用户名」，且密码可显示
+00:16 +120 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 用「我的学号」而不是「用户名」，且密码可显示
+00:16 +121 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 用「我的学号」而不是「用户名」，且密码可显示
+00:16 +122 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_theme_test.dart: 主题构建 三套调色板都能构建出 ThemeData 且带扩展色
+00:16 +123 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_theme_test.dart: 主题构建 三套调色板都能构建出 ThemeData 且带扩展色
+00:16 +124 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_theme_test.dart: 主题构建 三套调色板都能构建出 ThemeData 且带扩展色
+00:16 +125 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 空输入就地提示，不弹模态框（§5.2）
+00:16 +126 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 空输入就地提示，不弹模态框（§5.2）
+00:16 +127 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 空输入就地提示，不弹模态框（§5.2）
+00:16 +128 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 空输入就地提示，不弹模态框（§5.2）
+00:16 +129 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 空输入就地提示，不弹模态框（§5.2）
+00:16 +130 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 空输入就地提示，不弹模态框（§5.2）
+00:16 +131 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 空输入就地提示，不弹模态框（§5.2）
+00:16 +132 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_net_test.dart: 探活 ping（F5 / 接口设计 §3.1） 探活失败返回 null，**不抛异常**（它在启动路径上，失败是常态）
+00:16 +133 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 只填学号不填密码也有提示
+00:16 +134 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 只填学号不填密码也有提示
+00:16 +135 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 只填学号不填密码也有提示
+00:16 +136 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 只填学号不填密码也有提示
+00:16 +137 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 只填学号不填密码也有提示
+00:16 +138 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: P2 登录页（F14） 只填学号不填密码也有提示
+00:17 +139 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: 主题切换（U9） 四种模式都在，且能切到夜间并记住
+00:17 +140 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:17 +141 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:17 +142 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:17 +143 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:17 +144 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:17 +145 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:17 +146 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:17 +147 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:17 +148 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:17 +149 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:17 +150 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:17 +151 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:17 +152 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:17 +153 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:17 +154 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:17 +155 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:18 +156 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:18 +157 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:18 +158 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:18 +159 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:18 +160 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:18 +161 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:18 +162 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:18 +163 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:18 +164 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:18 +165 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:18 +166 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:18 +167 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:18 +168 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:18 +169 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:18 +170 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:18 +171 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:18 +172 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:18 +173 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:18 +174 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:18 +175 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:18 +176 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:18 +177 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:18 +178 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:18 +179 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:18 +180 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:18 +181 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:18 +182 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:18 +183 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:18 +184 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:18 +185 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:18 +186 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:18 +187 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U9 全部用卡片，无下拉框 英语配置页找不到任何下拉控件
+00:18 +188 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 没选过年级 → 整页是引导页，且**没有返回按钮**
+00:19 +189 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 没选过年级 → 整页是引导页，且**没有返回按钮**
+00:19 +190 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 没选过年级 → 整页是引导页，且**没有返回按钮**
+00:19 +191 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 没选过年级 → 整页是引导页，且**没有返回按钮**
+00:19 +192 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 没选过年级 → 整页是引导页，且**没有返回按钮**
+00:19 +193 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 没选过年级 → 整页是引导页，且**没有返回按钮**
+00:19 +194 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 没选过年级 → 整页是引导页，且**没有返回按钮**
+00:19 +195 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 没选过年级 → 整页是引导页，且**没有返回按钮**
+00:19 +196 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 没选过年级 → 整页是引导页，且**没有返回按钮**
+00:19 +197 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 没选过年级 → 整页是引导页，且**没有返回按钮**
+00:20 +198 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 没选过年级 → 整页是引导页，且**没有返回按钮**
+00:20 +199 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 没选过年级 → 整页是引导页，且**没有返回按钮**
+00:20 +200 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 没选过年级 → 整页是引导页，且**没有返回按钮**
+00:20 +201 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 没选过年级 → 整页是引导页，且**没有返回按钮**
+00:20 +202 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 没选过年级 → 整页是引导页，且**没有返回按钮**
+00:20 +203 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 没选过年级 → 整页是引导页，且**没有返回按钮**
+00:20 +204 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 没选过年级 → 整页是引导页，且**没有返回按钮**
+00:20 +205 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 没选过年级 → 整页是引导页，且**没有返回按钮**
+00:20 +206 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 没选过年级 → 整页是引导页，且**没有返回按钮**
+00:20 +207 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 没选过年级 → 整页是引导页，且**没有返回按钮**
+00:20 +208 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 没选过年级 → 整页是引导页，且**没有返回按钮**
+00:20 +209 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 没选过年级 → 整页是引导页，且**没有返回按钮**
+00:20 +210 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 没选过年级 → 整页是引导页，且**没有返回按钮**
+00:20 +211 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 没选过年级 → 整页是引导页，且**没有返回按钮**
+00:20 +212 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 没选过年级 → 整页是引导页，且**没有返回按钮**
+00:20 +213 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 没选过年级 → 整页是引导页，且**没有返回按钮**
+00:20 +214 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 没选过年级 → 整页是引导页，且**没有返回按钮**
+00:20 +215 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 没选过年级 → 整页是引导页，且**没有返回按钮**
+00:20 +216 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 没选过年级 → 整页是引导页，且**没有返回按钮**
+00:20 +217 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 没选过年级 → 整页是引导页，且**没有返回按钮**
+00:20 +218 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 没选过年级 → 整页是引导页，且**没有返回按钮**
+00:21 +219 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 没选过年级 → 整页是引导页，且**没有返回按钮**
+00:21 +220 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 没选过年级 → 整页是引导页，且**没有返回按钮**
+00:21 +221 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 没选过年级 → 整页是引导页，且**没有返回按钮**
+00:21 +221 ~39 -1: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U7 发起练习（F13 的请求体必须与契约 §9.1 一致） 只练错题 + 随机 10 个 + 每题限时 30 秒
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following assertion was thrown running a test:
+Could not find a generator for route RouteSettings("/practice", Instance of 'PracticeSession') in
+the _WidgetsAppState.
+Make sure your root app widget has provided a way to generate
+this route.
+Generators for routes are searched for in the following order:
+ 1. For the "/" route, the "home" property, if non-null, is used.
+ 2. Otherwise, the "routes" table is used, if it has an entry for the route.
+ 3. Otherwise, onGenerateRoute is called. It should return a non-null value for any valid route not
+handled by "home" and "routes".
+ 4. Finally if all else fails onUnknownRoute is called.
+Unfortunately, onUnknownRoute was not set.
+
+When the exception was thrown, this was the stack:
+#0      _WidgetsAppState._onUnknownRoute.<anonymous closure> (package:flutter/src/widgets/app.dart:1574:9)
+#1      _WidgetsAppState._onUnknownRoute (package:flutter/src/widgets/app.dart:1589:6)
+#2      NavigatorState._routeNamed (package:flutter/src/widgets/navigator.dart:4728:37)
+#3      NavigatorState.pushNamed (package:flutter/src/widgets/navigator.dart:4776:21)
+#4      openPracticeSession (package:student_app/features/config/practice_launcher.dart:28:27)
+#5      _PracticeConfigPageState._submit (package:student_app/features/config/practice_config_page.dart:278:5)
+<asynchronous suspension>
+
+The test description was:
+  只练错题 + 随机 10 个 + 每题限时 30 秒
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:21 +221 ~39 -2: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 没选过年级 → 整页是引导页，且**没有返回按钮**
+00:21 +221 ~39 -2: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U7 发起练习（F13 的请求体必须与契约 §9.1 一致） 只练错题 + 随机 10 个 + 每题限时 30 秒 [E]
+  Test failed. See exception logs above.
+  The test description was: 只练错题 + 随机 10 个 + 每题限时 30 秒
+  
+00:21 +222 ~39 -2: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 没选过年级 → 整页是引导页，且**没有返回按钮**
+00:21 +223 ~39 -2: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 没选过年级 → 整页是引导页，且**没有返回按钮**
+00:21 +224 ~39 -2: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 没选过年级 → 整页是引导页，且**没有返回按钮**
+00:21 +225 ~39 -2: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 没选过年级 → 整页是引导页，且**没有返回按钮**
+00:21 +226 ~39 -2: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 没选过年级 → 整页是引导页，且**没有返回按钮**
+00:21 +227 ~39 -2: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app04_recite_test.dart: CharGrid · 逐字点亮（U1/U2/F2/F3/F4/F16） F4 标点不进网格：标点只保留布局位置，不渲染字符
+00:21 +228 ~39 -2: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U7 发起练习（F13 的请求体必须与契约 §9.1 一致） 练习页还没落地时如实告知，并给出"卷已组好"的证据
+00:21 +229 ~39 -2: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U7 发起练习（F13 的请求体必须与契约 §9.1 一致） 练习页还没落地时如实告知，并给出"卷已组好"的证据
+00:21 +230 ~39 -2: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U7 发起练习（F13 的请求体必须与契约 §9.1 一致） 练习页还没落地时如实告知，并给出"卷已组好"的证据
+00:22 +231 ~39 -2: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U7 发起练习（F13 的请求体必须与契约 §9.1 一致） 练习页还没落地时如实告知，并给出"卷已组好"的证据
+00:22 +232 ~39 -2: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U7 发起练习（F13 的请求体必须与契约 §9.1 一致） 练习页还没落地时如实告知，并给出"卷已组好"的证据
+00:22 +233 ~39 -2: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U7 发起练习（F13 的请求体必须与契约 §9.1 一致） 练习页还没落地时如实告知，并给出"卷已组好"的证据
+00:22 +234 ~39 -2: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U7 发起练习（F13 的请求体必须与契约 §9.1 一致） 练习页还没落地时如实告知，并给出"卷已组好"的证据
+00:22 +235 ~39 -2: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U7 发起练习（F13 的请求体必须与契约 §9.1 一致） 练习页还没落地时如实告知，并给出"卷已组好"的证据
+00:22 +236 ~39 -2: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U7 发起练习（F13 的请求体必须与契约 §9.1 一致） 练习页还没落地时如实告知，并给出"卷已组好"的证据
+00:22 +237 ~39 -2: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U7 发起练习（F13 的请求体必须与契约 §9.1 一致） 练习页还没落地时如实告知，并给出"卷已组好"的证据
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following assertion was thrown running a test:
+Could not find a generator for route RouteSettings("/practice", Instance of 'PracticeSession') in
+the _WidgetsAppState.
+Make sure your root app widget has provided a way to generate
+this route.
+Generators for routes are searched for in the following order:
+ 1. For the "/" route, the "home" property, if non-null, is used.
+ 2. Otherwise, the "routes" table is used, if it has an entry for the route.
+ 3. Otherwise, onGenerateRoute is called. It should return a non-null value for any valid route not
+handled by "home" and "routes".
+ 4. Finally if all else fails onUnknownRoute is called.
+Unfortunately, onUnknownRoute was not set.
+
+When the exception was thrown, this was the stack:
+#0      _WidgetsAppState._onUnknownRoute.<anonymous closure> (package:flutter/src/widgets/app.dart:1574:9)
+#1      _WidgetsAppState._onUnknownRoute (package:flutter/src/widgets/app.dart:1589:6)
+#2      NavigatorState._routeNamed (package:flutter/src/widgets/navigator.dart:4728:37)
+#3      NavigatorState.pushNamed (package:flutter/src/widgets/navigator.dart:4776:21)
+#4      openPracticeSession (package:student_app/features/config/practice_launcher.dart:28:27)
+#5      _PracticeConfigPageState._submit (package:student_app/features/config/practice_config_page.dart:278:5)
+<asynchronous suspension>
+
+The test description was:
+  练习页还没落地时如实告知，并给出"卷已组好"的证据
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:22 +237 ~39 -3: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app05_eye_care_test.dart: F5/U12 休息页 显示倒计时数字与「我休息好了」，点它提前结束并关闭
+00:22 +237 ~39 -3: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U7 发起练习（F13 的请求体必须与契约 §9.1 一致） 练习页还没落地时如实告知，并给出"卷已组好"的证据 [E]
+  Test failed. See exception logs above.
+  The test description was: 练习页还没落地时如实告知，并给出"卷已组好"的证据
+  
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test (but after the test had completed):
+Expected: exactly one matching candidate
+  Actual: _TextWidgetFinder:<Found 0 widgets with text "这次已经准备好啦": []>
+   Which: means none were found but one was expected
+
+When the exception was thrown, this was the stack:
+#0      fail (package:matcher/src/expect/expect.dart:187:31)
+#1      _expect (package:matcher/src/expect/expect.dart:182:3)
+#2      expect (package:matcher/src/expect/expect.dart:65:3)
+#3      expect (package:flutter_test/src/widget_tester.dart:473:18)
+#4      main.<anonymous closure>.<anonymous closure> (file:///D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart:283:7)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+════════════════════════════════════════════════════════════════════════════════════════════════════
+  Test failed. See exception logs above.
+  The test description was: 练习页还没落地时如实告知，并给出"卷已组好"的证据
+  
+00:22 +238 ~39 -3: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app05_eye_care_test.dart: F5/U12 休息页 显示倒计时数字与「我休息好了」，点它提前结束并关闭
+00:22 +239 ~39 -3: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app05_eye_care_test.dart: F5/U12 休息页 显示倒计时数字与「我休息好了」，点它提前结束并关闭
+00:22 +240 ~39 -3: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app05_eye_care_test.dart: F5/U12 休息页 显示倒计时数字与「我休息好了」，点它提前结束并关闭
+00:22 +241 ~39 -3: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app05_eye_care_test.dart: F5/U12 休息页 显示倒计时数字与「我休息好了」，点它提前结束并关闭
+00:22 +242 ~39 -3: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app05_eye_care_test.dart: F5/U12 休息页 显示倒计时数字与「我休息好了」，点它提前结束并关闭
+00:22 +243 ~39 -3: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app05_eye_care_test.dart: F5/U12 休息页 显示倒计时数字与「我休息好了」，点它提前结束并关闭
+00:22 +244 ~39 -3: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app05_eye_care_test.dart: F5/U12 休息页 显示倒计时数字与「我休息好了」，点它提前结束并关闭
+00:22 +245 ~39 -3: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app05_eye_care_test.dart: F5/U12 休息页 显示倒计时数字与「我休息好了」，点它提前结束并关闭
+00:22 +246 ~39 -3: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app05_eye_care_test.dart: F5/U12 休息页 显示倒计时数字与「我休息好了」，点它提前结束并关闭
+00:22 +247 ~39 -3: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app05_eye_care_test.dart: F5/U12 休息页 显示倒计时数字与「我休息好了」，点它提前结束并关闭
+00:22 +248 ~39 -3: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app05_eye_care_test.dart: F5/U12 休息页 显示倒计时数字与「我休息好了」，点它提前结束并关闭
+00:23 +249 ~39 -3: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app05_eye_care_test.dart: F5/U12 休息页 显示倒计时数字与「我休息好了」，点它提前结束并关闭
+00:23 +250 ~39 -3: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 1–9 年级都能选（九宫格），未选年级时主按钮不可点
+00:23 +251 ~39 -3: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 1–9 年级都能选（九宫格），未选年级时主按钮不可点
+00:23 +252 ~39 -3: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app04_recite_test.dart: RecitePage · 整页链路（U2/U9/F1/F5/F12） F1 进入只有标题与开始按钮；背出后逐字点亮；暂停/继续；结束并结算
+00:23 +253 ~39 -3: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app04_recite_test.dart: RecitePage · 整页链路（U2/U9/F1/F5/F12） F1 进入只有标题与开始按钮；背出后逐字点亮；暂停/继续；结束并结算
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: exactly one matching candidate
+  Actual: _TextWidgetFinder:<Found 0 widgets with text "背完啦": []>
+   Which: means none were found but one was expected
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure>.<anonymous closure> (file:///D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app04_recite_test.dart:776:7)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file:///D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app04_recite_test.dart line 776
+The test description was:
+  F1 进入只有标题与开始按钮；背出后逐字点亮；暂停/继续；结束并结算
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:23 +253 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 选完年级 → 自动进入首页（不需要额外跳转）
+00:23 +253 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app04_recite_test.dart: RecitePage · 整页链路（U2/U9/F1/F5/F12） F1 进入只有标题与开始按钮；背出后逐字点亮；暂停/继续；结束并结算 [E]
+  Test failed. See exception logs above.
+  The test description was: F1 进入只有标题与开始按钮；背出后逐字点亮；暂停/继续；结束并结算
+  
+00:23 +254 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 选完年级 → 自动进入首页（不需要额外跳转）
+00:24 +255 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 选完年级 → 自动进入首页（不需要额外跳转）
+00:24 +256 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U1 首次登录强制选年级学期 选完年级 → 自动进入首页（不需要额外跳转）
+00:24 +257 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U2 二次登录不再询问 本地已有年级学期 → 直接进首页，不出现引导页
+00:24 +258 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U2 二次登录不再询问 本地已有年级学期 → 直接进首页，不出现引导页
+00:24 +259 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U2 二次登录不再询问 本地已有年级学期 → 直接进首页，不出现引导页
+00:25 +260 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app05_mine_test.dart: U3 我的记录：渲染真实进度汇总 今日/连续/已掌握/正确率/累计都来自 /api/me/progress
+00:26 +261 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app05_mine_test.dart: U3 我的记录：渲染真实进度汇总 今日/连续/已掌握/正确率/累计都来自 /api/me/progress
+00:26 +262 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app05_settings_test.dart: F4 主题切换：复用 showThemeSwitcher，选择即时生效并持久化 点主题卡片 → 底部弹层出现四态 → 选「夜间」后副标题与本地都更新
+00:26 +263 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app05_settings_test.dart: F4 主题切换：复用 showThemeSwitcher，选择即时生效并持久化 点主题卡片 → 底部弹层出现四态 → 选「夜间」后副标题与本地都更新
+00:27 +264 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app05_settings_test.dart: F4 主题切换：复用 showThemeSwitcher，选择即时生效并持久化 点主题卡片 → 底部弹层出现四态 → 选「夜间」后副标题与本地都更新
+00:27 +265 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app05_settings_test.dart: F4 主题切换：复用 showThemeSwitcher，选择即时生效并持久化 点主题卡片 → 底部弹层出现四态 → 选「夜间」后副标题与本地都更新
+00:27 +266 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app05_settings_test.dart: F4 主题切换：复用 showThemeSwitcher，选择即时生效并持久化 点主题卡片 → 底部弹层出现四态 → 选「夜间」后副标题与本地都更新
+00:27 +267 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app05_settings_test.dart: F4 主题切换：复用 showThemeSwitcher，选择即时生效并持久化 点主题卡片 → 底部弹层出现四态 → 选「夜间」后副标题与本地都更新
+00:28 +268 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app05_settings_test.dart: F4 主题切换：复用 showThemeSwitcher，选择即时生效并持久化 点主题卡片 → 底部弹层出现四态 → 选「夜间」后副标题与本地都更新
+00:28 +269 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app05_settings_test.dart: F4 主题切换：复用 showThemeSwitcher，选择即时生效并持久化 点主题卡片 → 底部弹层出现四态 → 选「夜间」后副标题与本地都更新
+00:28 +270 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U11 语文卡显示篇数而不是词数 语文单元显示「1/3 篇」「3 篇课文」，且不出现「个词」
+00:28 +271 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U11 语文卡显示篇数而不是词数 语文单元显示「1/3 篇」「3 篇课文」，且不出现「个词」
+00:28 +272 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app05_stats_test.dart: U4 / F3 我的统计页 进度接口报错时给中文错误而非崩溃
+00:28 +273 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app05_stats_test.dart: U4 / F3 我的统计页 进度接口报错时给中文错误而非崩溃
+00:29 +274 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app05_stats_test.dart: U4 / F3 我的统计页 进度接口报错时给中文错误而非崩溃
+00:29 +275 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app05_stats_test.dart: U4 / F3 我的统计页 进度接口报错时给中文错误而非崩溃
+00:29 +276 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: F4 学科切换（纯本地过滤，不重新请求） 切到语文只看语文单元，切回英语还能看到原来的
+00:29 +277 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app05_settings_test.dart: F4 服务器地址入口 设置页展示当前服务器地址
+00:29 +278 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app05_settings_test.dart: F4 服务器地址入口 设置页展示当前服务器地址
+00:29 +279 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: F1 顶部进度概要 显示已练 / 已掌握 / 连续天数
+00:29 +280 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: F1 顶部进度概要 显示已练 / 已掌握 / 连续天数
+00:29 +281 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: F1 顶部进度概要 显示已练 / 已掌握 / 连续天数
+00:29 +282 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: F1 顶部进度概要 显示已练 / 已掌握 / 连续天数
+00:29 +283 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: F1 顶部进度概要 显示已练 / 已掌握 / 连续天数
+00:29 +284 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: F1 顶部进度概要 显示已练 / 已掌握 / 连续天数
+00:29 +285 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: F1 顶部进度概要 显示已练 / 已掌握 / 连续天数
+00:29 +286 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: F1 顶部进度概要 显示已练 / 已掌握 / 连续天数
+00:29 +287 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: F1 顶部进度概要 切到语文 → 概要跟着换成课文维度（F4 不是只换列表）
+00:30 +288 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U10 断网不崩 拉不到数据且没有缓存 → 显示中文错误页 + 重试按钮，不白屏不红屏
+00:30 +289 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U10 断网不崩 拉不到数据且没有缓存 → 显示中文错误页 + 重试按钮，不白屏不红屏
+00:30 +290 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U10 断网不崩 拉不到数据且没有缓存 → 显示中文错误页 + 重试按钮，不白屏不红屏
+00:30 +291 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: U10 断网不崩 拉不到数据且没有缓存 → 显示中文错误页 + 重试按钮，不白屏不红屏
+00:31 +292 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: 「只练错题」常驻卡（P4） 有错题时显示数量并可点
+00:31 +293 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: 「只练错题」常驻卡（P4） 没错题时说明原因，不显示误导性的数字
+00:31 +294 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: 「只练错题」常驻卡（P4） 语文 Tab 上如实说"还没上线"，不显示英语的词数、也不可点
+00:31 +295 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: 空内容时给明确引导 这个年级没有内容 → 说明原因，而不是一个空白列表
+00:32 +296 ~39 -4: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: 底部导航（P4） 三个 Tab 都在；错题本 / 我的还没落地时给出占位，不是空白
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: exactly one matching candidate
+  Actual: _TextWidgetFinder:<Found 0 widgets with text "错题本还在做": []>
+   Which: means none were found but one was expected
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure>.<anonymous closure> (file:///D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart:473:7)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file:///D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart line 473
+The test description was:
+  三个 Tab 都在；错题本 / 我的还没落地时给出占位，不是空白
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:32 +296 ~39 -5: D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: 底部导航（P4） 三个 Tab 都在；错题本 / 我的还没落地时给出占位，不是空白 [E]
+  Test failed. See exception logs above.
+  The test description was: 三个 Tab 都在；错题本 / 我的还没落地时给出占位，不是空白
+  
+00:32 +296 ~39 -5: Some tests failed.
+
+Failing tests:
+  D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app01_app_test.dart: 路由聚合（F18） 尚未落地的包路由仍是空壳（聚合器能安全读取）
+  D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U7 发起练习（F13 的请求体必须与契约 §9.1 一致） 只练错题 + 随机 10 个 + 每题限时 30 秒
+  D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_config_test.dart: U7 发起练习（F13 的请求体必须与契约 §9.1 一致） 练习页还没落地时如实告知，并给出"卷已组好"的证据
+  D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app02_home_test.dart: 底部导航（P4） 三个 Tab 都在；错题本 / 我的还没落地时给出占位，不是空白
+  D:/helloagent/zhanglaoshi_zhangyuze/student-app/test/test_app04_recite_test.dart: RecitePage · 整页链路（U2/U9/F1/F5/F12） F1 进入只有标题与开始按钮；背出后逐字点亮；暂停/继续；结束并结算

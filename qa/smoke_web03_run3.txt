@@ -1,0 +1,22 @@
+[OK] U1 create-class-ui
+[!!] U2 students-import-45-with-2-invalid  (preview={"total":45,"valid":43,"invalid":2,"duplicated":0} rows=[8,46] commit={"created":43,"updated":0,"skipped":2,"classes":[],"credentials_url":"/api/classes/0/students/credentials?token=zhHAHZCPFpmSNurQuUrbLEl-onuppOZP"})
+[OK] U2b student-error-report-download
+[OK] U3 batch-assign-3-students
+[!!] U4 unassigned-filter  ({"total":41,"hit":null})
+[OK] U5 reset-password-then-login
+[OK] U6 disable-student-blocks-login
+[!!] U7 class-overview-consistency  ({"student_count":3,"active":2,"today_active":2,"today_items":10,"completion_ratio":1,"practiced":5,"scope":5,"accuracy":0.7778,"correct":7,"counted":9,"answers":10,"avg_answer_ms":2200,"avg_session_ms":11000,"trend_len":7,"top":2,"from":"2026-09-19","to":"2026-09-25"})
+[OK] U8 range-switch-30-days
+[!!] U9 unit-mastery-hard-words  ({"word_total":5,"accuracy":0.7778,"mastered_ratio":0,"practiced":5,"hard":[{"en":"cat","acc":0.5,"counted":2},{"en":"elephant","acc":0.5,"counted":2},{"en":"apple","acc":1,"counted":2},{"en":"banana","acc":1,"counted":2},{"en":"dog","acc":1,"counted":1}],"asc":true,"hard_under60":["cat","elephant"],"unfinished":[{"u":"s179030007871444","missing":1}]})
+[OK] U10 student-report-three-blocks
+[!!] U11 appeal-review-keeps-judgement  ({"found":false,"pendingBefore":0,"ids":[]})
+[OK] U11b appeal-page-disclaimer
+[OK] U12 server-address-page
+[OK] U13 qr-content-format
+[SKIP] U13x manual-qr-scan  (SKIPPED: 已机器化验证 qr_content 格式 + 二维码画布真有像素（U12/U13）；真机扫码属人工验收项)
+[OK] U14 empty-state-with-action
+[OK] GUARD case-count-floor
+
+RESULT 12/18 FAIL
+FAILED U2:students-import-45-with-2-invalid U4:unassigned-filter U7:class-overview-consistency U9:unit-mastery-hard-words U11:appeal-review-keeps-judgement
+LOG D:\helloagent\zhanglaoshi_zhangyuze\admin-web\logs\smoke_web03.txt

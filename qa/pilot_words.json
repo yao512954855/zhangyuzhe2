@@ -1,0 +1,35 @@
+{
+  "_note": "ASR 预研选词表，覆盖预研方案 §3.1 的六类难点。letters 为逐字母念读的目标序列（大写，大写=分隔符）。syllables 为音节切分念法。",
+  "words": [
+    {"word": "cat",         "cat": "短词",       "letters": "CAT",        "syllables": "ca-t"},
+    {"word": "dog",         "cat": "短词/易混",   "letters": "DOG",        "syllables": "do-g"},
+    {"word": "pen",         "cat": "短词",       "letters": "PEN",        "syllables": "pe-n"},
+    {"word": "bus",         "cat": "短词",       "letters": "BUS",        "syllables": "bu-s"},
+    {"word": "red",         "cat": "易混字母",    "letters": "RED",        "syllables": "re-d"},
+    {"word": "bed",         "cat": "易混字母",    "letters": "BED",        "syllables": "be-d"},
+    {"word": "bag",         "cat": "易混字母",    "letters": "BAG",        "syllables": "ba-g"},
+    {"word": "pig",         "cat": "易混字母",    "letters": "PIG",        "syllables": "pi-g"},
+    {"word": "class",       "cat": "中词/清辅音", "letters": "CLASS",      "syllables": "cla-ss"},
+    {"word": "apple",       "cat": "中词/清辅音", "letters": "APPLE",      "syllables": "a-pple"},
+    {"word": "water",       "cat": "中词",       "letters": "WATER",      "syllables": "wa-ter"},
+    {"word": "happy",       "cat": "中词",       "letters": "HAPPY",      "syllables": "ha-ppy"},
+    {"word": "pencil",      "cat": "中词",       "letters": "PENCIL",     "syllables": "pen-cil"},
+    {"word": "school",      "cat": "中词/清辅音", "letters": "SCHOOL",     "syllables": "sch-ool"},
+    {"word": "little",      "cat": "清辅音密集",  "letters": "LITTLE",     "syllables": "li-ttle"},
+    {"word": "teacher",     "cat": "中词",       "letters": "TEACHER",    "syllables": "tea-cher"},
+    {"word": "student",     "cat": "中词",       "letters": "STUDENT",    "syllables": "stu-dent"},
+    {"word": "classroom",   "cat": "长词",       "letters": "CLASSROOM",  "syllables": "class-room"},
+    {"word": "beautiful",   "cat": "长词",       "letters": "BEAUTIFUL",  "syllables": "beau-ti-ful"},
+    {"word": "restaurant",  "cat": "长词",       "letters": "RESTAURANT", "syllables": "res-tau-rant"},
+    {"word": "dictionary",  "cat": "长词",       "letters": "DICTIONARY", "syllables": "dic-tion-ary"},
+    {"word": "breakfast",   "cat": "长词",       "letters": "BREAKFAST",  "syllables": "break-fast"},
+    {"word": "a classroom", "cat": "短语",       "letters": "",           "syllables": ""},
+    {"word": "Our classroom is big.", "cat": "句子", "letters": "", "syllables": ""},
+    {"word": "This is my pencil.",    "cat": "句子", "letters": "", "syllables": ""}
+  ],
+  "modes": {
+    "whole": {"desc": "整词读法", "applies_to": "all"},
+    "spell": {"desc": "逐字母念读", "applies_to": "word_only"},
+    "syllable": {"desc": "音节切分念读", "applies_to": "word_only"}
+  }
+}

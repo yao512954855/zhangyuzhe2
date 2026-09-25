@@ -1,0 +1,24 @@
+== 启动后端 ==
+后端预检：admin 登录 OK
+== 启动 vite dev server ==
+== 启动无头浏览器 ==
+浏览器：Edg/140.0.3485.94
+CDP session：AAA42ECF980AD1B2860905F831BBBD94
+vite 页面挂载完成（可 import 真实模块）
+[OK] C1 对照：普通 JSON 通道打错误端点 → 抛 BizError(10001)    {"threw":true,"isBizError":true,"code":10001,"message":"模板类型「nosuch」不存在，只能是 words（英语词条）或 texts（语文课文）","display":"模板类型「nosuch」不存在，只能是 words（英语词条）或 texts（语文课文）（trace_id: 487b91229303）","hasTraceId":true,"ctor":"BizError"}
+[OK] C2 blob 通道打错误端点 → 抛 BizError(10001)（不得静默返回假文件）    提示：模板类型「nosuch」不存在，只能是 words（英语词条）或 texts（语文课文）（trace_id: 487b91229303）
+[OK] C3 blob 通道下载真模板 → 拿到真 xlsx（PK 魔数）    {"threw":false,"isBlob":true,"type":"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","size":5500,"magic":"504b0304"}
+[OK] C4 blob 通道下载学生名单模板 → 拿到真 xlsx（另一个 api 模块）    {"threw":false,"isBlob":true,"type":"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","size":5104,"magic":"504b0304"}
+[OK] C5 blob 通道打不存在的路径 → HTTP 404 也必须抛错（不能吞）    {"threw":true,"isBizError":true,"code":10004,"message":"请求失败（HTTP 404）","display":"请求失败（HTTP 404）","hasTraceId":false,"ctor":"BizError"}
+
+========================================================================
+[OK] C1  对照：普通 JSON 通道打错误端点 → 抛 BizError(10001)
+[OK] C2  blob 通道打错误端点 → 抛 BizError(10001)（不得静默返回假文件）
+[OK] C3  blob 通道下载真模板 → 拿到真 xlsx（PK 魔数）
+[OK] C4  blob 通道下载学生名单模板 → 拿到真 xlsx（另一个 api 模块）
+[OK] C5  blob 通道打不存在的路径 → HTTP 404 也必须抛错（不能吞）
+========================================================================
+RESULT 5/5 PASS
+后端日志：C:\Users\yao\AppData\Local\Temp\bjsys_webreq_1790303014909\backend.log
+vite 日志：C:\Users\yao\AppData\Local\Temp\bjsys_webreq_1790303014909\vite.log
+浏览器日志：C:\Users\yao\AppData\Local\Temp\bjsys_webreq_1790303014909\browser.log

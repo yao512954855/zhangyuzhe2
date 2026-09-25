@@ -1,0 +1,75 @@
+/**
+ * 管理端全局样式 —— WP-WEB-01 F10
+ *
+ * 注意：管理端**不做护眼主题** —— 三套护眼配色是学生端的硬需求（契约 §12.2）。
+ * 管理端追求信息密度与操作效率。
+ *
+ * 组件私有样式一律写在各自 SFC 的 `<style scoped>` 里，本文件只放
+ * 设计变量、重置与真正的全局工具类。
+ */
+
+:root {
+  --admin-header-height: 56px;
+  --admin-bg: #f5f7fa;
+  --admin-panel: #ffffff;
+  --admin-border: #e4e7ed;
+  --admin-brand: #2f6fed;
+  --admin-text: #303133;
+  --admin-text-secondary: #909399;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Microsoft YaHei', 'PingFang SC', 'Helvetica Neue', Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--admin-text);
+  background: var(--admin-bg);
+  /* F10：最小适配 1280×720，窄于该宽度时给出横向滚动而不是压缩布局 */
+  min-width: 1280px;
+}
+
+a {
+  color: var(--admin-brand);
+  text-decoration: none;
+}
+
+/* 表格/表单在窄屏横向滚动（F10） */
+.admin-xscroll {
+  width: 100%;
+  overflow-x: auto;
+}
+
+/* 页面统一留白 */
+.admin-page {
+  padding: 16px 20px;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c8ccd4;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a8adb8;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}

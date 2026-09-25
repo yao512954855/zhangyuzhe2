@@ -1,0 +1,70 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- ==================== 权限（30-APP-01 F2） ==================== -->
+    <!-- 局域网访问服务器 -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 判断"是不是换了网络"，用于服务发现失败时给出准确提示 -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- UDP 广播发现（部分 ROM 会因缺此权限直接丢弃广播包） -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- 语音识别：核心交互，必需 -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- 扫码连服务器（UI 规范 P1 的主按钮）。
+         注意：30-APP-01 F2 的权限清单里漏了 CAMERA，但没有它扫码路径直接不可用，
+         属实现必须项，已记入待裁决清单。 -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <!-- 语音是硬需求：没有麦克风的设备不该装上 -->
+    <uses-feature android:name="android.hardware.microphone" android:required="true" />
+    <!-- 相机是可选的：没有相机仍可用"手动输入地址"完成配置 -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+
+    <application
+        android:label="背记系统"
+        android:name="${applicationName}"
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true">
+        <!--  ↑ 局域网走 http，Android 9+ 默认禁止明文流量，
+              不加这一行则所有请求直接失败（30-APP-01 关键要点）。
+              本项目是原生 App，不受浏览器混合内容限制，这是选 Flutter 的意义所在。 -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:taskAffinity=""
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+            <!-- Specifies an Android theme to apply to this Activity as soon as
+                 the Android process has started. This theme is visible to the user
+                 while the Flutter UI initializes. After that, this theme continues
+                 to determine the Window background behind the Flutter UI. -->
+            <meta-data
+              android:name="io.flutter.embedding.android.NormalTheme"
+              android:resource="@style/NormalTheme"
+              />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+        <!-- Don't delete the meta-data below.
+             This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+    </application>
+    <!-- Required to query activities that can process text, see:
+         https://developer.android.com/training/package-visibility and
+         https://developer.android.com/reference/android/content/Intent#ACTION_PROCESS_TEXT.
+
+         In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.PROCESS_TEXT"/>
+            <data android:mimeType="text/plain"/>
+        </intent>
+    </queries>
+</manifest>

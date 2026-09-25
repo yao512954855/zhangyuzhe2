@@ -1,0 +1,73 @@
+........................................................................ [ 15%]
+........................................................................ [ 31%]
+........................................................................ [ 47%]
+........................................................................ [ 63%]
+........................................................................ [ 79%]
+......................................................................F. [ 95%]
+.........F...........                                                    [100%]
+================================== FAILURES ===================================
+_________________________ test_u2_udp_real_roundtrip __________________________
+
+client = <starlette.testclient.TestClient object at 0x000001B42BAC6F10>
+
+    def test_u2_udp_real_roundtrip(client):
+        """U2：真发一个 UDP 包，2 秒内收到 `BJSYS_HERE`，端口是 HTTP 端口。"""
+>       assert responder.running, (
+            f"UDP {DISCOVERY_PORT} 未在监听 —— 本机可能已有别的进程占用该端口"
+            f"（例如另开着一个后端）。请释放后重跑。"
+        )
+E       AssertionError: UDP 9527 未在监听 —— 本机可能已有别的进程占用该端口（例如另开着一个后端）。请释放后重跑。
+E       assert False
+E        +  where False = <app.services.discovery.udp_responder.UDPResponder object at 0x000001B428D3F770>.running
+
+app\tests\test_be08_discovery.py:246: AssertionError
+____________________ test_startup_checks_cover_four_items _____________________
+
+client = <starlette.testclient.TestClient object at 0x000001B42BAC6F10>
+
+    def test_startup_checks_cover_four_items(client):
+        """F13 的四项自检都在，且正常情况下全绿。"""
+        results = scheduler.run_startup_checks()
+        names = {r.name for r in results}
+        assert names == {"db_writable", "migration_version", "backup_dir", "udp_port"}
+        failed = [r for r in results if not r.ok]
+>       assert not failed, f"自检未通过：{[(r.name, r.detail) for r in failed]}"
+E       AssertionError: 自检未通过：[('udp_port', 'UDP 9527 不可用：[WinError 10048] 通常每个套接字地址(协议/网络地址/端口)只允许使用一次。')]
+E       assert not [CheckResult(name='udp_port', ok=False, detail='UDP 9527 不可用：[WinError 10048] 通常每个套接字地址(协议/网络地址/端口)只允许使用一次。')]
+
+app\tests\test_be08_discovery.py:459: AssertionError
+---------------------------- Captured stderr call -----------------------------
+2026-09-24T16:40:33Z | WARNING | - | app.tasks.scheduler | 启动自检未通过：udp_port —— UDP 9527 不可用：[WinError 10048] 通常每个套接字地址(协议/网络地址/端口)只允许使用一次。
+------------------------------ Captured log call ------------------------------
+WARNING  app.tasks.scheduler:scheduler.py:356 启动自检未通过：udp_port —— UDP 9527 不可用：[WinError 10048] 通常每个套接字地址(协议/网络地址/端口)只允许使用一次。
+============================== warnings summary ===============================
+.venv\Lib\site-packages\fastapi\testclient.py:1
+  D:\helloagent\zhanglaoshi_zhangyuze\backend\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+.venv\Lib\site-packages\starlette\testclient.py:53
+  D:\helloagent\zhanglaoshi_zhangyuze\backend\.venv\Lib\site-packages\starlette\testclient.py:53: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
+    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]]
+
+app/tests/test_be05_engine.py: 35 warnings
+  D:\helloagent\zhanglaoshi_zhangyuze\backend\.venv\Lib\site-packages\jwt\api_jwt.py:149: InsecureKeyLengthWarning: The HMAC key is 31 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.
+    return self._jws.encode(
+
+app/tests/test_be05_engine.py: 35 warnings
+  D:\helloagent\zhanglaoshi_zhangyuze\backend\.venv\Lib\site-packages\jwt\api_jwt.py:370: InsecureKeyLengthWarning: The HMAC key is 31 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.
+    decoded = self.decode_complete(
+
+app/tests/test_be06_ws.py: 28 warnings
+  D:\helloagent\zhanglaoshi_zhangyuze\backend\.venv\Lib\site-packages\jwt\api_jwt.py:149: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.
+    return self._jws.encode(
+
+app/tests/test_be06_ws.py::TestEndpointHandshake::test_valid_token_runs_full_flow_over_websocket
+app/tests/test_be06_ws.py::TestEndpointHandshake::test_heartbeat_frame_answered_over_websocket
+  D:\helloagent\zhanglaoshi_zhangyuze\backend\.venv\Lib\site-packages\jwt\api_jwt.py:370: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.
+    decoded = self.decode_complete(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED app/tests/test_be08_discovery.py::test_u2_udp_real_roundtrip - Asserti...
+FAILED app/tests/test_be08_discovery.py::test_startup_checks_cover_four_items
+2 failed, 451 passed, 102 warnings in 264.46s (0:04:24)

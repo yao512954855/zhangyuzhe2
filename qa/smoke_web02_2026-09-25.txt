@@ -1,0 +1,18 @@
+[OK] W1 units-page-loads
+[OK] W2 create-unit-ui
+[OK] W3 filter-subject
+[OK] W4 import-page-loads
+[OK] W5 template-is-xlsx
+[OK] W6 words-preview-invalid
+[OK] W13 error-report-download
+[OK] W7 words-commit
+[OK] W8 words-visible-in-unit
+[OK] W9 texts-preview-paragraphs
+[OK] W9 texts-commit-scope-adjust
+[OK] W10 illegal-file-40001
+[OK] W11 delete-unit-ok
+[SKIP] W12 delete-has-records-30003  (SKIPPED: 30003 需练习记录（学生端产生），删除无记录单元成功路径已验证于 W11；30003 分支为代码审查级覆盖)
+[OK] GUARD case-count-floor
+
+RESULT 14/15 PASS
+LOG D:\helloagent\zhanglaoshi_zhangyuze\admin-web\logs\smoke_web02.txt

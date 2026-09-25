@@ -1,0 +1,62 @@
+# ============================================================
+# 背记系统 语音（ASR）配置模板
+#
+# 用法：复制本文件为 asr.yaml 后填入凭证。** asr.yaml 不入版本库 **
+# 契约依据：docs/dev/01-共享契约冻结.md §9.2
+# 选型依据：qa/ASR模型选型报告.md（2026-09-23 实测）
+#
+# 🔴 安全红线：本文件含云厂商凭证，只存在于服务端。
+#    绝不进入 APK / 前端代码 / 数据库。
+# ============================================================
+
+provider: aliyun          # aliyun | volcengine
+backup_provider: ""       # 空则禁用主备切换
+
+aliyun:
+  api_key: ""             # 百炼（DashScope）凭证，形如 sk-xxxx
+
+  # 按场景双模型（2026-09-23 选型实测结论）
+  streaming_model: "qwen-audio-3.1-asr-flash-streaming"   # 语文背诵：首字延迟 340–354ms
+  batch_model: "fun-asr-flash-2026-06-15"                 # 英语说词/拼读：负样本 4/4 忠实，P50 323ms
+  verify_model: "qwen-audio-3.0-asr-flash"                # 拼读交叉校验（可选）
+
+  # ⛔ 禁用清单：qwen3-asr-flash
+  #    会把学生故意念错的字母串"脑补"成正确词（G L A S S → CLASS、A B P L E → APPLE）。
+  #    判分场景下等于放过错读，属教学事故。详见 qa/ASR模型选型报告.md §1.2
+
+  ws_endpoint: "wss://dashscope.aliyuncs.com/api-ws/v1/inference"
+  http_endpoint: "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
+  http_format: "wav"      # ⚠️ HTTP 调用必须显式传 parameters.format，否则报 UNSUPPORTED_FORMAT
+
+volcengine:
+  app_id: ""
+  access_token: ""
+  model: "doubao-streaming-asr"
+  endpoint: ""
+
+# ---- 语种映射 ----
+# ⚠️ 由服务端按 task_type 决定，**不信任客户端传入的 lang_hint**
+lang_map:
+  word: "en"              # 说单词 / 短语 / 句子
+  spell: "zh"             # ⚠️ 拼读用 zh 不是 en —— en 会把字母串拼成单词（85% → 95%）
+  zh_answer: "zh"         # 英译中说中文
+  recite: "zh"            # 语文背课文
+
+# ---- 热词 ----
+hotwords:
+  enabled: false          # 预研实测无效（qa/ASR预研报告.md §4.2），一期不启用
+  sources: []             # 保留配置位，便于换厂商后重新验证
+
+# ---- 多模态仲裁 ----
+# 专用 ASR 判不准时的第二判据；预研确认与 ASR 互补而非替代
+arbitrator:
+  enabled: true
+  provider: "aliyun"
+  model: "qwen3.5-omni-plus"
+  api_key: ""
+  trigger: [empty, fuzzy, appeal]   # 严禁进主链路（延迟秒级、按 token 计费）
+
+limits:
+  connect_timeout_ms: 3000
+  chunk_ms: 150
+  max_session_seconds: 300

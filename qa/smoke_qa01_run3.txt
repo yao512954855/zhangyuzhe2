@@ -1,0 +1,8 @@
+== QA-01 冒烟：起真 uvicorn :8820（临时库 smoke.db，Mock ASR）==
+?? 后端已就绪
+
+D:\helloagent\zhanglaoshi_zhangyuze\backend\.venv\Scripts\python.exe: can't open file 'D:\\d\\helloagent\\zhanglaoshi_zhangyuze\\qa\\smoke\\smoke_core.py': [Errno 2] No such file or directory
+
+❌ QA-01 冒烟 未通过（退出码 2）
+--- 后端日志尾部 ---
+（临时目录保留：/tmp/qa01_QA-01________ZV6dKY）

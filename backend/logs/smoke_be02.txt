@@ -1,0 +1,43 @@
+== 启动 uvicorn（http://127.0.0.1:8899，DB=C:\Users\yao\AppData\Local\Temp\bjsys_be02_smoke__cuin6sq\smoke.db）==
+[OK] ① 空目录首启：迁移建库 + /api/health 可用    schema_version=1
+[OK] ① 库文件已落盘    C:\Users\yao\AppData\Local\Temp\bjsys_be02_smoke__cuin6sq\smoke.db
+[OK] ② U1 admin 登录成功（access_token + role=admin）
+[OK] ② 响应头 X-Trace-Id 与响应体 trace_id 一致    trace_id=21e1c8e04302
+[OK] ② U2 错误密码 → 20002（不透露账号是否存在）
+[OK] ② U2 账号不存在与密码错返回同一条文案（防枚举）
+[OK] ③ F5 创建班级成功    id=1
+[OK] ③ F5 同名班级 → 10001 且文案含班级名
+[OK] ③ F4 班级列表含 student_count / unassigned_count
+[OK] ④ U4 学生自主注册成功（register_source=self, class_id=null）
+[OK] ④ U5 重复学号注册 → 20001
+[OK] ④ U5 原账号未被覆盖（旧密码仍可用）
+[OK] ⑤ 名单模板下载（xlsx 流）    5207 bytes, ct=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+[OK] ⑤ F7 预览：total=45 / valid=43 / invalid=2 / duplicated=1    {'total': 45, 'valid': 43, 'invalid': 2, 'duplicated': 1}
+[OK] ⑤ F7 错误行带行号 + 原因 + 原始数据
+[OK] ⑤ F7 错误报告可下载（xlsx）    5250 bytes
+[OK] ⑤ F7 预览阶段不落库    学生数=1
+[OK] ⑥ F8 首次入库：created=42 / updated=1（撞号那行走更新）    created=42 updated=1
+[OK] ⑥ U8 二次导入：created=0 / updated=43，总数不变    总数=43
+[OK] ⑥ 学号-初始密码对照表可导出    6157 bytes
+[OK] ⑥ 重复导入未把已有账号密码刷成新的默认弱口令    code=0
+[OK] ⑦ U10 归班前有 3 名未分班学生    未分班=3
+[OK] ⑦ U10 批量归班 3 人成功，未分班数下降    success=3 unassigned=0
+[OK] ⑧ U11 重置密码成功    username=20269005
+    … 登录额度已用满，等待 46.7s（限流确实生效）
+[OK] ⑧ U11 旧密码（默认弱口令）失效、新密码可用
+[OK] ⑨ U12 停用后旧 token 立即失效 → 10002    10002
+    … 登录额度已用满，等待 0.6s（限流确实生效）
+    … 登录额度已用满，等待 10.6s（限流确实生效）
+    … 登录额度已用满，等待 47.9s（限流确实生效）
+    … 登录额度已用满，等待 0.7s（限流确实生效）
+[OK] ⑩ §2.1 连续 5 次密码错误后账号被锁 → 10005    第 6 次 code=10005
+    … 登录额度已用满，等待 10.8s（限流确实生效）
+[OK] ⑩ 锁定期内正确密码同样被拒 → 10005
+[OK] ⑪ U14 audit_logs 记录齐全    已有=['class.create', 'student.assign_class', 'student.disable', 'student.import', 'student.reset_password', 'user.register']
+[OK] ⑪ U14 审计含操作人与目标    (1, 'student', 47)
+[OK] ⑫ 未鉴权访问管理接口 → 10002
+[OK] ⑫ 弱口令注册 → 10001 且 message 带字段名    code=10001
+
+========================================================================
+烟测结果：32/32 通过
+========================================================================

@@ -1,0 +1,48 @@
+== QA-01 端到端：起真 uvicorn :8820（临时库 smoke.db，Mock ASR）==
+?? 后端已就绪
+
+== 场景组：E2E-04 / E2E-08 / E2E-09 / E2E-10 ==
+[OK] #01 E2E-10 空识别判为 empty 且 is_correct=0    rows=1 match_type=empty
+[OK] #02 E2E-10 空识别**不进错题本**    wrong_words=[]
+[OK] #03 E2E-10 空识别不写 word_mastery（不进掌握度统计）    rows=0
+[OK] #04 E2E-10 正确率分母排除 empty（counted = total − empty）    total=8 empty=1 counted=7
+[OK] #05 E2E-04 语音不可用时键盘通路可用（判定照常给出）    is_correct=True match_type=exact
+[OK] #06 E2E-04 降级留痕 used_keyboard=1（可统计语音优先原则的破坏率）    used_keyboard=1
+[OK] #07 E2E-08 有答题记录的词条删除 → 30003 且带 record_count    code=30003 data={'record_count': 1}
+[OK] #08 E2E-08 有记录的单元删除 → 30003（界面应引导改停用）    code=30003 data={'record_count': 2, 'answer_count': 2, 'recitation_count': 0}
+[OK] #09 E2E-08 被拒后内容**仍在**（拒绝是硬拒，不是先删后报错）    rows=1
+[OK] #10 E2E-08 停用后不再出现在学生可见（active）列表里    active=[1, 3, 4, 5, 6, 7, 8]
+[OK] #11 E2E-09 20 并发练习全部成功（无 database is locked）    ok=20 errors=[] locked=0 耗时=1134ms
+[OK] #12 E2E-09 并发下无 5xx / 无超时（错误码全为 0）    codes_set=[0]
+
+E2E 结果：12/12 通过
+SUMMARY pass=12 total=12 failed=0 guard=OK(min=12)
+NAMES E2E-10 empty is_correct=0;E2E-10 ****;E2E-10 word_mastery;E2E-10 emptycounted = total empty;E2E-04;E2E-04 used_keyboard=1;E2E-08 30003 record_count;E2E-08 30003;E2E-08 ****;E2E-08 active;E2E-09 20 database is locked;E2E-09 5xx / 0
+
+== E2E-06 备份与恢复：prepare ==
+[OK] #01 E2E-06 手动备份产出文件    files=2
+[OK] #02 E2E-06 备份后新增数据确实落库（live 比备份点多 1）    backup=3 live=4
+[OK] #03 E2E-06 备份文件本身不含备份后的新增数据    backup_users=3 expect=3
+  → 备份点已记录：users=3 answers=22 marker=after301096
+
+E2E 结果：3/3 通过
+SUMMARY pass=3 total=3 failed=0 guard=OK(min=3)
+NAMES E2E-06;E2E-06 live 1;E2E-06
+  备份文件：C:\Users\yao\AppData\Local\Temp\qa01_QA-01___________m5HOz2\backups\app_20260925_015136.db
+  停服 → 用备份替换库 → 启服（就是 ops/README.md 里的恢复步骤）
+== QA-01 端到端：起真 uvicorn :8820（临时库 smoke.db，Mock ASR）==
+?? 后端已就绪
+
+
+== E2E-06 备份与恢复：verify ==
+[OK] #01 E2E-06 换库后服务可用（/api/health）    db=True
+[OK] #02 E2E-06 恢复后数据回到备份点（新增的学生已消失）    now=3 expect=3
+[OK] #03 E2E-06 备份后写入的那条数据确实没了    rows=0
+[OK] #04 E2E-06 恢复后的库结构完整（可正常迁移/查询）    users_table=1
+[OK] #05 E2E-06 恢复后管理员仍可登录（业务可用）    ok
+
+E2E 结果：5/5 通过
+SUMMARY pass=5 total=5 failed=0 guard=OK(min=5)
+NAMES E2E-06 /api/health;E2E-06;E2E-06;E2E-06 /;E2E-06
+
+✅ QA-01 端到端 通过

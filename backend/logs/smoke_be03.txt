@@ -1,0 +1,46 @@
+== 起真 uvicorn :8897（临时库 C:\Users\yao\AppData\Local\Temp\bjsys_smoke_be03_apoh5iyq\data\smoke.db）==
+[OK] #01 健康检查可用
+[OK] #02 管理者登录成功
+[OK] #03 未登录访问单元列表返回 10002    10002
+[OK] #04 学生自主注册可用
+[OK] #05 学生访问管理接口返回 10003    10003
+[OK] #06 words 模板 14 列且带下拉有效性    cols=14 dv=5
+[OK] #07 texts 模板列齐
+[OK] #08 模板类型非法返回 10001    10001
+[OK] #09 新建单元成功
+[OK] #10 同名单元返回 10001    已存在同名单元「Unit 1 Hello!」（同学科 / 同年级 / 同学期），
+[OK] #11 120 行预览：valid=118 / invalid=2    total=120 valid=118 invalid=2
+[OK] #12 错误行号定位到 12 / 45    [12, 45]
+[OK] #13 new_units 正确列出未建单元    ['Unit 5']
+[OK] #14 不自动建单元时拒绝且零落库    code=40003 words=0
+[OK] #15 首次 commit：新增 118 + 建 1 单元    {"created": 118, "updated": 0, "skipped": 0, "units_created": 1}
+[OK] #16 二次预览 duplicated=118（不算 invalid）    {"total": 120, "valid": 118, "invalid": 2, "duplicated": 118}
+[OK] #17 二次 commit(skip)：全部跳过且总数不变    {"created": 0, "updated": 0, "skipped": 118, "units_created": 0}
+[OK] #18 批量停用返回改动条数
+[OK] #19 overwrite 更新 cn 但**不覆盖 status**    status=inactive cn=词1改名
+[OK] #20 无记录词条可物理删除
+[OK] #21 有 37 条记录的词条：30003 + record_count=37    code=30003 count=37
+[OK] #22 含已练内容的单元：30003 拒绝    37
+[OK] #23 《背影》预览 pinyin_check=ok 且 3 段    check=ok paras=3
+[OK] #24 total_chars 等于各段汉字数之和    67 vs 67
+[OK] #25 commit 回传 scope=[0,1]：范围与 total_chars 均按新范围重算    scope=[0, 1] chars=50 expect=50
+[OK] #26 落库后 content_plain 与 content_pinyin **严格等长**    plain=50 pinyin=50
+[OK] #27 第三段不在背诵范围内（未进 content_plain）
+[OK] #28 生僻字预览标 mismatch 并给出位置    check=mismatch pos=[2]
+[OK] #29 拼音 mismatch 拒绝入库    code=40003 reason=pinyin_mismatch
+[OK] #30 学生端隐藏 en 与 accepted，附 mastery.status    n=58
+[OK] #31 停用词条不出现在学生端    n=58
+[OK] #32 管理端返回全字段（accepted / status / require_spell）    total=59
+[OK] #33 管理端分页结构完整
+[OK] #34 课文详情含 scope_snapshot 且**不下发拼音**    {'start': 0, 'end': 50}
+[OK] #35 课文列表不含正文（用**语文单元**的 id 查，不是英语那个）    n=1
+[OK] #36 词条错误报告复用同一路径且表头 14 列    rows=3 cols=16
+[OK] #37 非 xlsx 返回 40001    40001
+[OK] #38 缺列返回 40002 且列出缺失列    ['年级', '学期', '单元名', '中文']
+[OK] #39 11MB 上传：HTTP 413 + code 40004    http=413
+[OK] #40 内容操作写入了审计日志    n=7
+== 已收尸（子进程 + 临时目录）==
+
+烟测结果：40/40 通过
+SUMMARY pass=40 total=40 failed=0
+NAMES -;-;10002;-;10003;words 14;texts;10001;-;10001;120 valid=118 / invalid=2;12 / 45;new_units;-;commit 118 + 1;duplicated=118 invalid;commit(skip);-;overwrite cn ** status**;-;37 30003 + record_count=37;30003;pinyin_check=ok 3;total_chars;commit scope=[0,1] total_chars;content_plain content_pinyin ****;content_plain;mismatch;mismatch;en accepted mastery.status;-;accepted / status / require_spell;-;scope_snapshot ****;**** id;14;xlsx 40001;40002;11MB HTTP 413 + code 40004;-
