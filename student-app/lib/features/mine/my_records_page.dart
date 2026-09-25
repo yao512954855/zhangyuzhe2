@@ -25,8 +25,12 @@ import '../../core/util/format.dart';
 import '../../core/widgets/app_button.dart';
 import '../../core/widgets/feedback.dart';
 import '../auth/auth_controller.dart';
+import '../config/plan_save.dart' show PlanSaveSheet;
 import '../home/models.dart';
 import '../home/time_format.dart';
+import '../homework/homework_page.dart' show HomeworkPage;
+import '../mine/gamify_page.dart' show GamifyPage;
+import '../srs/srs_page.dart' show SrsPage;
 import 'my_stats_page.dart' show MyStatsPage;
 import 'session_detail_page.dart';
 import 'session_records.dart';
@@ -111,6 +115,42 @@ class _Body extends ConsumerWidget {
             extra: extra,
             onTap: () => _push(context, const AboutPage()),
           ),
+          const SizedBox(height: 12),
+          _EntryTile(
+            icon: Icons.repeat_outlined,
+            title: '复习',
+            subtitle: '间隔重复，巩固记忆',
+            profile: profile,
+            extra: extra,
+            onTap: () => _push(context, const SrsPage()),
+          ),
+          const SizedBox(height: 12),
+          _EntryTile(
+            icon: Icons.bookmark_outline,
+            title: '我的方案',
+            subtitle: '保存与套用练习方案',
+            profile: profile,
+            extra: extra,
+            onTap: () => _openPlans(context),
+          ),
+          const SizedBox(height: 12),
+          _EntryTile(
+            icon: Icons.emoji_events_outlined,
+            title: '我的成就',
+            subtitle: '积分 · 连续天数 · 徽章',
+            profile: profile,
+            extra: extra,
+            onTap: () => _push(context, const GamifyPage()),
+          ),
+          const SizedBox(height: 12),
+          _EntryTile(
+            icon: Icons.assignment_outlined,
+            title: '我的作业',
+            subtitle: '班级作业与提交状态',
+            profile: profile,
+            extra: extra,
+            onTap: () => _push(context, const HomeworkPage()),
+          ),
           const SizedBox(height: AgeProfile.elementGap),
           _LogoutButton(extra: extra),
         ],
@@ -120,6 +160,20 @@ class _Body extends ConsumerWidget {
 
   void _push(BuildContext context, Widget page) {
     Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => page));
+  }
+
+  /// 「我的方案」从底部面板进入（自带 Material 祖先，与配置页同款入口）。
+  ///
+  /// 不传 [PlanSaveSheet.unit]：从「我的」页进来未必带单元上下文，面板会按当前
+  /// 已配置练习的学科（[practiceConfigProvider] 的 `config.unit`）推导，二者皆无时
+  /// 由面板自身的守卫拦下保存/套用。这里只负责把面板弹出来。
+  void _openPlans(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (_) => const PlanSaveSheet(),
+    );
   }
 }
 

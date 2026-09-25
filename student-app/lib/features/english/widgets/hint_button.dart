@@ -1,14 +1,10 @@
-/// 提示按钮（**英语一期只有一档**）—— F12。
+/// 提示按钮（**英语三档提示，WP-2J / 契约 §15.4**）—— F12。
 ///
-/// 2026-09-25 裁决 **B**（见需求 §5.7「学科范围」、`docs/dev/02-实现约定与复用经验.md` §八 #71）：
-/// 需求 §5.7 的三档提示**划归语文**，英语侧只剩**一档**可用：
-/// - 一档：显示占位框数量（客户端已知 `target_len`，本地可渲染）；
-/// - 二档（首字母）/ 三档（完整答案）：**需服务端下发答案侧信息**，但 §9.1 明文
-///   「组卷响应**绝不返回答案**」、且 hint 端点只存在于 §9.4 的**语文**背诵通道
-///   → 英语侧**无来源，一期不做**。
-///
-/// 因此按钮在 `kEnglishMaxHintLevel`（= 1）档后**置灰**——
-/// **不再出现「再提示一档」这种点了给不出内容的假入口**（原先的虚指文案已删）。
+/// 二期新增独立 hint 端点，二档（首字母）/ 三档（完整答案）由服务端按失败次数
+/// 门控下发（组卷响应 §9.1 仍绝不返回答案）。本按钮**服务端驱动**渲染：
+/// - `hintContent`：服务端下发的提示文案（覆盖一/二/三档），非空即展示；
+/// - `exhausted`：当前门控下是否已无更高档可升，**为 true 时按钮禁用**；
+/// - 兼容旧调用方（不传 `hintContent`）：回退用 `placeholderCount` 兜底渲染一档。
 ///
 /// 每用一次提示都计入 `usedHintCount`，随答案上报（影响得分，契约 §9.2）。
 library;
@@ -27,28 +23,46 @@ class HintButton extends StatelessWidget {
     required this.hintLevel,
     required this.placeholderCount,
     required this.onHint,
+    this.hintContent,
+    this.exhausted = false,
   });
 
+  /// 当前已升到的档（0 = 未用）。来自控制器 `state.hintLevel`。
   final int hintLevel;
+
+  /// 一档占位框数量（本地已知，旧调用方兜底渲染用）。
   final int placeholderCount;
+
+  /// 点击「提示一档」回调（控制器 `escalateHint`）。
   final VoidCallback onHint;
+
+  /// 服务端下发的提示文案（null = 尚未取到提示）。
+  final String? hintContent;
+
+  /// 当前门控下是否已无更高档可升；为 true 时按钮置灰。
+  final bool exhausted;
 
   @override
   Widget build(BuildContext context) {
     final profile = AgeScope.of(context);
-    // 英语一期封顶一档：到顶之后没有更多可给的内容，按钮就必须真的不可点。
-    final canEscalate = hintLevel < kEnglishMaxHintLevel;
+    // 已达上限（3 档）或当前门控用尽 → 不可再点。
+    final canEscalate = !exhausted && hintLevel < kEnglishMaxHintLevel;
+    final label = hintLevel == 0 ? '我卡住了 / 提示' : '再提示一档';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         AppButton(
-          label: '我卡住了 / 提示',
+          label: label,
           kind: AppButtonKind.secondary,
           icon: Icons.lightbulb_outline_rounded,
           onPressed: canEscalate ? onHint : null,
         ),
-        if (hintLevel > 0) ...[
+        if (hintContent != null) ...[
+          const SizedBox(height: AgeProfile.elementGap),
+          InlineNotice(kind: NoticeKind.hint, text: hintContent!),
+        ] else if (hintLevel > 0) ...[
+          // 兼容旧调用方：用占位框数量兜底显示一档提示。
           const SizedBox(height: AgeProfile.elementGap),
           InlineNotice(
             kind: NoticeKind.hint,
@@ -57,8 +71,17 @@ class HintButton extends StatelessWidget {
                 : '已给你一档提示',
           ),
         ],
+        if (exhausted && hintLevel > 0) ...[
+          const SizedBox(height: AgeProfile.elementGap),
+          InlineNotice(
+            kind: NoticeKind.hint,
+            text: hintLevel < kEnglishMaxHintLevel
+                ? '当前提示已用完，先再试一次也许能解锁下一档'
+                : '三档提示都已用完',
+          ),
+        ],
         // 占用一行提示文案高度，避免内容出现时布局跳动。
-        if (hintLevel == 0) SizedBox(height: profile.caption + 8),
+        if (hintLevel == 0 && hintContent == null) SizedBox(height: profile.caption + 8),
       ],
     );
   }

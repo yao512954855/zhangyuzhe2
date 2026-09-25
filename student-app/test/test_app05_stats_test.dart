@@ -53,23 +53,31 @@ void main() {
       expect(find.text('80'), findsWidgets); // 累计练习 80
     });
 
-    testWidgets('摘掉趋势图后：页面不再出现「正确率趋势」卡片（反向护栏）', (tester) async {
+    testWidgets('WP-2A 恢复趋势：有数据时页面出现「正确率趋势」卡片', (tester) async {
       useTallScreen(tester);
       final (local, serverStore) = await openTestStore();
+      final today = DateTime.now().toIso8601String().substring(0, 10);
+      final yesterday =
+          DateTime.now().subtract(const Duration(days: 1)).toIso8601String().substring(0, 10);
       await tester.pumpWidget(
         bootApp(
           const MyStatsPage(),
           local: local,
           serverStore: serverStore,
-          adapter: defaultAdapter(),
+          adapter: defaultAdapter(
+            accuracyTrend: accuracyTrendJson([
+              trendPointJson(date: yesterday, accuracy: 0.6, answered: 5, correct: 3),
+              trendPointJson(date: today, accuracy: 1.0, answered: 4, correct: 4),
+            ]),
+          ),
         ),
       );
       await tester.pumpAndSettle();
 
-      // 一期不做 —— 不留任何占位。有数据时也不能冒出来。
-      expect(find.text('正确率趋势'), findsNothing);
-      expect(find.textContaining('进步曲线'), findsNothing);
-      // 页面本身是好的：真实数字网格仍在。
+      // 二期恢复：趋势卡片出现，且显示最近一天正确率。
+      expect(find.text('正确率趋势'), findsOneWidget);
+      expect(find.text('最近 100%'), findsOneWidget);
+      // 真实数字网格仍在，没有被趋势挤掉。
       expect(find.text('总体正确率'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });

@@ -17,6 +17,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:student_app/core/net/api_exception.dart';
 import 'package:student_app/core/net/ws_client.dart';
 import 'package:student_app/core/providers.dart';
 import 'package:student_app/core/storage/local_store.dart';
@@ -102,6 +103,33 @@ class FakePracticeRepository implements PracticeRepository {
 
   @override
   Future<void> appeal({required int answerId, String? reason}) async {}
+
+  PracticeHint nextHint =
+      const PracticeHint(level: 1, hint: '答案共 5 个字母', exhausted: true);
+  bool requestHintThrows = false;
+  int? requestHintCode;
+  final List<Map<String, dynamic>> hintCalls = <Map<String, dynamic>>[];
+
+  @override
+  Future<PracticeHint> requestHint({
+    required int sessionId,
+    required int idx,
+    required int wordId,
+    required String mode,
+    required int currentLevel,
+  }) async {
+    hintCalls.add(<String, dynamic>{
+      'sessionId': sessionId,
+      'idx': idx,
+      'wordId': wordId,
+      'mode': mode,
+      'currentLevel': currentLevel,
+    });
+    if (requestHintThrows) {
+      throw ApiException.business(requestHintCode ?? 0, 'err');
+    }
+    return nextHint;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -195,19 +223,53 @@ void main() {
     expect(find.textContaining('有 5 个字母'), findsOneWidget);
   });
 
-  // 裁决 B（2026-09-25）：英语侧只有一档。到顶后按钮必须置灰，且**不得**再出现
-  // 「再提示一档」这种点了给不出内容的假入口（二/三档需服务端答案，英语通道无来源）。
-  testWidgets('F12 一档到顶后提示按钮置灰，无「再提示一档」假入口', (tester) async {
+  // WP-2J：二档提示渲染首字母文案，且未用尽时按钮仍可点（可继续升档）。
+  testWidgets('WP2J 二档提示渲染首字母且可继续升档', (tester) async {
     setBigViewport(tester);
     await tester.pumpWidget(wrap(HintButton(
-      hintLevel: kEnglishMaxHintLevel,
+      hintLevel: 2,
       placeholderCount: 5,
       onHint: _noop,
+      hintContent: '首字母：A',
+      exhausted: false,
+    )));
+    await tester.pumpAndSettle();
+    expect(find.text('首字母：A'), findsOneWidget);
+    final btn = tester.widget<AppButton>(find.byType(AppButton));
+    expect(btn.onPressed, isNotNull, reason: '未用尽必须仍可点');
+  });
+
+  // WP-2J：三档提示渲染完整答案，且用尽后按钮置灰、展示「三档提示都已用完」。
+  testWidgets('WP2J 三档提示渲染完整答案且用尽禁用', (tester) async {
+    setBigViewport(tester);
+    await tester.pumpWidget(wrap(HintButton(
+      hintLevel: 3,
+      placeholderCount: 5,
+      onHint: _noop,
+      hintContent: 'apple',
+      exhausted: true,
     )));
     await tester.pumpAndSettle();
     final btn = tester.widget<AppButton>(find.byType(AppButton));
-    expect(btn.onPressed, isNull, reason: '一档到顶必须真正不可点');
-    expect(find.text('再提示一档'), findsNothing);
+    expect(btn.onPressed, isNull, reason: '用尽必须真正不可点');
+    expect(find.text('apple'), findsOneWidget);
+    expect(find.text('三档提示都已用完'), findsOneWidget);
+  });
+
+  // WP-2J：二档用尽（失败次数不足升三档）→ 按钮置灰并提示先再试一次。
+  testWidgets('WP2J 当前门控用尽后禁用并提示解锁', (tester) async {
+    setBigViewport(tester);
+    await tester.pumpWidget(wrap(HintButton(
+      hintLevel: 2,
+      placeholderCount: 5,
+      onHint: _noop,
+      hintContent: '首字母：A',
+      exhausted: true,
+    )));
+    await tester.pumpAndSettle();
+    final btn = tester.widget<AppButton>(find.byType(AppButton));
+    expect(btn.onPressed, isNull);
+    expect(find.text('当前提示已用完，先再试一次也许能解锁下一档'), findsOneWidget);
   });
 
   // F8/U7：键盘面板提交回调拿到文本。

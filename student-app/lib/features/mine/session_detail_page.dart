@@ -17,6 +17,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/util/format.dart';
 import '../../core/widgets/feedback.dart';
 import '../home/time_format.dart';
+import 'recite_replay_page.dart';
 import 'session_records.dart';
 
 /// 单次练习详情页。
@@ -352,6 +353,22 @@ class _RecitationRow extends StatelessWidget {
               Expanded(
                 child: Text(rec.title ?? '（课文已删除）', style: profile.bodyStyle),
               ),
+              // WP-2E 接入：进入本次背诵的事件回放
+              //（`GET /api/me/recitations/{id}/events`，契约 §15.2）。
+              TextButton.icon(
+                key: ValueKey<String>('recite-replay-${rec.recitationId}'),
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => ReciteReplayPage(
+                      recitationId: rec.recitationId,
+                      title: rec.title,
+                    ),
+                  ),
+                ),
+                icon: const Icon(Icons.replay_rounded, size: 18),
+                label: const Text('回放'),
+              ),
+              const SizedBox(width: 4),
               Text(
                 formatPercent(rec.coveredRatio),
                 style: profile.bodyStyle.copyWith(color: extra.hint),

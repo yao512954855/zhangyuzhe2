@@ -98,6 +98,33 @@ class FakePracticeRepository implements PracticeRepository {
     });
     if (appealThrows) throw ApiException.network();
   }
+
+  PracticeHint nextHint =
+      const PracticeHint(level: 1, hint: '答案共 5 个字母', exhausted: true);
+  bool requestHintThrows = false;
+  int? requestHintCode;
+  final List<Map<String, dynamic>> hintCalls = <Map<String, dynamic>>[];
+
+  @override
+  Future<PracticeHint> requestHint({
+    required int sessionId,
+    required int idx,
+    required int wordId,
+    required String mode,
+    required int currentLevel,
+  }) async {
+    hintCalls.add(<String, dynamic>{
+      'sessionId': sessionId,
+      'idx': idx,
+      'wordId': wordId,
+      'mode': mode,
+      'currentLevel': currentLevel,
+    });
+    if (requestHintThrows) {
+      throw ApiException.business(requestHintCode ?? 0, 'err');
+    }
+    return nextHint;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -430,19 +457,70 @@ void main() {
     expect(settle, isNotNull);
   });
 
-  // U16 变体（2026-09-25 裁决 B）：英语侧提示**封顶一档**，不再虚升到 2/3 档。
-  test('U16 提示封顶一档：第二次点击不再升档、计数不涨', () {
+  // WP-2J：提示按服务端返回的 level / hint / exhausted 驱动升档，并计入 usedHintCount。
+  test('WP2J 提示按服务端响应驱动升档并计数', () async {
     final fake = FakePracticeRepository();
+    fake.nextHint =
+        const PracticeHint(level: 1, hint: '答案共 5 个字母', exhausted: true);
     final c = makeContainer(fake);
     ctrl(c).start(sessionOf([wordItemWithSpell()]));
-    ctrl(c).escalateHint();
-    expect(stateOf(c).hintLevel, kEnglishMaxHintLevel);
+    await ctrl(c).escalateHint();
+    expect(stateOf(c).hintLevel, 1);
+    expect(stateOf(c).hintContent, '答案共 5 个字母');
+    expect(stateOf(c).hintExhausted, isTrue);
     expect(stateOf(c).usedHintCount, 1);
-    // 到顶后再点无效：二/三档需服务端下发答案，英语通道没有该来源（§八 #71）。
-    ctrl(c).escalateHint();
-    ctrl(c).escalateHint();
-    expect(stateOf(c).hintLevel, kEnglishMaxHintLevel);
-    expect(stateOf(c).usedHintCount, 1);
+  });
+
+  // WP-2J：请求体正确携带 wordId / mode / currentLevel / sessionId / idx。
+  test('WP2J 请求提示上报 wordId/mode/currentLevel/idx', () async {
+    final fake = FakePracticeRepository();
+    fake.nextHint = const PracticeHint(level: 1, hint: 'x', exhausted: true);
+    final c = makeContainer(fake);
+    ctrl(c).start(sessionOf([wordItemWithSpell(wordId: 777)]));
+    await ctrl(c).escalateHint();
+    final call = fake.hintCalls.last;
+    expect(call['wordId'], 777);
+    expect(call['mode'], 'cn2en');
+    expect(call['currentLevel'], 0);
+    expect(call['sessionId'], 99);
+    expect(call['idx'], 1);
+  });
+
+  // WP-2J：越档 70006 → 标记用尽、不涨计数、不虚升档。
+  test('WP2J 越档 70006 标记用尽且不计', () async {
+    final fake = FakePracticeRepository();
+    fake.requestHintThrows = true;
+    fake.requestHintCode = 70006;
+    final c = makeContainer(fake);
+    ctrl(c).start(sessionOf([wordItemWithSpell()]));
+    await ctrl(c).escalateHint();
+    expect(stateOf(c).hintExhausted, isTrue);
+    expect(stateOf(c).usedHintCount, 0);
+    expect(stateOf(c).hintLevel, 0);
+  });
+
+  // WP-2J：en2cn 题型 70007 → 标记用尽、不计。
+  test('WP2J en2cn 题型 70007 标记用尽且不计', () async {
+    final fake = FakePracticeRepository();
+    fake.requestHintThrows = true;
+    fake.requestHintCode = 70007;
+    final c = makeContainer(fake);
+    ctrl(c).start(sessionOf([en2cnItem()]));
+    await ctrl(c).escalateHint();
+    expect(stateOf(c).hintExhausted, isTrue);
+    expect(stateOf(c).usedHintCount, 0);
+  });
+
+  // WP-2J：网络等其它错误 → 不锁死、允许重试（不涨计数）。
+  test('WP2J 网络错误不锁死、允许重试', () async {
+    final fake = FakePracticeRepository();
+    fake.requestHintThrows = true;
+    fake.requestHintCode = 0; // 非 70006/70007
+    final c = makeContainer(fake);
+    ctrl(c).start(sessionOf([wordItemWithSpell()]));
+    await ctrl(c).escalateHint();
+    expect(stateOf(c).hintExhausted, isFalse);
+    expect(stateOf(c).usedHintCount, 0);
   });
 
   // U17：键盘提交时 retryCount 反映当前步失败数；used_keyboard=1。

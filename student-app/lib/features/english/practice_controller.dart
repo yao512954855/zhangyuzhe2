@@ -15,12 +15,12 @@
 ///   `RequestOptionsOverride.headers`（默认 `null`，对既有调用方零影响），
 ///   本文件据此把 `buildIdempotencyKey()` 真正接到了提交请求上。
 ///   注：附加头在校验层被刻意排在 `Authorization` **之前**，所以调用方无法用它绕鉴权。
-/// D-APP03-02 英语提示端点缺失 → **2026-09-25 已裁决（B 方案），代码按裁决回撤**：
-///   三档提示**划归语文**（需求 §5.7「学科范围」，见 `docs/dev/02-实现约定与复用经验.md` §八 #71）。
-///   英语侧只剩**一档**可用（占位框数量，客户端本地可渲染）；「二档首字母 / 三档完整答案」
-///   需要服务端下发答案侧信息，但 §9.1 明文「组卷响应**绝不返回答案**」，且 hint 端点只存在于
-///   §9.4 的**语文**背诵通道 → **无来源**。故 `kEnglishMaxHintLevel = 1`，
-///   **不再摆走不通的二/三档入口**（原先「已升到第 2/3 档」的虚指文案已删除）。
+/// D-APP03-02 英语提示端点（原缺口）→ **二期 WP-2J 已补齐**：
+///   一期因 §9.1「组卷响应绝不返回答案」、且 hint 端点只在语文背诵通道，英语三档提示被裁决（B 方案）
+///   **回撤为一档**。二期新增**独立 hint 端点** `POST /api/sessions/{sid}/items/{idx}/hint`
+///   （契约 §15.2 / §15.4），答案**只**在该端点按「失败次数门控」下发 —— 组卷响应仍绝不返回答案。
+///   故 `kEnglishMaxHintLevel` 由 1 升为 3，`escalateHint()` 改为**服务端驱动**升档
+///   （取不到档 → 70006 标记用尽，不虚升）。一档占位框数量仍可由客户端本地渲染兜底。
 ///
 /// D-APP03-03 超时口径 —— **复核后确认不是缺口**，原文表述已更正：
 ///   U11 要求单题限时到点判 `match_type='timeout'`。客户端按限时到点提交
@@ -43,11 +43,14 @@ import '../config/practice_strategy.dart';
 
 /// 英语侧提示档位上限（**单一真源**：控制器与 `HintButton` 都读它）。
 ///
-/// 一档 = 显示占位框数量（本地可渲染）；二/三档需服务端下发答案侧信息，
-/// 英语通道（接口设计 §9.1）明文「组卷响应绝不返回答案」且**无 hint 端点**
-/// → 2026-09-25 裁决 B：三档提示划归语文，英语一期只做一档。
-/// 见需求 §5.7「学科范围」、§八 #71。
-const int kEnglishMaxHintLevel = 1;
+/// 二期 WP-2J 新增独立 hint 端点（契约 §15.4），二档（首字母）/ 三档（完整答案）
+/// 由服务端按失败次数门控下发 —— 组卷响应（§9.1）仍绝不返回答案。
+/// 故上限升为 3；`escalateHint()` 改为**服务端驱动**升档，越档由服务端判 70006。
+const int kEnglishMaxHintLevel = 3;
+
+/// 提示门控错误码（契约 §15.3，与后端 `errors.py` 对齐）。
+const int kCodeHintExhausted = 70006;
+const int kCodeHintNotAllowed = 70007;
 
 // ---------------------------------------------------------------------------
 // 步骤类型
@@ -336,7 +339,34 @@ double _toDouble(Object? v) {
 }
 
 // ---------------------------------------------------------------------------
-// 仓库：唯一碰英语答题 / 结算 / 申诉接口的地方
+// 提示数据模型（WP-2J / 契约 §15.4）
+// ---------------------------------------------------------------------------
+
+/// 一次提示请求的响应：`{level, hint, exhausted}`。
+///
+/// `level` 服务端判定的档位（1/2/3）；`hint` 该档提示文案（答案来源恒为服务端，
+/// 客户端绝不回显）；`exhausted` 当前失败次数门控下是否已无更高档可升。
+@immutable
+class PracticeHint {
+  const PracticeHint({
+    required this.level,
+    required this.hint,
+    required this.exhausted,
+  });
+
+  factory PracticeHint.fromJson(Map<String, dynamic> json) => PracticeHint(
+        level: _toInt(json['level']),
+        hint: json['hint']?.toString() ?? '',
+        exhausted: json['exhausted'] is bool ? json['exhausted'] as bool : false,
+      );
+
+  final int level;
+  final String hint;
+  final bool exhausted;
+}
+
+// ---------------------------------------------------------------------------
+// 仓库：唯一碰英语答题 / 结算 / 申诉 / 提示接口的地方
 // ---------------------------------------------------------------------------
 
 /// 英语练习的对外仓库接口（抽象，便于组件测试用假实现覆盖）。
@@ -369,6 +399,19 @@ abstract class PracticeRepository {
 
   /// 学生申诉（§8.9）；不改判分，只置 `appealed=1`。
   Future<void> appeal({required int answerId, String? reason});
+
+  /// 取一次英语三档提示（WP-2J / 契约 §15.4）。
+  ///
+  /// 走独立端点 `POST /api/sessions/{sessionId}/items/{idx}/hint`；服务端按本题
+  /// 失败次数门控下发答案（越档 → 70006，en2cn → 70007）。`currentLevel` 为客户端
+  /// 当前已持有的最高档位，用于服务端判定能否升到 `currentLevel + 1`。
+  Future<PracticeHint> requestHint({
+    required int sessionId,
+    required int idx,
+    required int wordId,
+    required String mode,
+    required int currentLevel,
+  });
 }
 
 /// 走真实 `apiClient` 的仓库实现。
@@ -437,6 +480,25 @@ class HttpPracticeRepository implements PracticeRepository {
       body: reason == null ? const <String, dynamic>{} : {'reason': reason},
     );
   }
+
+  @override
+  Future<PracticeHint> requestHint({
+    required int sessionId,
+    required int idx,
+    required int wordId,
+    required String mode,
+    required int currentLevel,
+  }) async {
+    final data = await api.post<Map<String, dynamic>>(
+      '/api/sessions/$sessionId/items/$idx/hint',
+      body: {
+        'word_id': wordId,
+        'mode': mode,
+        'current_level': currentLevel,
+      },
+    );
+    return PracticeHint.fromJson(data ?? const <String, dynamic>{});
+  }
 }
 
 final practiceRepositoryProvider = Provider<PracticeRepository>((ref) {
@@ -478,6 +540,8 @@ class PracticeState {
     this.failuresForStep = 0,
     this.hintLevel = 0,
     this.usedHintCount = 0,
+    this.hintContent,
+    this.hintExhausted = false,
     this.keyboardActive = false,
     this.settle,
     this.errorMessage,
@@ -503,6 +567,12 @@ class PracticeState {
 
   /// 当前步已用的提示总次数。
   final int usedHintCount;
+
+  /// 服务端下发的提示文案（null = 尚未取到提示）。
+  final String? hintContent;
+
+  /// 当前失败次数门控下，是否已无更高档可升（越档 / 题型不支持时置 true）。
+  final bool hintExhausted;
 
   /// 是否处于键盘兜底输入态（F7 / F8 / U7 / U13）。
   final bool keyboardActive;
@@ -531,6 +601,8 @@ class PracticeState {
     int? failuresForStep,
     int? hintLevel,
     int? usedHintCount,
+    String? hintContent,
+    bool? hintExhausted,
     bool? keyboardActive,
     PracticeSettle? settle,
     String? errorMessage,
@@ -550,6 +622,8 @@ class PracticeState {
       failuresForStep: failuresForStep ?? this.failuresForStep,
       hintLevel: hintLevel ?? this.hintLevel,
       usedHintCount: usedHintCount ?? this.usedHintCount,
+      hintContent: hintContent ?? this.hintContent,
+      hintExhausted: hintExhausted ?? this.hintExhausted,
       keyboardActive: keyboardActive ?? this.keyboardActive,
       settle: settle ?? this.settle,
       errorMessage: clearError ? errorMessage : (errorMessage ?? this.errorMessage),
@@ -599,6 +673,8 @@ class PracticeController extends Notifier<PracticeState> {
       failuresForStep: 0,
       hintLevel: 0,
       usedHintCount: 0,
+      hintContent: null,
+      hintExhausted: false,
       keyboardActive: false,
       clearVerdict: true,
       records: const <AnswerRecord>[],
@@ -777,6 +853,7 @@ class PracticeController extends Notifier<PracticeState> {
         records: records,
         failuresForStep: failures,
         phase: PracticePhase.asking,
+        hintExhausted: false, // 失败可能解锁更高档提示，重新放开按钮
         keyboardActive: true,
         timedOut: false,
         errorMessage: '还是没听清，换成打字吧',
@@ -789,6 +866,7 @@ class PracticeController extends Notifier<PracticeState> {
         records: records,
         failuresForStep: failures,
         phase: PracticePhase.result,
+        hintExhausted: false, // 失败可能解锁更高档提示，重新放开按钮
         keyboardActive: false,
         timedOut: false,
         errorMessage: '没听清，再说一次',
@@ -836,23 +914,48 @@ class PracticeController extends Notifier<PracticeState> {
     }
   }
 
-  // ----------------------------------------------------------- 提示（F12）
+  // ----------------------------------------------------------- 提示（F12 / WP-2J）
 
-  /// 升一档提示；每次计入 `usedHintCount`，提交答案时随答案上报。
+  /// 升一档提示（**服务端驱动**，契约 §15.4）。
   ///
-  /// ⚠️ 英语侧**封顶 `kEnglishMaxHintLevel`（= 1）**，不是 3：二档（首字母）/
-  /// 三档（完整答案）需服务端下发答案，英语通道没有这个来源（§八 #71，
-  /// 2026-09-25 裁决 B）。封顶后按钮置灰，**不再虚升档位**——计数落库与
-  /// 扣分口径（需求 §6.4）只可能用到一档。
-  void escalateHint() {
+  /// 调独立 hint 端点：服务端按本题失败次数门控判定能否升到 `hintLevel + 1`，
+  /// 返回 `{level, hint, exhausted}`。越档（70006）/ 题型不支持（70007）时
+  /// 标记 `hintExhausted`（按钮禁用），**不虚升档位、不涨计数**；网络等其它错误
+  /// 不锁死、允许重试。每成功取到一档，计入 `usedHintCount`，随答案上报影响得分。
+  Future<void> escalateHint() async {
     if (state.hintLevel >= kEnglishMaxHintLevel) return;
-    state = state.copyWith(
-      hintLevel: state.hintLevel + 1,
-      usedHintCount: state.usedHintCount + 1,
-    );
+    final item = currentItem;
+    if (item == null) return;
+    final mode = _itemMode(item).wire;
+    final wordId = item.wordId;
+    if (wordId == null) return;
+
+    try {
+      final hint = await _repo.requestHint(
+        sessionId: state.session.sessionId,
+        idx: item.seq,
+        wordId: wordId,
+        mode: mode,
+        currentLevel: state.hintLevel,
+      );
+      state = state.copyWith(
+        hintLevel: hint.level,
+        hintContent: hint.hint,
+        hintExhausted: hint.exhausted,
+        usedHintCount: state.usedHintCount + 1,
+      );
+    } on ApiException catch (e) {
+      if (e.code == kCodeHintExhausted || e.code == kCodeHintNotAllowed) {
+        // 越档 / 题型不支持：标记用尽，不涨计数、不虚升。
+        state = state.copyWith(hintExhausted: true);
+      } else {
+        // 网络 / 其它错误：解锁，允许重试（不涨计数）。
+        state = state.copyWith(hintExhausted: false);
+      }
+    }
   }
 
-  /// 一档提示内容：占位框数量（本地已知）。
+  /// 一档提示内容：占位框数量（本地已知，兜底渲染用）。
   int get placeholderCount => currentItem?.targetLen ?? 0;
 
   // ----------------------------------------------------------- 计时到点（U11）
@@ -885,6 +988,7 @@ class PracticeController extends Notifier<PracticeState> {
       records: [...state.records, record],
       phase: PracticePhase.result,
       timedOut: true,
+      hintExhausted: false, // 超时判错等价于一次失败，可能解锁更高档
       keyboardActive: false,
       errorMessage: '时间到啦，这题先过',
     );
@@ -909,6 +1013,8 @@ class PracticeController extends Notifier<PracticeState> {
         failuresForStep: 0,
         hintLevel: 0,
         usedHintCount: 0,
+        hintContent: null,
+        hintExhausted: false,
         keyboardActive: false,
         timedOut: false,
         errorMessage: null,
@@ -926,6 +1032,8 @@ class PracticeController extends Notifier<PracticeState> {
         failuresForStep: 0,
         hintLevel: 0,
         usedHintCount: 0,
+        hintContent: null,
+        hintExhausted: false,
         keyboardActive: false,
         timedOut: false,
         errorMessage: null,

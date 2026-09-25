@@ -325,6 +325,24 @@ Map<String, dynamic> sessionDetailJson(
       'recitations': recitations,
     };
 
+/// 构造 `GET /api/me/accuracy-trend` 的一条趋势点（WP-2A）。
+Map<String, dynamic> trendPointJson({
+  required String date,
+  double accuracy = 0,
+  int answered = 0,
+  int correct = 0,
+}) =>
+    {
+      'date': date,
+      'accuracy': accuracy,
+      'answered': answered,
+      'correct': correct,
+    };
+
+/// 构造 `GET /api/me/accuracy-trend` 的契约响应体 `{points:[...]}`（WP-2A）。
+Map<String, dynamic> accuracyTrendJson(List<Map<String, dynamic>> points) =>
+    {'points': points};
+
 /// 一个能给 `/api/me/progress` / `/api/me/wrong-words` / `/api/sessions`
 /// 都回默认值的 adapter（各用例再按需要覆盖）。
 ///
@@ -339,11 +357,13 @@ JsonAdapter defaultAdapter({
   Map<String, dynamic>? wrongChars,
   Map<String, dynamic>? sessions,
   Map<String, dynamic>? sessionDetail,
+  Map<String, dynamic>? accuracyTrend,
 }) {
   final prog = progress ?? progressJson();
   final wrong = wrongWords ?? wrongWordsJson(const [], 0);
   final chars = wrongChars ?? wrongCharsJson(const [], 0);
   final list = sessions ?? sessionsJson(const [], 0);
+  final trend = accuracyTrend ?? accuracyTrendJson(const []);
   return JsonAdapter((options) {
     final path = options.uri.path;
     final method = options.method.toUpperCase();
@@ -385,6 +405,8 @@ JsonAdapter defaultAdapter({
         return okBody(wrong);
       case '/api/me/wrong-chars':
         return okBody(chars);
+      case '/api/me/accuracy-trend':
+        return okBody(trend);
       default:
         return okBody(const {});
     }
