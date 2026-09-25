@@ -50,7 +50,7 @@ class _ServerSetupPageState extends ConsumerState<ServerSetupPage> {
       WidgetsBinding.instance.addPostFrameCallback((_) => _autoFind());
     } else {
       _phase = _FindPhase.failed;
-      _status = '请扫码或输入老师给你的地址';
+      _status = '请扫码或输入管理者给你的地址';
     }
   }
 
@@ -115,7 +115,7 @@ class _ServerSetupPageState extends ConsumerState<ServerSetupPage> {
     }
     setState(() {
       _phase = _FindPhase.failed;
-      _status = '请扫码或输入老师给你的地址';
+      _status = '请扫码或输入管理者给你的地址';
     });
   }
 
@@ -171,7 +171,7 @@ class _ServerSetupPageState extends ConsumerState<ServerSetupPage> {
       builder: (ctx) {
         final profile = AgeScope.of(ctx);
         return AlertDialog(
-          title: const Text('输入老师给的地址'),
+          title: const Text('输入管理者给的地址'),
           content: TextField(
             controller: controller,
             autofocus: true,
@@ -282,7 +282,7 @@ class _ServerSetupPageState extends ConsumerState<ServerSetupPage> {
               ],
               const Spacer(flex: 2),
               Text(
-                '请让老师给你看管理端首页上的二维码',
+                '请让管理者给你看管理端首页上的二维码',
                 textAlign: TextAlign.center,
                 style: profile.captionStyle.copyWith(color: extra.textFaint),
               ),
@@ -432,7 +432,7 @@ class _ScanPageState extends State<_ScanPage> {
         Navigator.of(context).pop(raw);
         return;
       }
-      setState(() => _error = '这不是背记系统的二维码，让老师重新出示一下');
+      setState(() => _error = '这不是背记系统的二维码，让管理者重新出示一下');
     }
   }
 
@@ -480,7 +480,7 @@ class _ScanPageState extends State<_ScanPage> {
                     const SizedBox(height: AgeProfile.elementGap),
                   ],
                   Text(
-                    '把镜头对准老师屏幕上的二维码',
+                    '把镜头对准管理端屏幕上的二维码',
                     style: profile.captionStyle.copyWith(color: extra.textSub),
                   ),
                   const SizedBox(height: AgeProfile.elementGap),

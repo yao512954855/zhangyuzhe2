@@ -35,7 +35,7 @@ class _FakeFinder implements BroadcastFinder {
     void Function(String status)? onStatus,
   }) async {
     onStatus?.call('正在寻找服务器…');
-    _error = supported ? '同一个网络里没有找到服务器，可以让老师给你扫二维码' : '当前环境不支持自动查找';
+    _error = supported ? '同一个网络里没有找到服务器，可以让管理者给你扫二维码' : '当前环境不支持自动查找';
     return null;
   }
 

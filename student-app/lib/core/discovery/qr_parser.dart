@@ -86,16 +86,16 @@ abstract final class ServerLinkParser {
     if (withScheme != null) {
       final scheme = withScheme.group(1)!.toLowerCase();
       if (!allowed.contains(scheme)) {
-        return const ServerLinkError('这不是背记系统的二维码，请让老师重新出示');
+        return const ServerLinkError('这不是背记系统的二维码，请让管理者重新出示');
       }
       host = withScheme.group(2)!;
       portText = withScheme.group(3);
     } else if (text.contains('://')) {
       // 有 "://" 但没匹配上 → scheme 或主机部分不合法
-      return ServerLinkError(fromQr ? '这不是背记系统的二维码，请让老师重新出示' : '地址格式不对，例：192.168.1.80');
+      return ServerLinkError(fromQr ? '这不是背记系统的二维码，请让管理者重新出示' : '地址格式不对，例：192.168.1.80');
     } else if (fromQr) {
       // 扫码进来的内容**必须**带 bjsys:// 前缀
-      return const ServerLinkError('这不是背记系统的二维码，请让老师重新出示');
+      return const ServerLinkError('这不是背记系统的二维码，请让管理者重新出示');
     } else {
       final bare = _bare.firstMatch(text);
       if (bare == null) {

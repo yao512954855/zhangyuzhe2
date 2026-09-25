@@ -118,7 +118,7 @@ RAW_COLUMNS_WORDS: frozenset[str] = frozenset({"中文", "例句英", "例句中
 RAW_COLUMNS_TEXTS: frozenset[str] = frozenset({"课文标题", "作者", "段落正文"})
 
 # ---------------------------------------------------------------------------
-# 枚举映射（中英文都收 —— 用户可能是英语老师，也可能填中文）
+# 枚举映射（中英文都收 —— 导入的人可能填「英语」，也可能填中文）
 # ---------------------------------------------------------------------------
 
 _SUBJECT_MAP = {
@@ -379,7 +379,7 @@ class ImportService:
     def words_preview(raw: bytes, *, file_name: str | None = None) -> dict[str, Any]:
         """`POST /api/import/words/preview`（10a F12 / 接口设计 §6.2）。
 
-        返回 `preview_token` + `summary` + `new_units` + `invalid_rows`，**不落库**。
+        返回 `preview_token` + `summary` + `new_units` + `valid_rows` + `invalid_rows`，**不落库**。
 
         U2：120 行里 2 行非法 → `summary.valid=118`、`invalid=2`，错误行带原因。
         """

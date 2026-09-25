@@ -40,7 +40,7 @@ class IoBroadcastFinder implements BroadcastFinder {
         return found;
       }
     }
-    _lastError = '同一个网络里没有找到服务器，可以让老师给你扫二维码';
+    _lastError = '同一个网络里没有找到服务器，可以让管理者给你扫二维码';
     return null;
   }
 

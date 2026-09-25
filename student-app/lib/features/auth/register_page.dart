@@ -122,7 +122,7 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
               ),
               const SizedBox(height: 6),
               Text(
-                '不用等老师审核，填完就能用',
+                '不用等管理者审核，填完就能用',
                 style: profile.captionStyle.copyWith(color: extra.textSub),
               ),
               const SizedBox(height: 24),
@@ -236,7 +236,7 @@ class _ClassSection extends StatelessWidget {
         ],
         _ClassCard(
           title: '先不选',
-          subtitle: '之后让老师帮你加入班级',
+          subtitle: '之后让管理者帮你加入班级',
           selected: selectedId == null,
           onTap: () => onSelect(null),
         ),
