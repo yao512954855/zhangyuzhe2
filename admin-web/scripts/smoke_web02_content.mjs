@@ -20,12 +20,12 @@
  *   - W6/W7 词条导入：SmokeWordsUnit（含 2 行非法 → invalid_rows）；
  *   - W9/W10 课文导入：SmokeTextsUnit（4 段，调整背诵范围 [0,2]）。
  *
- * 诚实上报的偏离项（本烟测覆盖不到，需在交付报告说明）：
- *   - F12「有效行明细表格」：后端 words preview **不返回**有效行明细，只给 summary +
- *     invalid_rows，本脚本据此断言 summary/invalid_rows（见交付报告偏离项 #1）；
- *   - F3 删「有练习记录」单元 → 30003 弹「改为停用」：30003 需存在练习记录（WEB-03/04
- *     学生端产生），WP-WEB-02 烟测环境无法自然造出，故 30003 分支只做代码审查 +
- *     文档说明，运行期只验证「删除无记录单元成功」这一可触发分支（W11）。
+ * 此前「诚实上报的偏离项」现在**两条都已补实**（2026-09-25）：
+ *   - F12「有效行明细表格」：后端 words preview **已补 valid_rows**（契约 §6.2）→
+ *     W6 现在**同时断言 valid_rows.length === 2**，不再只断 summary/invalid_rows；
+ *   - F3 删「有练习记录」单元 → 30003：**W12 已从 SKIP 变为真跑** —— 先经**学生端生产接口**
+ *     造一条真实练习记录（注册 → 登录 → 组卷 → 答题落库），再走页面内生产请求层
+ *     deleteUnit()，断言抛 30003 且 data.record_count >= 1，并复查单元未被误删。
  *
  * 跑法：
  *     cd admin-web && node scripts/smoke_web02_content.mjs
@@ -73,7 +73,7 @@ const BROWSER_CANDIDATES = [
   'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
 ]
 
-const MIN_CASES = 13
+const MIN_CASES = 14
 
 // --------------------------------------------------------------------------- 结果收集
 
@@ -117,6 +117,28 @@ async function waitHttp(url, timeoutMs = 40000) {
     await sleep(400)
   }
   return false
+}
+
+/** 直连后端的原始请求 —— 仅用于**造学生端数据**（注册/组卷/答题）。
+ * 管理端的读写一律走页面内 apiCall（与 App 同一份模块单例），不做例外。
+ */
+async function apiFetch(path, { method = 'GET', token = '', body, headers = {} } = {}) {
+  const res = await fetch(BACKEND_BASE + path, {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: 'Bearer ' + token } : {}),
+      ...headers,
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  let json = null
+  try {
+    json = await res.json()
+  } catch {
+    /* 非 JSON（理论上不会） */
+  }
+  return { status: res.status, json }
 }
 
 function killTree(pid) {
@@ -341,7 +363,7 @@ class CDP {
     this.readable.on('data', (chunk) => {
       buf += chunk.toString('utf8')
       let idx
-      while ((idx = buf.indexOf(' ')) >= 0) {
+      while ((idx = buf.indexOf('\u0000')) >= 0) {
         const raw = buf.slice(0, idx)
         buf = buf.slice(idx + 1)
         if (!raw) continue
@@ -372,7 +394,7 @@ class CDP {
         if (this.pending.delete(id)) rej(new Error(`CDP ${method} 超时`))
       }, 25000)
       this.pending.set(id, { resolve: res, reject: rej, timer })
-      this.writable.write(JSON.stringify(payload) + ' ')
+      this.writable.write(JSON.stringify(payload) + '\u0000')
     })
   }
 
@@ -812,6 +834,8 @@ async function main() {
         return {
           summary: data.summary,
           invalid: data.invalid_rows.length,
+          valid: Array.isArray(data.valid_rows) ? data.valid_rows.length : -1,
+          validEns: (data.valid_rows || []).map(r => r.en).sort(),
           newUnits: data.new_units.length,
           token: data.preview_token ? true : false,
         };
@@ -820,8 +844,10 @@ async function main() {
     check(
       'W6',
       'words-preview-invalid',
-      '词条预览：4 行中 2 行非法 → summary.invalid=2 且 invalid_rows 列出 2 行',
-      w6.summary.total === 4 && w6.summary.valid === 2 && w6.summary.invalid === 2 && w6.invalid === 2 && w6.newUnits >= 1 && w6.token,
+      '词条预览：4 行中 2 行非法 → summary.invalid=2、invalid_rows 2 行、**valid_rows 2 行（F12）**',
+      w6.summary.total === 4 && w6.summary.valid === 2 && w6.summary.invalid === 2 && w6.invalid === 2
+        && w6.valid === 2 && w6.validEns.join(',') === 'apple,banana'
+        && w6.newUnits >= 1 && w6.token,
       JSON.stringify(w6),
     )
 
@@ -1034,15 +1060,117 @@ async function main() {
     )
 
     // =====================================================================
-    // W12 —— 30003 分支（有练习记录不可删）：本环境无法自然触发，记录并标注 SKIP
+    // W12 —— 删除有练习记录单元 → 30003（F3 完整分支；**真造练习记录**）
+    //
+    // 以前这条只能 SKIP（WP-WEB-02 环境造不出真实练习记录）。现在真造：
+    //   ① Node 直连后端，走**学生端生产接口**：自主注册 → 登录 → 对 SmokeWordsUnit
+    //      组卷 → 答一题（任何**非空**作答都会落一条 answers 行 → 该单元「有练习记录」）；
+    //   ② 再用页面内**生产请求层** deleteUnit()（与 App 同一份模块单例）；
+    //   ③ 断言抛 30003 且带 record_count；复查单元仍在（没被误删）。
     // =====================================================================
+    // ⚠️ 注册校验：username 必须 4–20 位**字母或数字**（不能有下划线），故用 'w12'+时间戳
+    const stuName = 'w12' + Date.now()
+    const stuPwd = 'w12-smoke-pass-9911'
+    const regRes = await apiFetch('/api/auth/register', {
+      method: 'POST',
+      body: { username: stuName, real_name: 'W12 造记录学生', password: stuPwd },
+    })
+    const loginRes = await apiFetch('/api/auth/login', {
+      method: 'POST',
+      body: { username: stuName, password: stuPwd, role: 'student' },
+    })
+    const stuToken = (loginRes.json && loginRes.json.data && loginRes.json.data.access_token) || ''
+
+    // 找到 SmokeWordsUnit 的 id（用页面内管理端生产请求层，与管理端看到的完全一致）
+    const w12unit = await apiCall(
+      cdp,
+      sid,
+      "(async () => { const m = await import('/admin/src/api/content.ts');"
+        + " const all = await m.listUnits({ page: 1, page_size: 100 });"
+        + " const u = (all.items || []).find(x => x.name === 'SmokeWordsUnit');"
+        + ' return { id: u ? u.id : 0 }; })()',
+    )
+    const w12unitId = Number((w12unit && w12unit.id) || 0)
+
+    const sessRes = w12unitId
+      ? await apiFetch('/api/sessions', {
+          method: 'POST',
+          token: stuToken,
+          body: {
+            unit_id: w12unitId,
+            content_type: 'english',
+            strategy: { count: 2, order: 'sequential', mode: 'cn2en' },
+          },
+        })
+      : { json: null }
+    const sessData = (sessRes.json && sessRes.json.data) || {}
+    const firstItem = ((sessData.items || [])[0]) || null
+
+    let ansCode = null
+    if (sessData.session_id && firstItem) {
+      const ansRes = await apiFetch('/api/sessions/' + sessData.session_id + '/answers', {
+        method: 'POST',
+        token: stuToken,
+        headers: { 'Idempotency-Key': 'w12-' + sessData.session_id + '-' + firstItem.word_id + '-1' },
+        body: {
+          word_id: firstItem.word_id,
+          mode: firstItem.mode || 'cn2en',
+          step: 1,
+          asr_text: 'zzz', // 故意答错 —— 判分对错不影响「是否产生练习记录」
+          duration_ms: 1500,
+          first_voice_ms: 500,
+        },
+      })
+      ansCode = (ansRes.json && ansRes.json.code !== undefined) ? ansRes.json.code : null
+    }
+
+    // ⚠️ 只有「真造出记录」才执行删除 —— 否则 30003 本就不该触发，
+    // 硬删会因为「零记录可删」而真把 SmokeWordsUnit 删掉（并让这条用例假失败）。
+    const canDelete = ansCode === 0 && w12unitId > 0
+    const w12 = canDelete
+      ? await apiCall(
+          cdp,
+          sid,
+          "(async () => { const m = await import('/admin/src/api/content.ts');"
+            + ' try { await m.deleteUnit(' + w12unitId + '); return { threw: false }; }'
+            + ' catch (e) { return { threw: true, code: e && e.code, message: e && e.message,'
+            + ' recordCount: (e && e.data) ? e.data.record_count : null }; } })()',
+        )
+      : { threw: null, code: null, recordCount: null, note: '未造出练习记录（ans!=0），出于安全未执行删除' }
+    const w12after = canDelete
+      ? await apiCall(
+          cdp,
+          sid,
+          "(async () => { const m = await import('/admin/src/api/content.ts');"
+            + ' const all = await m.listUnits({ page: 1, page_size: 100 });'
+            + ' return { stillThere: (all.items || []).some(x => x.id === ' + w12unitId + ') }; })()',
+        )
+      : { stillThere: true }
+
     check(
       'W12',
       'delete-has-records-30003',
-      '删除有练习记录单元 → 30003 弹「改为停用」：需 WEB-03/04 学生端练习记录，本次烟测无法自然触发，代码路径已审查',
-      false,
-      'SKIPPED: 30003 需练习记录（学生端产生），删除无记录单元成功路径已验证于 W11；30003 分支为代码审查级覆盖',
-      true,
+      '删除有练习记录单元 → 30003 且带 record_count，单元未被误删（F3 完整分支，真造练习记录）',
+      regRes.json && regRes.json.code === 0
+        && loginRes.json && loginRes.json.code === 0
+        && w12unitId > 0
+        && ansCode === 0
+        && w12.threw === true
+        && w12.code === 30003
+        && Number(w12.recordCount) >= 1
+        && w12after.stillThere === true,
+      JSON.stringify({
+        reg: regRes.json && regRes.json.code,
+        login: loginRes.json && loginRes.json.code,
+        unitId: w12unitId,
+        sessionId: sessData.session_id === undefined ? null : sessData.session_id,
+        ans: ansCode,
+        threw: w12.threw,
+        code: w12.code,
+        recordCount: w12.recordCount,
+        note: w12.note,
+        stillThere: w12after.stillThere,
+      }),
     )
 
     // =====================================================================

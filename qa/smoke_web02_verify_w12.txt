@@ -1,0 +1,18 @@
+[OK] W1 units-page-loads
+[OK] W2 create-unit-ui
+[OK] W3 filter-subject
+[OK] W4 import-page-loads
+[OK] W5 template-is-xlsx
+[OK] W6 words-preview-invalid
+[OK] W13 error-report-download
+[OK] W7 words-commit
+[OK] W8 words-visible-in-unit
+[OK] W9 texts-preview-paragraphs
+[OK] W9 texts-commit-scope-adjust
+[OK] W10 illegal-file-40001
+[OK] W11 delete-unit-ok
+[OK] W12 delete-has-records-30003
+[OK] GUARD case-count-floor
+
+RESULT 15/15 PASS
+LOG D:\helloagent\zhanglaoshi_zhangyuze\admin-web\logs\smoke_web02.txt
