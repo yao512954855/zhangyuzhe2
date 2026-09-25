@@ -26,7 +26,7 @@ Flutter / Vue3+Vite+TS+ElementPlus+Pinia / FastAPI+uvicorn。DB **SQLite(WAL)**�
 - 学生端真机联调**必须** `HttpOverrides.global=null`，否则 `flutter test` 吞真请求 → 全 skip 假绿
 - **组卷请求体：语文不发 `mode`**；**课文展示只用 `recite_scope_chars`**（`total_chars` 名不符实）；**错题本一期只有英语**；英语 `scope=lesson/paragraph` 会静默退化、语文不读 `count/order` → 界面不给走不通的假选项
 
-## 进度（2026-09-25 10:16）— **17 包全齐**
+## 进度（2026-09-25 10:45）— **17 包全齐 + 已首次入库**
 **前端 16 包完成**：BE-01~08、WEB-01/02/**03**、APP-01~**05**；**QA-01 也已完成**。学生端 `analyze` **0 issue**、全量 **303 passed / 54 skipped**（计数自洽 357==357）；后端全量 **453 passed**。
 **5 包收口结果经主 Agent 独立复跑（非采信自报）**，汇总 `qa/closeout_5packages_2026-09-25.md`：
 - WEB-03 17/18 ｜ APP-03 **6/6（首次真跑通）** ｜ APP-04 **15/15** ｜ APP-05 **5/5** ｜ QA-01 冒烟 39/39 + e2e 12/12。证据 `qa/smoke_app03_verify.txt`、`qa/smoke_app04_verify_indep.txt`、`qa/smoke_web03_verify.txt`、`qa/smoke_app05_verify2.txt`、`qa/e2e_qa01_run2.txt`。
@@ -36,6 +36,7 @@ Flutter / Vue3+Vite+TS+ElementPlus+Pinia / FastAPI+uvicorn。DB **SQLite(WAL)**�
 - **QA-01**：完成（`qa/smoke/smoke_core.py` 冒烟 **39/39**；`qa/e2e/` 场景 **12/12** + prepare 3/3 + verify 5/5，`e2e_qa01_run2.txt`）。run1 曾挂：`E2E-09` 断言 `codes_set=[-1]`，即 `int(code or -1)` 把业务成功码 `0` 当假值 → 已修。
 - ✅ **APP-05 烟测 `10001` 已定位并修复**：根因是**脚本自己**把 `PUT /api/me/profile` 写成了 `post`（405 被包成 `10001`）；核实客户端与 `smoke_app02/03` 都是 `put` → 改回 `put` 后 **5/5 通过**。
 - ⚠️ **APP-04 真机烟测抓到 1 个客户端真实缺陷并已修**：`/feed` 的 `newly_matched` 是**位置数组**（`[0,1,2,3,4]`），客户端却用 `_toInt()` 解析 → 真机恒为 0（`int.tryParse("[0, 1, 2, 3]")` 静默 null）；假适配器喂 `int`，所以组件测试永远绿。已加 `newlyMatchedPositions` + 兼容解析，烟测钉住作回归护栏（§八 #66）。
+- ✅ **git 首次入库完成**（2026-09-25）：仓库此前**零提交** → 3 次提交 `69083f6`（基线 501 文件 / 90505 行）、`347bc0d`（入库清单）、`a55fb90`（#68 + #70）。**未 push**（无远端）。入库前做了全仓密钥扫描（`sk-*`/`AKID*`/`LTAI*` **零匹配**）+ 逐条核对 `.gitignore`（补了 `.env.*` 兜底 + `.flutter_tool_state` + `*.log`，烟测结论 `smoke_*.txt` 保留）+ 新增 `.gitattributes`（仓库内 LF、`ops/*.bat|*.ps1` 还原 CRLF）。
 
 ## 环境与踩坑
 Flutter `D:\2install\flutter\flutter_windows_3.47.5-stable\flutter`；**bash 调 flutter 必崩（MSYS 缺 PATHEXT）→ 用 `scripts/flutter.sh`**；⚠️ **该脚本在仓库根**，student-app 下要写 `bash ../scripts/flutter.sh`。JDK 用 Studio 自带 JBR（机器级 `JAVA_HOME` 1.8 **不要改**）。
@@ -50,11 +51,11 @@ Flutter `D:\2install\flutter\flutter_windows_3.47.5-stable\flutter`；**bash 调
 - **两个烟测不能并行**（都抢 UDP 9527）；动手前先查进程/端口。后台"端口守望"在**同一烟测连跑两次**时会误判（run1 收尾到 run2 启动间有 >30s 空档）→ 稳的判据是「无 `smoke_*.py` 进程 **且** 端口空闲」持续数轮。
 
 ## 待办
-- [ ] **⚠️ git `master` 无任何 commit** —— 17 包全部产物仍在工作区，未进版本库 → 建议尽快首次提交
-- [ ] **APP-04 §八 #68（P2 待裁决）**：`char_grid.dart:93` 在"当前位置"框画 `Text('字')`，而 30-规格 §F2:279 要求**空框**（该文件 :83 注释也写"空框"，自相矛盾）→ A 删成纯空框 / B 换非汉字占位图形并回写规格
+- [x] **git 首次入库已完成**（2026-09-25）：3 次提交 `69083f6`（基线 501 文件 / 90505 行）、`347bc0d`（入库清单）、`a55fb90`（#68 + #70）；**未 push**（无远端）。清单 `qa/git_first_commit_manifest.txt`
+- [x] **§八 #68 已裁决 = A 方案并修复**（2026-09-25）：`char_grid.dart` 「当前位置」框改**纯空框**（删 `Text('字')`）+ 新增 `CharGrid.currentCellKey` 供测试定位 + `test_app04_recite_test.dart` 改为断言「框在但框内无任何字符」；依据 = 30-规格 §F2:279 / UI §7.7:522,540 / 需求 §5.6:480 四处一致。验证：`analyze` 0 issue、APP-04 `+22` 绿、全量 `+303 ~54` 绿
 - [ ] **ASR 预研第三批（真人录音）不可跳过**；**判分阈值在此之前不得写死**
 - [ ] 负样本扩 ≥20；重验 `en`/`zh`；补测噪声/麦克风；确认 TTS 新模型接口
-- [ ] **`dev/02 §八` 待裁决累计 69 条**（WEB-03 单元「未完成学生」口径分歧；APP-03/04 #65 跨包改 `api_client.dart`、#66 `newly_matched` 形状、#67 `hint_count` 键集合、**#68 APP-04 `char_grid` 当前位置框偏离 F2「空框」**、**#69 blob 通道静默吞业务错误（已修）**）
+- [ ] **`dev/02 §八` 待裁决累计 70 条**（WEB-03 单元「未完成学生」口径分歧；APP-03/04 #65 跨包改 `api_client.dart`、#66 `newly_matched` 形状、#67 `hint_count` 键集合、**#68 APP-04 `char_grid` 当前位置框偏离 F2「空框」**、**#69 blob 通道静默吞业务错误（已修）**）
 - [x] **受保护文件跨包改动复核已完成**（2026-09-25）：
       · `student-app/lib/core/net/api_client.dart`（#65，APP-03 加 `headers`）→ **复核通过**：追加式、默认 null、`Authorization` 在附加头**之后**写入（覆盖不了）、自带真请求测试正反两条。
       · `admin-web/src/api/client.ts`（#62，WEB-02 加 `responseType:'blob'`）→ 方向正确但**带出 #69 静默缺陷，已修**（blob 分支先按 Content-Type 认错误体再抛 `BizError`）。**通用教训：给公共请求层加「通道能力」时，必须同时定义该通道下业务错误长什么样。**
