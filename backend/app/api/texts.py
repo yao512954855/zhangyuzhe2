@@ -2,6 +2,8 @@
 
 | 接口 | 说明 |
 |---|---|
+| `GET    /api/texts` | 跨单元课文列表（语文内容管理页，2026-09-30 新增） |
+| `POST   /api/texts` | 单条新增课文（同上，含拼音校验） |
 | `GET    /api/texts/{id}` | 课文详情：`paragraphs` + `recite_scope` + `scope_snapshot`；**不下发拼音** |
 | `PATCH  /api/texts/{id}` | 改标题 / 作者 / 状态 / 序号（⚠️ 契约未定义，详见下） |
 | `DELETE /api/texts/{id}` | 有背诵记录 → `30003` |
@@ -25,8 +27,10 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Request
 
 from app.core.deps import CurrentUser, get_current_user, require_admin
-from app.core.response import ok
-from app.schemas.content import TextDetailOut, TextPatchIn
+from app.core.errors import BizError, ErrorCode
+from app.core.pagination import parse_pagination
+from app.core.response import ok, page
+from app.schemas.content import TextCreateIn, TextDetailOut, TextPatchIn
 from app.services.content_service import ContentService
 from app.services.version_service import VersionService
 
@@ -35,6 +39,72 @@ router = APIRouter(tags=["texts"])
 
 def _ip(request: Request) -> str | None:
     return request.client.host if request.client else None
+
+
+def _opt(request: Request, key: str) -> str | None:
+    raw = request.query_params.get(key)
+    if raw is None:
+        return None
+    value = raw.strip()
+    return value or None
+
+
+def _opt_grade(request: Request) -> int | None:
+    raw = _opt(request, "grade")
+    if raw is None:
+        return None
+    try:
+        grade = int(raw)
+    except ValueError as exc:
+        raise BizError(ErrorCode.PARAM_INVALID, "grade 必须是整数") from exc
+    if grade < 1 or grade > 9:
+        raise BizError(ErrorCode.PARAM_INVALID, "grade 必须在 1 到 9 之间")
+    return grade
+
+
+@router.get("/api/texts")
+async def list_texts(request: Request, admin: CurrentUser = Depends(require_admin)) -> dict:
+    """跨单元课文列表（语文内容管理页，2026-09-30 新增）。
+
+    列表项 = `GET /api/units/{id}/texts`（admin 分支）的字段
+    + `unit_name / grade / semester`（跨单元浏览时看归属，页面定稿要求）。
+    ⚠️ 不含正文（同 §8.6「列表不含正文」的约定）。
+    """
+    page_no, page_size = parse_pagination(request)
+    items, total = ContentService.list_texts_admin_global(
+        subject=_opt(request, "subject"),
+        grade=_opt_grade(request),
+        semester=_opt(request, "semester"),
+        unit_id=int(_opt(request, "unit_id")) if _opt(request, "unit_id") else None,
+        keyword=_opt(request, "keyword"),
+        status=_opt(request, "status"),
+        page=page_no,
+        page_size=page_size,
+    )
+    return page(items, total, page_no, page_size)
+
+
+@router.post("/api/texts")
+async def create_text(
+    payload: TextCreateIn,
+    request: Request,
+    admin: CurrentUser = Depends(require_admin),
+) -> dict:
+    """单条新增课文（语文内容管理页「＋添加课文」，2026-09-30 新增）。
+
+    正文分段 / 背诵范围 / 拼音校验与导入链路**同一套服务**（口径必须一致）；
+    含无法拼音化的字 → `40003`；同单元同标题 → `10001`。
+    """
+    data = ContentService.create_text(
+        unit_id=payload.unit_id,
+        title=payload.title,
+        author=payload.author,
+        content_raw=payload.content_raw,
+        recite_scope=payload.recite_scope,
+        operator_id=admin.id,
+        ip=_ip(request),
+    )
+    return ok(TextDetailOut.model_validate(data).model_dump())
 
 
 @router.get("/api/texts/{text_id}")

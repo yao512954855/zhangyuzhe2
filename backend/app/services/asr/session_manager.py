@@ -246,6 +246,7 @@ class ASRSession:
         self.closed = False
 
         self._task_started_at: float | None = None
+        self._got_audio: bool = False   # 只为「首帧到达」日志，无业务语义
         self._final: tuple[str, float | None, int] | None = None
         self._last_partial = ""
         self._consecutive_errors = 0
@@ -254,6 +255,12 @@ class ASRSession:
         self._answer_id: int | None = None
         #: 标准答案 —— 只进服务端判定，**绝不传给云厂商**（F10）
         self._expected: str | None = None
+        #: 语音判分落库上下文（start 可选携带；缺省时英语由服务端按 word_id 自查）
+        self._word_id: int | None = None
+        self._mode: str | None = None
+        self._retry_count = 0
+        self._hint_level = 0
+        self._used_hint_count = 0
         self._close_reason: str | None = None
         # 仲裁所需音频：**只在内存**，且只留最近若干秒（F18：不落盘）
         self._pcm_window: deque[bytes] = deque()
@@ -324,10 +331,18 @@ class ASRSession:
         """处理一个二进制音频帧。"""
         self.last_activity = time.monotonic()
         if self.provider is None:
+            logger.warning(
+                "ASR 音频帧在 start 之前到达 user=%s bytes=%s（App 未发 start 或 start 被拒）",
+                self.user.id, len(data),
+            )
             await self._error(ErrorCode.PARAM_INVALID, "尚未 start 就发送音频", action="abort")
             return
         if self._keyboard_mode:
             return
+        if not self._got_audio:
+            # 只记首帧：证明「App 的麦克风数据确实流到了服务端」
+            self._got_audio = True
+            logger.info("ASR 首帧音频到达 user=%s bytes=%s", self.user.id, len(data))
         self._remember_audio(data)
         try:
             await self.provider.push_audio(data)
@@ -418,6 +433,13 @@ class ASRSession:
         # `expected` / `answer_id` 只在服务端留存（F10：绝不下发云厂商）
         self.set_expected(msg.get("expected"))
         self.set_answer_id(msg.get("answer_id"))
+        # 语音判分落库所需的会话上下文（英语词条走服务端自查 expected，§9.1
+        # 场次响应不含答案，客户端传不了 expected；mode/retry/hint 供 score 口径对齐 REST）
+        self._word_id = int(msg["word_id"]) if msg.get("word_id") is not None else None
+        self._mode = str(msg["mode"]) if msg.get("mode") else None
+        self._retry_count = int(msg.get("retry_count") or 0)
+        self._hint_level = int(msg.get("hint_level") or 0)
+        self._used_hint_count = int(msg.get("used_hint_count") or 0)
 
         cfg = ASRTaskConfig(
             session_id=int(session_id),
@@ -434,6 +456,7 @@ class ASRSession:
         self.cfg = cfg
         self._final = None
         self._last_partial = ""
+        self._got_audio = False
         self._task_started_at = time.monotonic()
         self._pcm_window.clear()
         self._pcm_window_bytes = 0
@@ -455,6 +478,13 @@ class ASRSession:
         provider.on_partial(self._on_partial)     # 同步回调 → 仅入 outbox
         provider.on_final(self._on_final)
 
+        # 排障关键：start 成功要留痕（用户反馈「一直收音」时，看这行 +
+        # 下面的错误日志就能判断 App 到底发了什么）
+        logger.info(
+            "ASR start user=%s practice_session=%s task=%s lang=%s provider=%s",
+            self.user.id, cfg.session_id, cfg.task_type, cfg.lang_hint,
+            self.router.used_provider,
+        )
         self.outbox.append(
             {
                 "type": "started",
@@ -467,9 +497,14 @@ class ASRSession:
     async def _on_end(self, msg: dict[str, Any]) -> None:
         provider, self.provider = self.provider, None
         if provider is None:
+            logger.warning("ASR end 在 start 之前到达 user=%s", self.user.id)
             await self._error(ErrorCode.PARAM_INVALID, "尚未 start 就 end", action="abort")
             return
 
+        logger.info(
+            "ASR end user=%s audio_ms=%s（开始等待云端 final）",
+            self.user.id, getattr(provider, "audio_ms", "?"),
+        )
         try:
             await provider.close()          # 契约约定：close 会产出 final
         except ASRError as exc:
@@ -546,7 +581,7 @@ class ASRSession:
     ) -> None:
         assert self.cfg is not None
         task_type = self.cfg.task_type
-        expected = str(self._expected_text() or "")
+        expected = self._resolve_expected()
 
         if task_type == "recite":
             payload = await asyncio.to_thread(self._recite_feed, text)
@@ -556,11 +591,16 @@ class ASRSession:
             self._log(provider, status="ok")
             return
 
-        from app.services.judge import JudgeService
+        from app.services.judge import JudgeService, judge_word_or_spell
 
         try:
+            # 英语模式一「双口径」：`word` 步念整词 / 逐字母拼都收（二期口径）。
+            # `spell` 分支保留以兼容旧客户端（合并单轮后 App 不再发）。
+            used_spell = False
             if task_type == "spell":
                 verdict = JudgeService.judge_spell(asr_text=text, target=expected)
+            elif task_type == "word":
+                verdict, used_spell = judge_word_or_spell(answer=text, expected=expected)
             else:
                 verdict = JudgeService.judge_text(answer=text, expected=expected)
         except Exception as exc:  # noqa: BLE001
@@ -583,6 +623,11 @@ class ASRSession:
                             asr_text=arbitrated, target=expected,
                             asr_confidence=verdict.asr_confidence,
                         )
+                    elif task_type == "word":
+                        verdict, used_spell = judge_word_or_spell(
+                            answer=arbitrated, expected=expected,
+                            asr_confidence=verdict.asr_confidence,
+                        )
                     else:
                         verdict = JudgeService.judge_text(
                             answer=arbitrated, expected=expected,
@@ -591,6 +636,18 @@ class ASRSession:
                     match_type = str(verdict.match_type)
                 except Exception:  # noqa: BLE001 - 仲裁结果判分失败则保留原判
                     pass
+
+        # 语音判分同样要落 answers + 更新掌握度（契约 §6.2 verdict.answer_id、§7.2；
+        # 之前只在 REST 提交时落库，语音作答等于没进统计）。落库失败不阻塞判分回传。
+        answer_id = (
+            self._persist_answer(text, verdict, provider, used_spell=used_spell)
+            or self._answer_id
+        )
+        logger.info(
+            "ASR 判分 user=%s session=%s task=%s text=%r match=%s correct=%s answer_id=%s",
+            self.user.id, self.cfg.session_id, task_type, text,
+            match_type, bool(verdict.is_correct), answer_id,
+        )
 
         payload: dict[str, Any] = {
             "type": "verdict",
@@ -602,18 +659,82 @@ class ASRSession:
             "expected": verdict.expected,
             "asr_text": text,
             "normalized": verdict.normalized,
-            "answer_id": self._answer_id,
+            "answer_id": answer_id,
             "can_appeal": bool(verdict.can_appeal),
             "diff": [d.model_dump() for d in verdict.diff] if verdict.diff else None,
         }
         self.outbox.append(payload)
-        SessionRegistry.cache_verdict(self._answer_id, payload)
+        if answer_id is not None:
+            SessionRegistry.cache_verdict(answer_id, payload)
+        else:
+            SessionRegistry.cache_verdict(self._answer_id, payload)
         self._log(provider, status="ok")
         self.router.note_ok()
 
     def _expected_text(self) -> str | None:
         """标准答案只可能在 `start` 里给过，这里从会话态取。"""
         return getattr(self, "_expected", None)
+
+    def _resolve_expected(self) -> str:
+        """解析本次判分的标准答案。
+
+        优先级：start 显式携带（语文背诵等客户端合法持有文本的场景）>
+        **按 `word_id` 查库**（英语词条：§9.1 场次响应不含答案，客户端传不了）。
+        都拿不到返回空串（由调用方按空答案口径处理）。
+        """
+        if self._expected:
+            return self._expected
+        if self._word_id is not None:
+            with read_conn() as conn:
+                row = conn.execute(
+                    "SELECT en FROM words WHERE id = ?", (self._word_id,)
+                ).fetchone()
+            if row is not None and row["en"]:
+                self._expected = str(row["en"]).strip()
+        return self._expected or ""
+
+    def _persist_answer(
+        self,
+        text: str,
+        verdict: Any,
+        provider: ASRProvider | None,
+        *,
+        used_spell: bool = False,
+    ) -> int | None:
+        """语音判分落库：写 `answers` + 同事务更新 `word_mastery`，返回 answer_id。
+
+        与 REST `submit_answer` 共用同一套 score/mastery 口径（判定已由 WS 侧
+        JudgeService 完成，这里只持久化）。场次已结束/越权/词条缺失等 BizError
+        **不阻塞判分回传**（answer_id 记 None），只落 warning。
+
+        `used_spell`：模式一走字母序列回退并采纳时置 True，用于回填 `letter_seq`。
+        """
+        if self.cfg is None or self.cfg.task_type == "recite" or self._word_id is None:
+            return None
+        try:
+            from app.services.session_service import SessionService
+
+            return SessionService.record_ws_answer(
+                student_id=self.user_id,
+                session_id=self.cfg.session_id,
+                word_id=self._word_id,
+                mode=self._mode or "cn2en",
+                step=2 if self.cfg.task_type == "spell" else 1,
+                used_spell=used_spell,
+                verdict=verdict,
+                asr_text=text,
+                duration_ms=self._final[2] if self._final else 0,
+                retry_count=self._retry_count,
+                hint_level=self._hint_level,
+                used_hint_count=self._used_hint_count,
+                provider=getattr(provider, "model", None),
+            )
+        except Exception as exc:  # noqa: BLE001 - 落库失败不影响判分回传
+            logger.warning(
+                "语音判分落库失败 user=%s session=%s word=%s：%s",
+                self.user.id, self.cfg.session_id, self._word_id, exc,
+            )
+            return None
 
     def _recite_feed(self, text: str) -> dict[str, Any] | None:
         """`task_type=recite`：喂给 BE-05 的 `ReciteService`（同步、要连库）。
@@ -800,6 +921,12 @@ class ASRSession:
         return True
 
     async def _error(self, code: int, message: str, *, action: str = "retry") -> None:
+        # 网关发给 App 的错误必须落日志：之前只在 asr_logs 记 code，
+        # 「App 一直收音」这类问题完全无从排查（2026-09-28 真机联调教训）。
+        logger.warning(
+            "ASR 网关错误 user=%s code=%s action=%s msg=%s",
+            self.user.id, code, action, message,
+        )
         self.outbox.append(self._error_payload(code, message, action=action))
 
     @staticmethod

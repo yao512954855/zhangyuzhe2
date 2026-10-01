@@ -131,20 +131,121 @@ class VersionService:
             )
 
     @staticmethod
-    def list_versions(*, entity_type: str, entity_id: int) -> list[dict[str, Any]]:
-        """查询某实体的版本历史（读，供 `GET /api/content/versions`）。"""
+    def list_versions(
+        *,
+        entity_type: str,
+        entity_id: int,
+        with_snapshot: bool = False,
+    ) -> list[dict[str, Any]]:
+        """查询某实体的版本历史（读，供 `GET /api/content/versions`）。
+
+        - `operator_name`：LEFT JOIN users 带出操作人姓名（人已删显示 NULL）。
+        - `with_snapshot=True` 时附带解析后的快照 JSON（版本页 diff 展示用，
+          仅单实体查询，量可控；默认不带，避免列表接口搬运大 JSON）。
+        """
         VersionService._table(entity_type)  # 校验实体类型
+        snap_col = ", cv.snapshot" if with_snapshot else ""
         with read_conn() as conn:
             rows = conn.execute(
-                """
-                SELECT id, entity_type, entity_id, version, op, operator_id, created_at
-                FROM content_versions
-                WHERE entity_type = ? AND entity_id = ?
-                ORDER BY version ASC
+                f"""
+                SELECT cv.id, cv.entity_type, cv.entity_id, cv.version, cv.op,
+                       cv.operator_id, cv.created_at,
+                       ou.real_name AS operator_name{snap_col}
+                FROM content_versions cv
+                LEFT JOIN users ou ON ou.id = cv.operator_id
+                WHERE cv.entity_type = ? AND cv.entity_id = ?
+                ORDER BY cv.version ASC
                 """,
                 (entity_type, entity_id),
             ).fetchall()
-        return [dict(r) for r in rows]
+        items: list[dict[str, Any]] = []
+        for r in rows:
+            item = dict(r)
+            if with_snapshot:
+                raw = item.pop("snapshot", None)
+                item["snapshot"] = json.loads(raw) if raw else {}
+            items.append(item)
+        return items
+
+    # 实体名兜底取法：实体行还在用活表字段；已被物理删除（delete 快照）从
+    # 快照 JSON 里捞 —— json_extract 需要 SQLite JSON1（Python 3.13 自带，已启用）。
+    _RECENT_SELECT = """
+        SELECT cv.id, cv.entity_type, cv.entity_id, cv.version, cv.op,
+               cv.operator_id, cv.created_at,
+               ou.real_name AS operator_name,
+               CASE cv.entity_type
+                   WHEN 'unit' THEN COALESCE(u.name, json_extract(cv.snapshot, '$.name'))
+                   WHEN 'word' THEN COALESCE(w.en || ' ' || w.cn,
+                                             json_extract(cv.snapshot, '$.en'))
+                   ELSE COALESCE(t.title, json_extract(cv.snapshot, '$.title'))
+               END AS entity_name,
+               CASE WHEN cv.entity_type = 'unit' THEN u.subject ELSE wu.subject END AS subject,
+               CASE WHEN cv.entity_type = 'unit' THEN NULL ELSE wu.grade END AS grade,
+               CASE WHEN cv.entity_type = 'unit' THEN NULL ELSE wu.semester END AS semester,
+               CASE WHEN cv.entity_type = 'unit' THEN NULL ELSE wu.name END AS unit_name
+    """
+
+    # 词/课文挂的单元单独再 JOIN 一次 units（wu），与单元实体自身的 u 区分开。
+    _RECENT_FROM = """
+        FROM content_versions cv
+        LEFT JOIN units u  ON cv.entity_type = 'unit' AND u.id = cv.entity_id
+        LEFT JOIN words w  ON cv.entity_type = 'word' AND w.id = cv.entity_id
+        LEFT JOIN texts t  ON cv.entity_type = 'text' AND t.id = cv.entity_id
+        LEFT JOIN units wu ON cv.entity_type != 'unit'
+                           AND wu.id = COALESCE(w.unit_id, t.unit_id)
+        LEFT JOIN users ou ON ou.id = cv.operator_id
+    """
+
+    @staticmethod
+    def list_recent(
+        *,
+        entity_type: str | None = None,
+        op: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> dict[str, Any]:
+        """全局最近变更列表（供版本页默认视图，2026-09-30 方案 B）。
+
+        - 按版本记录 id 倒序（即最新写入在前）；
+        - 每行 JOIN 带出 `entity_name`（含已删除实体从快照兜底）、
+          `subject / grade / semester / unit_name`（词条/课文的归属上下文）、
+          `operator_name`；
+        - `entity_type` / `op` 可选过滤，非法值 `10001`。
+        """
+        if entity_type is not None and entity_type not in _TABLES:
+            raise BizError(ErrorCode.PARAM_INVALID, f"不支持的实体类型：{entity_type}")
+        if op is not None and op not in _OPS:
+            raise BizError(ErrorCode.PARAM_INVALID, f"不支持的版本操作：{op}")
+
+        where = ["1=1"]
+        params: list[Any] = []
+        if entity_type:
+            where.append("cv.entity_type = ?")
+            params.append(entity_type)
+        if op:
+            where.append("cv.op = ?")
+            params.append(op)
+        where_sql = " AND ".join(where)
+
+        offset = (page - 1) * page_size
+        with read_conn() as conn:
+            total = int(
+                conn.execute(
+                    f"SELECT COUNT(*) AS c {VersionService._RECENT_FROM} WHERE {where_sql}",
+                    params,
+                ).fetchone()["c"]
+            )
+            rows = conn.execute(
+                f"{VersionService._RECENT_SELECT} {VersionService._RECENT_FROM} "
+                f"WHERE {where_sql} ORDER BY cv.id DESC LIMIT ? OFFSET ?",
+                (*params, page_size, offset),
+            ).fetchall()
+        return {
+            "items": [dict(r) for r in rows],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
 
     @staticmethod
     def rollback(

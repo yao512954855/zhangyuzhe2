@@ -141,9 +141,11 @@ def main() -> int:
         check("响应 code=0", body.get("code") == 0, f"code={body.get('code')}")
         data = body.get("data") or {}
         check("db 可达", data.get("db") is True, f"db={data.get('db')}")
+        # ⚠️ 断言的是「迁移已经跑过」，不是「版本恰好是 1」——
+        #    schema_version 随迁移文件增加而上升（二期后已是 2），写死等于自造测试债。
         check(
-            "schema_version 已迁移到 1",
-            data.get("schema_version") == 1,
+            "schema_version 已迁移（>= 1）",
+            int(data.get("schema_version") or 0) >= 1,
             f"schema_version={data.get('schema_version')}",
         )
         check("asr_ready 字段存在（值可为 False）", "asr_ready" in data)

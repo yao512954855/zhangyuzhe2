@@ -92,6 +92,18 @@ async def asr_ws(
     gate = get_gate()
 
     async def _send(msg: dict[str, Any]) -> None:
+        # 发送留痕：2026-09-28 真机实测「verdict 已判分但 App 卡识别中」，
+        # 发送环节零日志无从定位。info 级记 type + 关键字段，量小不刷屏。
+        logger.info(
+            "ASR → App user=%s type=%s%s",
+            user.id,
+            msg.get("type"),
+            (
+                f" answer_id={msg.get('answer_id')} is_correct={msg.get('is_correct')}"
+                if msg.get("type") == "verdict"
+                else ""
+            ),
+        )
         await websocket.send_text(json.dumps(msg, ensure_ascii=False))
 
     session = ASRSession(user=user, send=_send)
@@ -121,8 +133,11 @@ async def asr_ws(
         while True:
             try:
                 await session.flush()
-            except Exception as exc:  # noqa: BLE001 - 连接已断，交给主循环收尾
-                logger.debug("pump 发送失败：%s", exc)
+            except Exception as exc:  # noqa: BLE001 - 发送失败=连接已坏
+                # ⚠️ 必须是 warning 且主动终止会话：之前是 debug 静默退出，
+                #    verdict 永远发不出去、会话吊到客户端断开才收尾，无从排障。
+                logger.warning("pump 发送失败，终止会话 user=%s：%s", user.id, exc)
+                session.kicked = True
                 return
             if session.kicked:
                 return

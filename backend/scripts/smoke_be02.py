@@ -71,15 +71,23 @@ def http(
     *,
     body: dict | None = None,
     token: str | None = None,
+    ident: str | None = None,
     multipart: tuple[str, str, bytes] | None = None,
     raw: bool = False,
     timeout: float = 20.0,
 ) -> Any:
-    """发一个请求；`raw=True` 时返回 `(status, headers, bytes)`。"""
+    """发一个请求；`raw=True` 时返回 `(status, headers, bytes)`。
+
+    `ident`：**仅用于切换限流主体**，不做鉴权。`RateLimitMiddleware._identity()`
+    优先取 `Authorization` 头的哈希（`u:<md5>`）、取不到才退化到 IP，因此给一个
+    假 Bearer 即可让本请求走**独立限流桶**。登录接口本身不校验该头，不影响业务判定。
+    """
     url = f"{BASE}{path}"
     headers: dict[str, str] = {}
     if token:
         headers["Authorization"] = f"Bearer {token}"
+    elif ident:
+        headers["Authorization"] = f"Bearer {ident}"
 
     data: bytes | None = None
     if multipart is not None:
@@ -112,15 +120,25 @@ def http(
             return {"code": -1, "_raw": payload.decode("utf-8", "replace")}
 
 
-def _login(username: str, password: str, role: str) -> dict:
+def _login(username: str, password: str, role: str, ident: str | None = None) -> dict:
     """带主动排队的登录。
 
     ⚠️ 契约 §5.4 写的是「单**账号**登录 5 次/分钟」，但 `RateLimitMiddleware`
-    是纯 ASGI 中间件、**读不到请求体里的 username**，因此实际按 IP 计数
-    （`login:ip:xxx`）。本脚本所有登录都来自 127.0.0.1，共用一个额度，
-    不排队的话第 6 次起全是 `10005`，会把后面的用例全带偏。
+    是纯 ASGI 中间件、**读不到请求体里的 username**，因此实际按**登录主体**计数
+    （优先 `Authorization` 头哈希，无头才退化到 IP）。本脚本登录默认不带该头，
+    全部共用一个 `ip:127.0.0.1` 额度，不排队的话第 6 次起全是 `10005`。
     —— 这条「文档维度 vs 实现维度不一致」本身也是本项目要上报的问题之一。
+
+    `ident`：传值时改用**独立限流桶**（假 Bearer），且**不做客户端排队** —— 供 ⑩
+    这类需要「确保每次尝试都穿透到业务层」的用例使用（见 ⑩ 注释）。
     """
+    if ident is not None:
+        return http(
+            "POST",
+            "/api/auth/login",
+            body={"username": username, "password": password, "role": role},
+            ident=ident,
+        )
     _pace_login()
     return http(
         "POST",
@@ -491,11 +509,20 @@ def main() -> int:
         )
 
         # ---------------------------------------------------------- ⑩ 登录锁定
-        # 连续 5 次密码错误 → 账号锁 10 分钟。`_login` 已按 5 次/分钟 主动排队，
-        # 所以第 6 次的 10005 一定来自**账号锁定**，而不是 HTTP 层的 IP 限流。
-        for _ in range(5):
-            _login("20260002", "wrong-pwd", "student")
-        locked = _login("20260002", "wrong-pwd", "student")
+        # 连续 5 次密码错误 → 账号锁 10 分钟（锁 key = username，与限流主体无关；
+        # `authenticate()` 对「账号不存在」也 `_record_failure`，故探测账号存在与否不影响）。
+        #
+        # ⚠️ 历史坑（2026-09-29 修，详见 docs/dev/02 §八 #94）：`_pace_login()` 是
+        #    **客户端侧**滑动窗口，与服务端限流桶**不同步**；⑩ 之前用例已用掉共享的
+        #    `ip:127.0.0.1` 额度 → 「连续 5 次错误密码」里有的请求被 HTTP 限流拦掉
+        #    （10005）而**没进业务层**，`_fail_times` 累不到 5 → 第 6 次返回 `20002`
+        #    而非 `10005`（重跑 2/2 一致，曾长期假红）。
+        # 修法：每条探针一个**独立假 Bearer** → `_identity()` 取哈希得到专属限流桶，
+        #    与脚本其它登录彻底隔离；且**每次换 ident**，保证请求必穿透到 handler，
+        #    于是第 6/7 次的 10005 真正来自「账号锁定」而**不是**「HTTP 限流」。
+        for i in range(5):
+            _login("20260002", "wrong-pwd", "student", ident=f"bjsys-smoke-lock-{i}")
+        locked = _login("20260002", "wrong-pwd", "student", ident="bjsys-smoke-lock-6th")
         check(
             "⑩ §2.1 连续 5 次密码错误后账号被锁 → 10005",
             locked.get("code") == 10005,
@@ -503,7 +530,10 @@ def main() -> int:
         )
         check(
             "⑩ 锁定期内正确密码同样被拒 → 10005",
-            _login("20260002", "abc123456", "student").get("code") == 10005,
+            _login(
+                "20260002", "abc123456", "student", ident="bjsys-smoke-lock-pwd"
+            ).get("code")
+            == 10005,
         )
 
         # ---------------------------------------------------------- ⑪ 审计

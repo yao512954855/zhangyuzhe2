@@ -30,6 +30,12 @@ backend/backups/
 *.log
 backend/.smoketmp/
 qa/tmp/
+# 管理端构建产物（由 admin-web/dist 部署复制而来，可再生成）
+backend/static/
+# 排障时保留的原文件备份
+*.orig
+# 手动抓的临时 logcat
+qa/tmp_logcat_*.txt
 
 # ⚠️ 但 `admin-web/logs/` 是个例外，要整个排除：
 #    它是**烟测脚本自己 `writeFileSync` 覆盖写的运行日志**（每次跑都变），

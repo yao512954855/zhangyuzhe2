@@ -959,6 +959,41 @@ def test_u18_file_too_large(client):
     assert resp.json()["code"] == 40004
 
 
+def test_unit_options_endpoint(client):
+    """`GET /api/units/options`（2026-09-29 新增）：管理端下拉「一次拿全」。
+
+    存在理由：`GET /api/units` 受契约 §5.1 `page_size ≤ 100` 约束，
+    管理端下拉原先传 `page_size=200` 会被 `10001` 打回 → **下拉拉不到 = 页面功能不可用**。
+    选项接口本就是「一次给全」语义，扩它比放宽分页上限合规。
+    """
+    token = _admin_token(client)
+    u1 = _make_unit(client, token, "第一单元", subject="chinese", grade=3, semester="first")
+    u2 = _make_unit(client, token, "第二单元", subject="english", grade=3, semester="first")
+
+    # ① 管理端接口，未带 token → 10002
+    assert client.get("/api/units/options").json()["code"] == 10002
+
+    # ② 一次给全 + 字段收窄（不含 word_count 等 4 个派生计数）
+    body = client.get("/api/units/options", headers=_auth(token)).json()
+    assert body["code"] == 0, body
+    items = body["data"]["items"]
+    assert {i["id"] for i in items} == {u1, u2}
+    assert set(items[0]) == {"id", "name", "subject", "grade", "semester", "order_no"}
+    assert body["data"]["total"] == 2
+
+    # ③ subject 筛选在选项接口上同样生效
+    body = client.get("/api/units/options", params={"subject": "english"}, headers=_auth(token)).json()
+    assert [i["id"] for i in body["data"]["items"]] == [u2]
+
+    # ④ 反证根因：同一个 `page_size=200` 在分页接口上确实会被打回
+    assert (
+        client.get(
+            "/api/units", params={"page": 1, "page_size": 200}, headers=_auth(token)
+        ).json()["code"]
+        == 10001
+    )
+
+
 def test_u19_duplicate_unit_name(client):
     """U19：同名单元 → `10001`，提示已存在。"""
     token = _admin_token(client)
@@ -1300,3 +1335,210 @@ def test_require_spell_default_by_type(client):
     assert stored["class"] == 1
     assert stored["in the end"] == 0
     assert stored["how are you"] == 0
+
+
+# ===========================================================================
+# 2026-09-30 追加：英语/语文内容管理页 —— 跨单元列表（GET /api/words、/api/texts）
+# 与单条新增（POST /api/words、/api/texts）
+# ===========================================================================
+
+
+def test_global_words_list_and_create(client):
+    """跨单元词条列表：JOIN 带出 unit_name/grade/semester，按 年级/单元/关键词/状态 过滤。"""
+    token = _admin_token(client)
+    u1 = _make_unit(client, token, "Unit 1 Hello!", grade=3, semester="first")
+    u2 = _make_unit(client, token, "Unit 2 School", grade=7, semester="second")
+
+    body = client.post("/api/words", json={"unit_id": u1, "en": "classroom", "cn": "教室"}, headers=_auth(token)).json()
+    assert body["code"] == 0, body
+    assert body["data"]["unit_id"] == u1 and body["data"]["status"] == "active"
+
+    body = client.post(
+        "/api/words",
+        json={"unit_id": u2, "en": "soccer", "cn": "足球", "require_spell": False, "accepted": ["football"]},
+        headers=_auth(token),
+    ).json()
+    assert body["code"] == 0, body
+
+    # 全量：跨单元带归属字段
+    body = client.get("/api/words", headers=_auth(token)).json()
+    assert body["code"] == 0 and body["data"]["total"] == 2, body
+    first = body["data"]["items"][0]
+    assert first["unit_name"] in ("Unit 1 Hello!", "Unit 2 School")
+    assert {"grade", "semester"} <= set(first)
+
+    # 按年级
+    body = client.get("/api/words?grade=7", headers=_auth(token)).json()
+    assert [i["en"] for i in body["data"]["items"]] == ["soccer"]
+
+    # 按单元
+    body = client.get(f"/api/words?unit_id={u1}", headers=_auth(token)).json()
+    assert [i["en"] for i in body["data"]["items"]] == ["classroom"]
+
+    # 按关键词（中文命中）
+    body = client.get("/api/words?keyword=%E6%95%99%E5%AE%A4", headers=_auth(token)).json()
+    assert [i["en"] for i in body["data"]["items"]] == ["classroom"]
+
+    # 状态过滤：停用后 active 不含它
+    wid = body["data"]["items"][0]["id"]
+    client.patch(f"/api/words/{wid}", json={"status": "inactive"}, headers=_auth(token))
+    body = client.get("/api/words?status=active", headers=_auth(token)).json()
+    assert [i["en"] for i in body["data"]["items"]] == ["soccer"]
+
+
+def test_create_word_guards(client):
+    """单条新增词条的守卫：重复 10001 / 语文单元 10001 / 单元缺失 30002 / order_no 排尾。"""
+    token = _admin_token(client)
+    u1 = _make_unit(client, token, "Unit 1 Hello!")
+    client.post("/api/words", json={"unit_id": u1, "en": "apple", "cn": "苹果", "order_no": 5}, headers=_auth(token))
+
+    # 同单元同 en → 10001
+    body = client.post("/api/words", json={"unit_id": u1, "en": "apple", "cn": "苹果"}, headers=_auth(token)).json()
+    assert body["code"] == 10001, body
+
+    # 语文单元 → 10001
+    cu = _make_unit(client, token, "第一单元", subject="chinese")
+    body = client.post("/api/words", json={"unit_id": cu, "en": "apple", "cn": "苹果"}, headers=_auth(token)).json()
+    assert body["code"] == 10001, body
+
+    # 单元不存在 → 30001
+    body = client.post("/api/words", json={"unit_id": 99999, "en": "pear", "cn": "梨"}, headers=_auth(token)).json()
+    assert body["code"] == 30001, body
+
+    # 缺省 order_no = max+1 = 6
+    body = client.post("/api/words", json={"unit_id": u1, "en": "pear", "cn": "梨"}, headers=_auth(token)).json()
+    assert body["code"] == 0 and body["data"]["order_no"] == 6, body
+
+
+def test_global_texts_list_and_create(client):
+    """跨单元课文列表 + 单条新增：分段/拼音校验/背诵范围与导入同一套口径。"""
+    token = _admin_token(client)
+    u1 = _make_unit(client, token, "第一单元", subject="chinese", grade=7)
+    u2 = _make_unit(client, token, "第二单元", subject="chinese", grade=8, semester="second")
+
+    payload = {
+        "unit_id": u1,
+        "title": "春",
+        "author": "朱自清",
+        "content_raw": "盼望着，盼望着，东风来了。\n\n春天像刚落地的娃娃，从头到脚都是新的。",
+    }
+    body = client.post("/api/texts", json=payload, headers=_auth(token)).json()
+    assert body["code"] == 0, body
+    data = body["data"]
+    assert len(data["paragraphs"]) == 2 and data["recite_scope"] == [0, 1]
+    assert data["total_chars"] > 0
+    assert data["scope_snapshot"]["end"] - data["scope_snapshot"]["start"] == data["total_chars"]
+    # §8.7：详情不下发拼音序列
+    assert "content_pinyin" not in data
+
+    # 全量列表：带归属字段
+    body = client.get("/api/texts", headers=_auth(token)).json()
+    assert body["code"] == 0 and body["data"]["total"] == 1
+    item = body["data"]["items"][0]
+    assert item["unit_name"] == "第一单元" and item["grade"] == 7 and item["semester"] == "first"
+    assert "content_raw" not in item, "列表不含正文（§8.6）"
+
+    # 只背第 2 段
+    body = client.post(
+        "/api/texts",
+        json={"unit_id": u2, "title": "秋", "content_raw": "一级一段。\n\n二段。\n\n三段。", "recite_scope": [1]},
+        headers=_auth(token),
+    ).json()
+    assert body["code"] == 0, body
+    assert body["data"]["recite_scope"] == [1]
+    # 详情体里段落 recite 标记与范围一致（recite_* 计数字段是列表接口的）
+    recites = [p["recite"] for p in body["data"]["paragraphs"]]
+    assert recites == [False, True, False]
+
+    # 范围越界 → 10001（从 0 数起）
+    body = client.post(
+        "/api/texts",
+        json={"unit_id": u2, "title": "冬", "content_raw": "一段。", "recite_scope": [3]},
+        headers=_auth(token),
+    ).json()
+    assert body["code"] == 10001, body
+
+    # 生僻字无法拼音化 → 40003（同导入 U7）
+    body = client.post(
+        "/api/texts",
+        json={"unit_id": u2, "title": "生僻", "content_raw": "这个字是𠮷。"},
+        headers=_auth(token),
+    ).json()
+    assert body["code"] == 40003, body
+
+    # 英语单元 → 10001；同标题重复 → 10001
+    eu = _make_unit(client, token, "Unit 9", grade=9)
+    body = client.post("/api/texts", json={"unit_id": eu, "title": "x", "content_raw": "字。"}, headers=_auth(token)).json()
+    assert body["code"] == 10001, body
+    body = client.post(
+        "/api/texts",
+        json={"unit_id": u2, "title": "秋", "content_raw": "一段。"},
+        headers=_auth(token),
+    ).json()
+    assert body["code"] == 10001, body
+
+    # 列表过滤：unit_id / 关键词（标题）
+    body = client.get(f"/api/texts?unit_id={u1}", headers=_auth(token)).json()
+    assert [i["title"] for i in body["data"]["items"]] == ["春"]
+    body = client.get("/api/texts?keyword=%E7%A7%8B", headers=_auth(token)).json()
+    assert [i["title"] for i in body["data"]["items"]] == ["秋"]
+
+
+def test_patch_text_body_and_scope(client):
+    """PATCH 课文正文/背诵范围（2026-09-30 语文页行内编辑）：
+    派生序列与创建同一套口径；范围越界裁段；已有背诵记录 → 30003 拒改正文（元信息不限）。"""
+    token = _admin_token(client)
+    u1 = _make_unit(client, token, "第一单元", subject="chinese", grade=7)
+    body = client.post(
+        "/api/texts",
+        json={"unit_id": u1, "title": "春", "content_raw": "一段落。\n\n二段落。\n\n三段落。", "recite_scope": [0, 2]},
+        headers=_auth(token),
+    ).json()
+    assert body["code"] == 0, body
+    tid = body["data"]["id"]
+    assert [p["recite"] for p in body["data"]["paragraphs"]] == [True, False, True]
+
+    # 只改背诵范围：段落与派生字段同步重算
+    body = client.patch(f"/api/texts/{tid}", json={"recite_scope": [1]}, headers=_auth(token)).json()
+    assert body["code"] == 0, body
+    assert body["data"]["recite_scope"] == [1]
+    assert [p["recite"] for p in body["data"]["paragraphs"]] == [False, True, False]
+    assert "content_pinyin" not in body["data"]
+
+    # 改正文（2 段），不传范围 → 沿用旧范围并裁越界段：旧 [1] 仍合法
+    body = client.patch(
+        f"/api/texts/{tid}",
+        json={"content_raw": "新一段。\n\n新二段。"},
+        headers=_auth(token),
+    ).json()
+    assert body["code"] == 0, body
+    assert body["data"]["recite_scope"] == [1]
+    assert len(body["data"]["paragraphs"]) == 2
+    assert body["data"]["total_chars"] > 0
+
+    # 元信息与正文一起改
+    body = client.patch(
+        f"/api/texts/{tid}",
+        json={"title": "春（修订）", "content_raw": "只有一段。", "recite_scope": [0]},
+        headers=_auth(token),
+    ).json()
+    assert body["code"] == 0, body
+    assert body["data"]["title"] == "春（修订）" and body["data"]["recite_scope"] == [0]
+
+    # 造一条背诵记录 → 再改正文 → 30003；改标题不受限
+    _, student_id = _new_student(client)
+    with write_tx() as conn:
+        cur = conn.execute(
+            "INSERT INTO sessions (student_id, unit_id, content_type, strategy) VALUES (?, ?, 'chinese', '{}')",
+            (student_id, u1),
+        )
+        conn.execute(
+            "INSERT INTO recitations (session_id, student_id, text_id, total_chars, matched_chars)"
+            " VALUES (?, ?, ?, 1, 1)",
+            (int(cur.lastrowid or 0), student_id, tid),
+        )
+    body = client.patch(f"/api/texts/{tid}", json={"content_raw": "换正文。"}, headers=_auth(token)).json()
+    assert body["code"] == 30003, body
+    assert "停用" in body["message"] or "判分口径" in body["message"]
+    body = client.patch(f"/api/texts/{tid}", json={"author": "朱自清"}, headers=_auth(token)).json()
+    assert body["code"] == 0 and body["data"]["author"] == "朱自清", body

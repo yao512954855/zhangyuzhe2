@@ -529,20 +529,39 @@ def test_enumerate_interfaces_never_raises(monkeypatch):
 
 
 def test_cached_interfaces_respects_ttl():
+    import threading
+
     calls: list[int] = []
+    gate = threading.Event()
 
     def _probe():
         calls.append(1)
+        # 第 2 次（后台刷新那次）卡住直到测试放行 —— 模拟慢探测；
+        # 若 get() 变回同步探测，调用方会被卡 5 s，SWR 契约即告破
+        if len(calls) >= 2:
+            gate.wait(timeout=5)
         return [NetInterface(name="eth", ip="192.168.1.1", kind=KIND_ETHERNET)]
 
     cache = netinfo.CachedInterfaces(ttl_seconds=10.0, probe=_probe)
     cache.get(now=0.0)
     cache.get(now=5.0)
     assert len(calls) == 1, "TTL 内不应重复探测"
-    cache.get(now=11.0)
-    assert len(calls) == 2, "TTL 过期后应重新探测"
+    # TTL 过期但有旧值 → stale-while-revalidate（#109）：立刻回旧值不阻塞，
+    # 探测挪到后台线程（原语义是同步探测，会把 asyncio 事件循环卡 ~2.5 s）
+    _t0 = time.monotonic()
+    stale = cache.get(now=11.0)
+    elapsed = time.monotonic() - _t0
+    assert [i.ip for i in stale] == ["192.168.1.1"], "过期后应立刻返回旧值"
+    assert not gate.is_set(), "get() 返回时后台探测仍被阻塞（= 未同步等待探测）"
+    assert elapsed < 2.0, (
+        f"get() 耗时 {elapsed:.2f}s —— 疑似同步探测被慢 probe 卡住"
+        "（SWR 应立刻返回旧值；同步实现会卡满 gate 的 5s 超时）"
+    )
+    gate.set()
+    cache.wait_pending()
+    assert len(calls) == 2, "等待后台刷新完成后应完成一次探测"
     cache.get(now=11.1, force=True)
-    assert len(calls) == 3
+    assert len(calls) == 3, "force 语义不变：仍同步探测"
 
 
 def test_scheduler_daily_job_due_rules():

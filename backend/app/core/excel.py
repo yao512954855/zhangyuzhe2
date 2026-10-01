@@ -169,17 +169,27 @@ def build_template(
     validations: dict[str, Sequence[str]] | None = None,
     sheet_name: str = "Sheet1",
     column_widths: dict[str, int] | None = None,
+    example_notes: Sequence[str] | None = None,
+    example_rows: Sequence[Sequence[str]] | None = None,
 ) -> bytes:
-    """生成导入模板：表头 + 下拉有效性。
+    """生成导入模板：表头 + 下拉有效性（+ 可选「填写示例」工作表）。
 
     Args:
         headers: 列名列表。
         validations: `{列名: [可选值, ...]}`，为该列第 2 行起添加下拉。
         sheet_name: 工作表名。
         column_widths: `{列名: 宽度}`。
+        example_notes: 示例表顶部的说明文字（每项一行）。
+        example_rows: 示例数据行（与 `headers` 等长的字符串列表），
+            **只放进独立的「填写示例」工作表**，不进数据表 ——
+            否则管理者忘删示例行就会连示例一起导入（2026-09-30 姚工反馈）。
+
+    ⚠️ 数据表必须保持 `wb.active`（示例表放最后）——
+    导入解析走 `read_xlsx()` 的「活动表」，管理者开文件第一眼看到的也应是能直接填的那张。
     """
     wb = Workbook()
     ws = wb.active
+    assert ws is not None
     ws.title = sheet_name
 
     ws.append(list(headers))
@@ -207,6 +217,38 @@ def build_template(
     for col_name, width in (column_widths or {}).items():
         if col_name in headers:
             ws.column_dimensions[get_column_letter(list(headers).index(col_name) + 1)].width = width
+
+    # ---- 「填写示例」独立工作表（导入不会读它，示例行不用删）
+    if example_notes or example_rows:
+        ex = wb.create_sheet("填写示例")
+        row = 1
+        title = ex.cell(row=row, column=1, value="填写示例（仅供参考，导入时不会读取本表；请把内容填在「%s」表里）" % sheet_name)
+        title.font = Font(bold=True, size=12)
+        row += 2
+        for note in example_notes or ():
+            ex.cell(row=row, column=1, value=note)
+            row += 1
+        row += 1
+        if example_rows:
+            for idx, header in enumerate(headers, start=1):
+                cell = ex.cell(row=row, column=idx, value=header)
+                cell.font = _HEADER_FONT
+                cell.fill = _HEADER_FILL
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+            row += 1
+            for example in example_rows:
+                for idx, value in enumerate(example, start=1):
+                    ex.cell(row=row, column=idx, value=value)
+                row += 1
+        # 示例表的列宽对齐数据表，长内容（例句/正文）不至于挤成一团
+        for col_name, width in (column_widths or {}).items():
+            if col_name in headers:
+                ex.column_dimensions[
+                    get_column_letter(list(headers).index(col_name) + 1)
+                ].width = width
+
+    # 数据表必须仍是活动表：导入按活动表解析，示例表永远排在后面
+    wb.active = 0
 
     buf = BytesIO()
     wb.save(buf)

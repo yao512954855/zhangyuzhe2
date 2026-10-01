@@ -71,6 +71,12 @@ class AliyunProvider(ASRProvider):
         self._ws: Any = None
         self._reader: asyncio.Task[None] | None = None
         self._acc_text = ""
+        # 流式：按 `sentence_id` 累积各句文本。
+        # ⚠️ 云端 `sentence.text` 是**该句的累计全文**，且会**回改前面的字**
+        #    （实测 "正是活" → "正是祸不单行的"），所以不能用
+        #    `text.startswith(acc)` 这类前缀启发式判断「增量 vs 全文」——
+        #    同句内一回改就误判成增量 → 整段被重复拼接（2026-09-29 真机前自检抓到）。
+        self._sent_texts: dict[int, str] = {}
         self._task_id = uuid.uuid4().hex
         self._finished_evt: asyncio.Event | None = None
         self._final_text: str | None = None
@@ -94,6 +100,11 @@ class AliyunProvider(ASRProvider):
         self.cfg = cfg
         self._streaming = cfg.task_type in _STREAMING_TASKS
         self.model = self.select_model(cfg.task_type)
+        # provider 实例由 router 复用 → 每次 start 必须清空累积态
+        self._acc_text = ""
+        self._sent_texts = {}
+        self._final_text = None
+        self._failure = None
 
         if not self.api_key:
             raise ASRError(ErrorCode.ASR_UNAVAILABLE, "未配置百炼 api_key", status="error")
@@ -157,7 +168,7 @@ class AliyunProvider(ASRProvider):
                     {
                         "role": "user",
                         "content": [
-                            {"audio": audio_to_data_uri(bytes(self._pcm), self.http_format)}
+                            {"audio": audio_to_data_uri(bytes(self._pcm), self.http_format, self.sample_rate)}
                         ],
                     }
                 ]
@@ -187,6 +198,16 @@ class AliyunProvider(ASRProvider):
             ) from exc
 
         if resp.status_code >= 400:
+            # ⚠️ 400 的响应体是定位关键（如 DECODE_ERROR = 音频壳不对），
+            #    除抛给网关外必须落日志，否则 asr_logs 只有 code 排不了因。
+            logger.error(
+                "ASR HTTP 批量识别失败：%s %s model=%s audio_ms=%s resp=%s",
+                resp.status_code,
+                self.http_endpoint,
+                self.model,
+                self.audio_ms,
+                resp.text[:300],
+            )
             raise ASRError(
                 ErrorCode.ASR_UNAVAILABLE,
                 f"云端返回 {resp.status_code}：{resp.text[:200]}",
@@ -293,11 +314,10 @@ class AliyunProvider(ASRProvider):
                 header = evt.get("header") or {}
                 event = str(header.get("event") or "")
                 if event == "result-generated":
-                    text = self._parse_ws_event(evt)
+                    text, sentence_id = self._parse_ws_event(evt)
                     if text:
                         # 分片结果 → 累计文本（ReciteEngine.feed 吃累计文本）
-                        self._acc_text = text if text.startswith(self._acc_text) \
-                            else self._acc_text + text
+                        self._acc_text = self._accumulate(text, sentence_id)
                         self._emit_partial(self._acc_text)
                 elif event in ("task-finished", "task-failed"):
                     if event == "task-failed":
@@ -317,16 +337,35 @@ class AliyunProvider(ASRProvider):
             if self._finished_evt is not None:
                 self._finished_evt.set()
 
+    def _accumulate(self, text: str, sentence_id: int | None) -> str:
+        """把云端分片拼成**累计文本**。
+
+        云端 `sentence.text` 是**该句的累计全文**，且会**回改前面的字**
+        （实测 "正是活" → "正是祸不单行的"）。所以：
+
+        - 有 `sentence_id` → **同 id 覆盖、新 id 追加**（按 id 升序拼接）；
+        - 没有 `sentence_id`（老格式 / 异常） → 退化为前缀启发式，保底不丢字。
+        """
+        if sentence_id is None:
+            return text if text.startswith(self._acc_text) else self._acc_text + text
+        self._sent_texts[sentence_id] = text
+        return "".join(self._sent_texts[k] for k in sorted(self._sent_texts))
+
     @staticmethod
-    def _parse_ws_event(evt: dict[str, Any]) -> str:
-        """取 `payload.output.sentence.text`（选型报告 §3.2）。"""
+    def _parse_ws_event(evt: dict[str, Any]) -> tuple[str, int | None]:
+        """取 `payload.output.sentence`（选型报告 §3.2）→ `(text, sentence_id)`。"""
         out = (evt.get("payload") or {}).get("output") or {}
         sentence = out.get("sentence")
         if isinstance(sentence, dict) and sentence.get("text") is not None:
-            return str(sentence["text"])
+            raw_sid = sentence.get("sentence_id")
+            try:
+                sid = int(raw_sid) if raw_sid is not None else None
+            except (TypeError, ValueError):
+                sid = None
+            return str(sentence["text"]), sid
         if out.get("text") is not None:
-            return str(out["text"])
-        return ""
+            return str(out["text"]), None
+        return "", None
 
     async def _finish_stream(self) -> None:
         if self._ws is None or self._aborted:

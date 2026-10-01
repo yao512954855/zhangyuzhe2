@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.judge import JudgeService
+from app.services.judge import JudgeService, judge_word_or_spell
 from app.services.judge.normalize import (
     cn_number_to_arabic,
     is_empty_answer,
@@ -325,3 +325,77 @@ class TestEditDistance:
     )
     def test_distance(self, left, right, distance):
         assert edit_distance(left, right) == distance
+
+
+class TestJudgeWordOrSpell:
+    """英语模式一「双口径」判定（2026-09-29 姚工拍板）。
+
+    口径：念整词 / 逐字母拼**都算对**，一个词只出一条判分。
+    ⚠️ 忠实度优先 —— 正样本（念字母也能判对）**不足以**说明口径没被放宽，
+    所以这里必须同时有「读错 / 乱说仍判错」的负样本。
+    """
+
+    # ---- 正样本：两条口径都能判对 ----
+
+    def test_whole_word_exact(self):
+        verdict, used_spell = judge_word_or_spell(answer="apple", expected="apple")
+        assert verdict.is_correct is True
+        assert verdict.match_type == "exact"
+        assert used_spell is False, "念整词走文本口径，不该标成拼读"
+
+    def test_spelled_letters_fallback(self):
+        verdict, used_spell = judge_word_or_spell(answer="a p p l e", expected="apple")
+        assert verdict.is_correct is True
+        assert verdict.match_type == "exact"
+        assert used_spell is True, "字母序列回退命中，调用方据此落 letter_seq"
+
+    def test_hyphenated_letters_fallback(self):
+        verdict, used_spell = judge_word_or_spell(answer="a-p-p-l-e", expected="apple")
+        assert verdict.is_correct is True
+        assert used_spell is True
+
+    def test_phonetic_letters_fallback(self):
+        # 云 ASR 对「逐字母念」的典型输出
+        verdict, used_spell = judge_word_or_spell(
+            answer="see ell aye ess ess", expected="class"
+        )
+        assert verdict.is_correct is True
+        assert used_spell is True
+
+    def test_accepted_answer_still_honoured(self):
+        verdict, used_spell = judge_word_or_spell(
+            answer="课室", expected="教室", accepted=["课室"]
+        )
+        assert verdict.is_correct is True
+        assert used_spell is False
+
+    # ---- 负样本：忠实度（读错 / 乱说 / 换了词都不能判对）----
+
+    @pytest.mark.parametrize(
+        "answer",
+        [
+            "appel",        # 字母顺序错
+            "banana",       # 完全是别的词
+            "orange",
+            "apple apple",  # 连读两遍（口径未定，见 dev/02 §八 #96）
+            "cat",
+        ],
+    )
+    def test_wrong_stays_wrong(self, answer):
+        verdict, used_spell = judge_word_or_spell(answer=answer, expected="apple")
+        assert verdict.is_correct is False, f"{answer!r} 不该判对（忠实度红线）"
+        assert verdict.match_type == "wrong"
+        assert used_spell is False
+
+    def test_empty_never_falls_back(self):
+        for answer in (None, "", "   ", "，。"):
+            verdict, used_spell = judge_word_or_spell(answer=answer, expected="apple")
+            assert verdict.match_type == "empty"
+            assert verdict.is_correct is False
+            assert used_spell is False, "没出声不该靠谐音表碰对"
+
+    def test_non_english_target_not_fallback(self):
+        # 防御：目标不是英文（归一化后无 a-z）时拼读毫无意义 → 只走文本口径
+        verdict, used_spell = judge_word_or_spell(answer="教室", expected="教室")
+        assert verdict.is_correct is True
+        assert used_spell is False

@@ -229,10 +229,28 @@ def summarize(steps: list[AlignStep], start: int) -> Alignment:
     1. **先定认领边界** `claimed_end` —— 最后一个 `match`/`wrong` 之后的位置。
        尾部那些没被任何 `match`/`wrong` 认领的 `missing`，是「学生还没背到」，
        不参与任何统计（见 `types.Alignment` 的说明）。
-    2. **再在认领区间内统计** `matched` / `missed`。
+    2. **再在认领区间内统计** `matched` / `missed`，**并同样只在认领区间内累计
+       `distance`**。
 
-    注意 `distance` 仍然按**完整对齐**累计（含尾部未认领的 `missing`）——
-    它是用来在多个候选起点之间比优劣的，必须反映「对上了多少、差了多少」。
+    ### ⚠️ `distance` 为什么必须排除未认领尾部（2026-09-29 真机抓到的跳字缺陷）
+
+    片段长度是 `len(actual) + allowance`，而片段**会在 `target` 末尾被截断**。
+    于是「起点越靠后 → 片段越短 → 尾部待删的 `missing` 越少 → `distance` 越小」，
+    起点之间**根本不可比**。后果是引擎被系统性地往**后**推：
+
+        喂 '的背影'（pos=21）：
+          start=21（真起点）片段 23 字 → 3 字全中，distance（含尾部 20 个 missing）= 20
+          start=34（末尾的另一个「的」）片段 16 字 → 只中 1 字，distance = 15
+        → 15 < 20，挑中 start=34，`pos` 从 21 直接跳到 37，**中间 13 个字全丢**。
+        真机表现为「明明背完了，却只点亮 13/50、得分 32、评级待加强」。
+
+    未认领的尾部在语义上**等于「学生还没背到这儿」**，不是错误，
+    自然也不该参与「谁更优」的比较。排除后：start=21 → `distance=0`
+    （认领区间 3 字全中）；start=34 → `distance=2`（认领区间只中 1 字、另 2 位念错）
+    → `0 < 2`，正确回到 start=21。
+
+    另注：`extra`（学生多念的内容）始终计入 `distance` —— 它落在 `actual` 侧，
+    与起点无关，不存在不可比问题。
     """
     claimed_end = start
     for step in steps:
@@ -253,18 +271,15 @@ def summarize(steps: list[AlignStep], start: int) -> Alignment:
             continue
 
         index = start + int(step.ti)
-        if step.state == "match":
-            distance += 0
-        else:
-            distance += 1
-
         if index >= claimed_end:
-            # 未认领：学生还没背到这儿，既不算点亮也不算漏字
+            # 未认领：学生还没背到这儿，既不算点亮、不算漏字，也**不计入 distance**
+            # （详见 docstring「为什么必须排除未认领尾部」）
             continue
         if step.state == "match":
             matched.append(index)
         else:
             missed.append(index)
+            distance += 1
 
     return Alignment(
         start=start,

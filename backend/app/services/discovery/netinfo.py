@@ -33,6 +33,8 @@ import json
 import platform
 import socket
 import subprocess
+import threading
+import time
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -458,24 +460,83 @@ def enumerate_interfaces(*, mark_recommended: bool = True) -> list[NetInterface]
 
 
 class CachedInterfaces:
-    """带 TTL 的网卡枚举缓存。
+    """带 TTL 的网卡枚举缓存（**stale-while-revalidate**）。
 
-    为什么要缓存：`Get-NetIPAddress` 要起一个 PowerShell 进程（约 0.3–1 s），
-    而 IP 变化检测每 60 s 跑一次、管理端也可能反复刷页面 —— 不缓存会造成
-    「每次刷页面都起两个 PowerShell」。默认 TTL 30 s，既能及时发现改 IP，又不会打爆。
+    为什么要缓存：`Get-NetIPAddress` 要起一个 PowerShell 进程（实测本机单条 ~1.2 s，
+    枚举要跑两条 ≈ 2.5 s），而 IP 变化检测每 60 s 跑一次、管理端也可能反复刷页面
+    —— 不缓存会造成「每次刷页面都起两个 PowerShell」。
+
+    ### ⚠️ 为什么过期后是「回旧值 + 后台刷新」而不是同步探测（2026-09-30 #109）
+
+    原实现过期后**同步**探测，且调用方有两处在 **asyncio 事件循环**里
+    （调度器心跳 `_tick` 与 `/api/server/info`）→ 缓存一过期，
+    **整个事件循环被两个 PowerShell 卡 ~2.5 s**，期间所有学生/管理端请求全部堵住，
+    表现就是「管理端工作台时不时加载特别慢」。
+
+    现行语义：
+
+    - **冷启动（无旧值）或 `force=True`** → 同步探测（`force` 语义不变）；
+    - **过期但有旧值** → **立刻返回旧值**，同时起一条 daemon 线程刷新
+      （`_refreshing` 防止并发打爆；刷新期间再来的请求继续拿旧值）；
+    - 内部一把 `_lock` 保证线程安全（后台线程与事件循环并发读写）。
     """
 
-    def __init__(self, ttl_seconds: float = 30.0, probe: Callable[[], list[NetInterface]] | None = None):
+    def __init__(
+        self,
+        ttl_seconds: float = 30.0,
+        probe: Callable[[], list[NetInterface]] | None = None,
+    ):
         self._ttl = ttl_seconds
         self._probe = probe
         self._at: float = -1e18
         self._value: list[NetInterface] = []
+        self._lock = threading.Lock()
+        self._refreshing = False
 
     def get(self, *, now: float, force: bool = False) -> list[NetInterface]:
-        if force or (now - self._at) >= self._ttl or not self._value:
-            self._value = (self._probe or enumerate_interfaces)()
-            self._at = now
-        return self._value
+        with self._lock:
+            # force 语义（与原实现一致）：**无条件**同步探测，哪怕缓存还新鲜
+            # —— 管理端「刷新」按钮和 `?refresh=1` 都指望它真去问系统
+            if force:
+                self._value = (self._probe or enumerate_interfaces)()
+                self._at = now
+                return self._value
+            expired = (now - self._at) >= self._ttl or not self._value
+            if not expired:
+                return self._value
+            # 冷启动（无旧值可让）：同步探测，语义与原实现一致
+            if not self._value:
+                self._value = (self._probe or enumerate_interfaces)()
+                self._at = now
+                return self._value
+            # 过期但有旧值：先回旧值，后台刷新（只起一条，防 stampede）
+            if not self._refreshing:
+                self._refreshing = True
+                threading.Thread(
+                    target=self._bg_refresh, name="netinfo-swr", daemon=True
+                ).start()
+            return self._value
+
+    def _bg_refresh(self) -> None:
+        try:
+            value = (self._probe or enumerate_interfaces)()
+            with self._lock:
+                self._value = value
+                self._at = time.monotonic()
+        except Exception:  # noqa: BLE001 - 探测失败保留旧值，不能打垮调用方
+            logger.warning("后台网卡探测失败（保留旧值）", exc_info=True)
+        finally:
+            with self._lock:
+                self._refreshing = False
+
+    def wait_pending(self, timeout: float = 5.0) -> None:
+        """等后台刷新结束（**测试用**：让 SWR 的异步刷新变成可断言的同步点）。"""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            with self._lock:
+                if not self._refreshing:
+                    return
+            time.sleep(0.01)
 
     def set_probe(self, probe: Callable[[], list[NetInterface]] | None) -> None:
         """替换探测函数（测试用：注入一份固定的网卡列表）。
@@ -483,9 +544,13 @@ class CachedInterfaces:
         传 `None` = 恢复默认（真去问系统）。测试的重置逻辑靠它把注入还原，
         否则一个用例注入的假网卡会**泄漏到后面的用例**。
         """
-        self._probe = probe
-        self.clear()
+        with self._lock:
+            self._probe = probe
+            self._at = -1e18
+            self._value = []
+            self._refreshing = False
 
     def clear(self) -> None:
-        self._at = -1e18
-        self._value = []
+        with self._lock:
+            self._at = -1e18
+            self._value = []

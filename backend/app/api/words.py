@@ -2,6 +2,8 @@
 
 | 接口 | 说明 |
 |---|---|
+| `GET    /api/words` | 跨单元词条列表（英语内容管理页，2026-09-30 新增） |
+| `POST   /api/words` | 单条新增词条（同上） |
 | `PATCH  /api/words/{id}` | 改词条；已答题则附 `history_affected: true` |
 | `POST   /api/words/batch-status` | 批量启用 / 停用 |
 | `DELETE /api/words/{id}` | 有记录 → `30003` + `record_count` |
@@ -25,8 +27,10 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Request
 
 from app.core.deps import CurrentUser, require_admin
-from app.core.response import ok
-from app.schemas.content import WordBatchStatusIn, WordOut, WordPatchIn
+from app.core.errors import BizError, ErrorCode
+from app.core.pagination import parse_pagination
+from app.core.response import ok, page
+from app.schemas.content import WordBatchStatusIn, WordCreateIn, WordOut, WordPatchIn
 from app.services.content_service import ContentService
 from app.services.version_service import VersionService
 
@@ -35,6 +39,89 @@ router = APIRouter(tags=["words"])
 
 def _ip(request: Request) -> str | None:
     return request.client.host if request.client else None
+
+
+def _opt(request: Request, key: str) -> str | None:
+    """取一个查询参数，空串归 None（前端常传 `?status=`）。"""
+    raw = request.query_params.get(key)
+    if raw is None:
+        return None
+    value = raw.strip()
+    return value or None
+
+
+def _opt_grade(request: Request) -> int | None:
+    raw = _opt(request, "grade")
+    if raw is None:
+        return None
+    try:
+        grade = int(raw)
+    except ValueError as exc:
+        raise BizError(ErrorCode.PARAM_INVALID, "grade 必须是整数") from exc
+    if grade < 1 or grade > 9:
+        raise BizError(ErrorCode.PARAM_INVALID, "grade 必须在 1 到 9 之间")
+    return grade
+
+
+@router.get("/api/words")
+async def list_words(request: Request, admin: CurrentUser = Depends(require_admin)) -> dict:
+    """跨单元词条列表（英语内容管理页，2026-09-30 新增）。
+
+    与 `GET /api/units/{id}/words`（admin 分支）的区别：不锚定单个单元，
+    可按 `subject / grade / semester / unit_id / keyword / status` 组合筛选，
+    每行 JOIN 带出 `unit_name / grade / semester`（跨单元浏览时看归属）。
+    分页口径同契约 §5.1（`page_size ≤ 100`）。
+    """
+    page_no, page_size = parse_pagination(request)
+    items, total = ContentService.list_words_admin_global(
+        subject=_opt(request, "subject"),
+        grade=_opt_grade(request),
+        semester=_opt(request, "semester"),
+        unit_id=int(_opt(request, "unit_id")) if _opt(request, "unit_id") else None,
+        keyword=_opt(request, "keyword"),
+        status=_opt(request, "status"),
+        page=page_no,
+        page_size=page_size,
+    )
+    data = [
+        {
+            **WordOut.model_validate(i).model_dump(),
+            "unit_name": i.get("unit_name"),
+            "grade": i.get("grade"),
+            "semester": i.get("semester"),
+        }
+        for i in items
+    ]
+    return page(data, total, page_no, page_size)
+
+
+@router.post("/api/words")
+async def create_word(
+    payload: WordCreateIn,
+    request: Request,
+    admin: CurrentUser = Depends(require_admin),
+) -> dict:
+    """单条新增词条（英语内容管理页「＋添加单词」，2026-09-30 新增）。
+
+    同单元同 `en` 重复 → `10001`；单元不是英语单元 → `10001`；
+    `order_no` 缺省排到单元末尾。创建成功返回全字段词条。
+    """
+    word = ContentService.create_word(
+        unit_id=payload.unit_id,
+        en=payload.en,
+        cn=payload.cn,
+        type_=payload.type,
+        accepted=payload.accepted,
+        phonetic=payload.phonetic,
+        pos=payload.pos,
+        example_en=payload.example_en,
+        example_cn=payload.example_cn,
+        require_spell=payload.require_spell,
+        order_no=payload.order_no,
+        operator_id=admin.id,
+        ip=_ip(request),
+    )
+    return ok(WordOut.model_validate(word).model_dump())
 
 
 @router.patch("/api/words/{word_id}")

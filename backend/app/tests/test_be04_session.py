@@ -381,6 +381,58 @@ class TestSubmitAnswer:
         assert rows[1]["letter_seq"] == "classroom"
         assert rows[1]["target_seq"] == "classroom"
 
+    def test_u18b_cn2en_letters_judged_correct_in_one_record(self, client):
+        """模式一「双口径」（2026-09-29）：逐字母念也判对，且只落一条记录。
+
+        念整词 / 拼字母都由服务端一条判分收口（`judge_word_or_spell`）→
+        结算题量从 2 条/词降到 1 条/词，这是**预期行为**，不是丢数据。
+        """
+        unit = _seed_unit()
+        word = _seed_word(unit, "classroom", "教室", require_spell=1)
+        token, _ = _new_student(client)
+        session = _start(client, token, unit)
+
+        data = _answer_ok(
+            client, token, session["session_id"],
+            word_id=word, step=1, mode="cn2en", asr_text="c l a s s r o o m",
+        )
+        assert data["is_correct"] is True
+        assert data["match_type"] == "exact"
+        assert data["diff"], "走了字母序列口径 → 必须给逐字母回显"
+
+        rows = _sql(
+            "SELECT step, is_correct, letter_seq, target_seq FROM answers "
+            "WHERE session_id = ?",
+            (session["session_id"],),
+        )
+        assert len(rows) == 1, "一个词一条记录（不再有 step=2）"
+        assert rows[0]["step"] == 1
+        assert rows[0]["is_correct"] == 1
+        # 确实走了拼读口径 → 回填字母序列
+        assert rows[0]["letter_seq"] == "classroom"
+        assert rows[0]["target_seq"] == "classroom"
+
+    def test_u18c_whole_word_leaves_letter_seq_empty(self, client):
+        """念整词判对时 `letter_seq` 必须为空 —— 否则统计会说谎。"""
+        unit = _seed_unit()
+        word = _seed_word(unit, "classroom", "教室")
+        token, _ = _new_student(client)
+        session = _start(client, token, unit)
+
+        data = _answer_ok(
+            client, token, session["session_id"],
+            word_id=word, step=1, mode="cn2en", asr_text="classroom",
+        )
+        assert data["is_correct"] is True
+
+        rows = _sql(
+            "SELECT letter_seq, target_seq FROM answers WHERE session_id = ?",
+            (session["session_id"],),
+        )
+        assert len(rows) == 1
+        assert rows[0]["letter_seq"] is None
+        assert rows[0]["target_seq"] is None
+
     def test_expected_returned_after_judging(self, client):
         """`expected` 在判定后才出现，且是词条的标准答案。"""
         unit = _seed_unit()
@@ -766,8 +818,13 @@ class TestFinish:
         assert _scalar("SELECT status FROM sessions WHERE id = ?", (sid,)) == "finished"
         assert _scalar("SELECT ended_at FROM sessions WHERE id = ?", (sid,)) is not None
 
-    def test_two_steps_both_required(self, client):
-        """F14：`cn2en` 且要求拼读时，**两步都对**才算该项正确。"""
+    def test_item_with_a_wrong_record_is_wrong(self, client):
+        """F14 / §八 #96：项内**任一条判错** → 该项即算错（`all_correct` 口径不变）。
+
+        旧用例名（`test_two_steps_both_required`）表达的是「两步都对才算」——
+        合并单轮后客户端不再发 `step=2`，该前提已不成立；这里改以「step1 对 +
+        step2 错」构造**一条判错记录**，钉住「错过的词不能因为只看第一步就算对」。
+        """
         unit = _seed_unit()
         word = _seed_word(unit, "class", "班级", require_spell=1)
         token, _ = _new_student(client)
@@ -785,18 +842,36 @@ class TestFinish:
         assert data["accuracy"] == 0.0
         assert len(data["wrong_items"]) == 1
 
-    def test_two_steps_missing_second_is_wrong(self, client):
-        """只提交第一步 → 该项不算正确（不能靠「少提交」拿分）。"""
+    def test_single_round_cn2en_words_count_correct(self, client):
+        """§八 #96 / #97（真机回归钉住）：英语模式一**合并单轮**结算口径。
+
+        旧结算口径强制 `cn2en` + `require_spell` 的词必须 `step1` **且** `step2`
+        才「要求满足」；合并单轮后客户端只发 `step1`（`[word]` 单步），于是**念对的词**
+        被判成「没做完」→ `correct_items` 恒为 0。真机表现就是结算页
+        「题量 0 / 2 · 正确率 0% · 卡住 2 处」却又是「优秀 · 100 分」——自相矛盾。
+
+        本用例按真机数据复刻（两个 `require_spell=1` 的词、各只答一步且判对，
+        `asr_text` 带首字母大写与句号，模拟真实 ASR 回包），断言结算后
+        `correct_items` / `accuracy` / `wrong_items` / 落库值全部一致。
+        """
         unit = _seed_unit()
-        word = _seed_word(unit, "class", "班级", require_spell=1)
+        w1 = _seed_word(unit, "apple", "苹果", require_spell=1)
+        w2 = _seed_word(unit, "banana", "香蕉", require_spell=1)
         token, _ = _new_student(client)
         session = _start(client, token, unit)
         sid = session["session_id"]
 
-        _answer_ok(client, token, sid, word_id=word, step=1, asr_text="class")
+        _answer_ok(client, token, sid, word_id=w1, step=1, asr_text="Apple.")
+        _answer_ok(client, token, sid, word_id=w2, step=1, asr_text="Banana.")
+
         data = client.post(f"/api/sessions/{sid}/finish", json={"reason": "completed"},
                            headers=_auth(token)).json()["data"]
-        assert data["correct_items"] == 0
+        assert data["total_items"] == 2
+        assert data["correct_items"] == 2
+        assert data["accuracy"] == 1.0
+        assert data["empty_items"] == 0
+        assert data["wrong_items"] == []
+        assert _scalar("SELECT correct_items FROM sessions WHERE id = ?", (sid,)) == 2
 
     def test_wrong_items_detail(self, client):
         unit = _seed_unit()
@@ -817,9 +892,9 @@ class TestFinish:
     def test_wrong_items_prefers_wrong_record(self, client):
         """错题清单的 `match_type` 必须取**判错的那条**，不能机械取最后一条。
 
-        真实场景：学生先说错、再（用宽松命中）补答对，或说词对了但拼读没做。
+        真实场景：学生先说错、再（用宽松命中）补答对（同一项因此落多条记录）。
         若取最后一条，前端会看到「match_type=loose（判对）」却出现在错题清单里，
-        自相矛盾。此用例钉住这个行为。
+        自相矛盾。此用例钉住这个行为（合并单轮后仍适用：项内任一条判错即算错）。
         """
         unit = _seed_unit()
         word = _seed_word(unit, "class", "班级", require_spell=1)

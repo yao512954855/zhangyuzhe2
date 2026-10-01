@@ -142,6 +142,15 @@ async def students_import_template(admin: CurrentUser = Depends(require_admin)) 
         headers,
         validations=validations or None,
         sheet_name="学生名单",
+        example_notes=[
+            "· 必填：学号、姓名；班级、初始密码可留空",
+            "· 班级：填已建的班级名称（点单元格有下拉）；留空则导入后未分班",
+            "· 初始密码：留空则用提交时设置的默认密码",
+        ],
+        example_rows=[
+            ["2026001", "张小明", "三年级(1)班", ""],
+            ["2026002", "李小红", "三年级(1)班", ""],
+        ],
         column_widths={"学号": 18, "姓名": 12, "班级": 18, "初始密码": 14},
     )
     return Response(content=content, headers=xlsx_response_headers("学生名单导入模板.xlsx"))

@@ -102,12 +102,18 @@ async def class_options(request: Request) -> dict:
     ⚠️ **放在 `/{class_id}` 路由之前注册**：Starlette 按注册顺序匹配，
     若将来新增 `GET /api/classes/{class_id}`，后注册的路径可能把 `options`
     当成 `class_id` 吞掉。
+
+    **`status` 参数（2026-09-29 新增）**：缺省 / 空 → 只看活跃班级（注册页语义：
+    已归档的班不再接收新学生）；`all` → 不限状态。加它是为了让管理端下拉复用同一条
+    「一次给全」的接口 —— 管理端页面原本走 `GET /api/classes?page_size=200` 想一次拿全，
+    但契约 §5.1 的 `page_size` 上限是 **100**，超限直接 `10001`，班级一多（或学生一多）
+    下拉就整页不可用。选项接口本来就是「一次给全」的语义，扩它比放宽分页上限更合规。
     """
     qp = request.query_params
     items, total = ClassService.list_classes(
         grade=_opt_int(qp.get("grade"), "grade"),
         semester=_opt_str(qp.get("semester")),
-        status=None,  # 只看活跃班级：已归档的班不再接收新学生
+        status=_opt_str(qp.get("status")),
         page=1,
         page_size=MAX_CLASS_OPTIONS,
     )

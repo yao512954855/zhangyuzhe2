@@ -71,13 +71,18 @@ async def server_info(
 ) -> dict[str, Any]:
     """服务地址与运行状态（F3 / F12）。
 
-    `?refresh=1` 强制重新探测网卡（会起 PowerShell，约 0.3–1 s）。
+    `?refresh=1` 强制重新探测网卡（会起 PowerShell，实测 ~2.5 s）。
     默认走 30 s 缓存 —— 工作台首页会定期拉这个接口，不想每次刷页面都起进程。
+
+    ⚠️ `snapshot` 内部可能触发同步探测，放线程池跑，别卡事件循环（#109）。
     """
+    import asyncio
     import time
 
     force = _truthy(request.query_params.get("refresh"))
-    snapshot = state.snapshot(now_ts=time.monotonic(), force_probe=force)
+    snapshot = await asyncio.to_thread(
+        state.snapshot, now_ts=time.monotonic(), force_probe=force
+    )
 
     return ok(
         {

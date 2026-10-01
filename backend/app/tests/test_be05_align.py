@@ -191,11 +191,30 @@ class TestClaimedBoundary:
         assert alignment.matched == [0, 1]
         assert alignment.missed == []
 
-    def test_distance_counts_full_fragment(self):
-        """`distance` 仍按完整片段算（含尾部未认领），否则不同起点不可比。"""
+    def test_distance_excludes_unclaimed_tail(self):
+        """`distance` **只累计认领区间**：尾部未认领的 missing 是「还没背到」，不是错误。
+
+        ⚠️ 这条断言 2026-09-29 被**纠正过口径**（原断言是 `distance == 2`，
+        理由写的是「含尾部未认领，否则不同起点不可比」—— **恰好写反了**）。
+        片段会在 `target` 末尾截断，于是「起点越靠后 → 片段越短 → 尾部 missing
+        越少 → distance 越小」，各候选起点之间**根本不可比**：真机表现为
+        学生把两句全背完却只点亮 13/50、得分 32。
+        改口径不是放宽标准，而是把「未认领 = 还没背到」这条语义在 `claimed_end`
+        与 `distance` 两处统一（见 `aligner.summarize` 的 docstring）。
+        """
         alignment = best_alignment(["a", "b", "c", "d"], ["a", "b"], 0, 5)
         assert alignment is not None
-        assert alignment.distance == 2          # c、d 未认领但仍计入距离
+        assert alignment.claimed_end == 2
+        assert alignment.matched == [0, 1]
+        assert alignment.missed == []           # c、d 未被认领 → 不算漏字
+        assert alignment.distance == 0          # ……也不算错误
+
+    def test_distance_does_not_depend_on_window(self):
+        """同一段识别文本，窗口大小不得改变 `distance`（否则起点之间不可比）。"""
+        small = best_alignment(["a", "b", "c", "d"], ["a", "b"], 0, 2)
+        large = best_alignment(["a", "b", "c", "d"], ["a", "b"], 0, 20)
+        assert small is not None and large is not None
+        assert small.distance == large.distance == 0
 
 
 # ===========================================================================

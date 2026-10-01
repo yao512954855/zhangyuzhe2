@@ -1052,6 +1052,144 @@ class TestChineseSession:
 
 
 # ===========================================================================
+# 回归：窗口内对齐不得「向后跳」（2026-09-29 真机缺陷）
+# ===========================================================================
+
+# 与 `texts.content_plain` 同口径的《背影（节选）》全文（50 字，无标点）。
+_BEIYING = (
+    "我与父亲不相见已二年余了我最不能忘记的是他的背影"
+    "那年冬天祖母死了父亲的差使也交卸了正是祸不单行的日子"
+)
+
+
+class TestAlignerWindowBias:
+    """`Alignment.distance` 只能在**认领区间**内累计。
+
+    真机现象（2026-09-29）：学生把两句全背完，
+    `asr_logs` 里 transcript 与课文逐字吻合，但界面只点亮 **13/50**、
+    得分 32、评级「待加强」，`recitation_events` 里的 matched 位置
+    呈**孤立散布**（0~7、10、18、44、47、49）——典型「指针被推着往后跑」。
+
+    根因在 `best_alignment`：片段是
+    `target[start : start + len(actual) + window]`，**会在 `target` 末尾截断**。
+    于是「起点越靠后 → 片段越短 → 尾部待删的 missing 越少 → `distance` 越小」，
+    起点之间不可比，离末尾近的错误起点反而赢。
+
+    这批用例把 `distance` 的口径钉死：**未认领的尾部是「还没背到」，
+    既不算漏字、也不算错误**（与 `claimed_end` 的口径保持一致）。
+    """
+
+    def test_short_delta_after_long_match_does_not_jump(self):
+        """`…是他的` 之后的 3 字增量「的背影」不得把指针推到 13 个字之后。"""
+        engine = _engine_of(_BEIYING)
+        engine.feed("我与父亲不相见已二年余了我最不能忘记的是他的")
+        assert engine.pos == 22, f"前置推进就错了：pos={engine.pos}"
+
+        result = engine.feed("我与父亲不相见已二年余了我最不能忘记的是他的背影")
+
+        assert result.newly_matched == [22, 23], (
+            f"应点亮「背影」两位，实际 {result.newly_matched}"
+        )
+        assert engine.pos == 24, (
+            f"指针跳到了 {engine.pos}（应为 24）—— distance 又被尾部未认领的 "
+            f"missing 带偏了"
+        )
+
+    def test_full_recitation_matches_every_char(self):
+        """按流式 partial 的真实节奏逐段喂全文 → 必须 50/50。"""
+        engine = _engine_of(_BEIYING)
+        partials = [
+            "我",
+            "我与父亲",
+            "我与父亲不相见",
+            "我与父亲不相见已二年",
+            "我与父亲不相见已二年余了",
+            "我与父亲不相见已二年余了我最不能忘",
+            "我与父亲不相见已二年余了我最不能忘记的是他的",
+            "我与父亲不相见已二年余了我最不能忘记的是他的背影",
+            "我与父亲不相见已二年余了我最不能忘记的是他的背影那年",
+            "我与父亲不相见已二年余了我最不能忘记的是他的背影那年冬天",
+            "我与父亲不相见已二年余了我最不能忘记的是他的背影那年冬天祖母死了",
+            "我与父亲不相见已二年余了我最不能忘记的是他的背影那年冬天祖母死了父亲",
+            "我与父亲不相见已二年余了我最不能忘记的是他的背影那年冬天祖母死了父亲的差使也",
+            "我与父亲不相见已二年余了我最不能忘记的是他的背影那年冬天祖母死了父亲的差使也交卸了",
+            "我与父亲不相见已二年余了我最不能忘记的是他的背影那年冬天祖母死了父亲的差使也交卸了正是祸不单行的",
+            "我与父亲不相见已二年余了我最不能忘记的是他的背影那年冬天祖母死了父亲的差使也交卸了正是祸不单行的日子",
+        ]
+        for text in partials:
+            engine.feed(text)
+
+        assert engine.matched_count == 50, (
+            f"只点亮 {engine.matched_count}/50 —— 对齐被推着往后跳"
+        )
+        assert engine.pos == 50
+
+    def test_alignment_distance_ignores_window_size(self):
+        """`distance` 只累计认领区间 —— **窗口变大不得让 distance 变大**。
+
+        未认领的尾部（片段比识别文本多出来的那截）语义是「学生还没背到」，
+        不是错误。旧实现把它算进 `distance` 后，各候选起点的片段长度不同
+        （越靠后越短、尾部 missing 越少）→ distance 不可比 → 引擎被推着往后跳。
+        """
+        from app.services.recite.aligner import (
+            align_sequences,
+            build_candidates,
+            compile_target,
+            summarize,
+            to_pinyin_seq,
+        )
+
+        chars, pinyin = compile_target(_BEIYING, " ".join(to_pinyin_seq(_BEIYING)))
+        candidates = build_candidates(chars, pinyin)
+        actual = to_pinyin_seq("的背影")
+
+        small = summarize(
+            align_sequences(list(candidates[22 : 22 + len(actual) + 20]), actual), 22
+        )
+        large = summarize(
+            align_sequences(list(candidates[22 : 22 + len(actual) + 40]), actual), 22
+        )
+
+        assert len(small.matched) == 2, f"应点亮「背影」两位，实际 {small.matched}"
+        assert small.claimed_end == 24
+        assert large.distance == small.distance, (
+            f"窗口 20 → distance={small.distance}，窗口 40 → distance={large.distance}；"
+            f"尾部未认领的字被当成错误了"
+        )
+
+    def test_alignment_prefers_the_true_start_over_a_later_one(self):
+        """择优必须选中真起点 22，而不是末尾那个「的」（起点更靠后≠更优）。"""
+        from app.services.recite.aligner import (
+            align_sequences,
+            build_candidates,
+            compile_target,
+            summarize,
+            to_pinyin_seq,
+        )
+
+        chars, pinyin = compile_target(_BEIYING, " ".join(to_pinyin_seq(_BEIYING)))
+        candidates = build_candidates(chars, pinyin)
+        actual = to_pinyin_seq("的背影")
+
+        right = summarize(
+            align_sequences(list(candidates[22 : 22 + len(actual) + 20]), actual), 22
+        )
+        wrong = summarize(
+            align_sequences(list(candidates[34 : 34 + len(actual) + 20]), actual), 34
+        )
+
+        assert len(right.matched) == 2, "真起点要能点亮「背影」两位"
+        assert len(wrong.matched) == 1, "末尾那个「的」只该中 1 位"
+        assert (right.distance, -len(right.matched)) < (
+            wrong.distance,
+            -len(wrong.matched),
+        ), (
+            f"择优键 (distance, -matched)：真起点 {(right.distance, -len(right.matched))} "
+            f"输给了末尾起点 {(wrong.distance, -len(wrong.matched))}"
+        )
+
+
+# ===========================================================================
 # 跨包回归：不能因为 BE-05 的改动碰坏 BE-03 / BE-04
 # ===========================================================================
 

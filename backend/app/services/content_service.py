@@ -515,6 +515,151 @@ class ContentService:
         return [dict(r) for r in rows], total
 
     @staticmethod
+    def list_words_admin_global(
+        *,
+        subject: str | None = None,
+        grade: int | None = None,
+        semester: str | None = None,
+        unit_id: int | None = None,
+        keyword: str | None = None,
+        status: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """跨单元词条列表（英语内容管理页，2026-09-30 新增）。
+
+        与 `list_words_admin`（按单元）的区别：JOIN `units` 带出
+        `unit_name / grade / semester`，支持按 年级/学期/单元/关键词 组合筛选 ——
+        「点年级看全部词」时每行要能看出归属，这是页面定稿要求的字段。
+        默认不过滤 `status`（管理端要能看并恢复停用词条，10a D，同上）。
+        """
+        where = ["1=1"]
+        params: list[Any] = []
+
+        if unit_id is not None:
+            where.append("w.unit_id = ?")
+            params.append(unit_id)
+        if subject:
+            where.append("u.subject = ?")
+            params.append(subject)
+        if grade is not None:
+            where.append("u.grade = ?")
+            params.append(grade)
+        if semester:
+            where.append("u.semester = ?")
+            params.append(semester)
+
+        clause, extra = _status_filter("w.status", status)
+        if clause:
+            where.append(clause.removeprefix(" AND "))
+            params.extend(extra)
+
+        if keyword and keyword.strip():
+            where.append("(w.en LIKE ? ESCAPE '\\' OR w.cn LIKE ? ESCAPE '\\')")
+            kw = _like_param(keyword.strip())
+            params.extend([kw, kw])
+
+        sql_where = " WHERE " + " AND ".join(where)
+
+        with read_conn() as conn:
+            total = int(
+                conn.execute(
+                    f"SELECT COUNT(*) AS c FROM words w JOIN units u ON u.id = w.unit_id{sql_where}",
+                    params,
+                ).fetchone()["c"]
+            )
+            rows = conn.execute(
+                f"""SELECT w.*, u.name AS unit_name, u.grade, u.semester, u.subject AS unit_subject
+                    FROM words w JOIN units u ON u.id = w.unit_id{sql_where}
+                    ORDER BY u.grade, u.semester, u.order_no, w.order_no, w.id
+                    LIMIT ? OFFSET ?""",
+                (*params, page_size, (page - 1) * page_size),
+            ).fetchall()
+
+        return [dict(r) for r in rows], total
+
+    @staticmethod
+    def create_word(
+        *,
+        unit_id: int,
+        en: str,
+        cn: str,
+        type_: str = "word",
+        accepted: list[str] | None = None,
+        phonetic: str | None = None,
+        pos: str | None = None,
+        example_en: str | None = None,
+        example_cn: str | None = None,
+        require_spell: bool = True,
+        order_no: int | None = None,
+        operator_id: int | None = None,
+        ip: str | None = None,
+    ) -> dict[str, Any]:
+        """单条新增词条（`POST /api/words`，2026-09-30）。
+
+        - 单元必须是**英语**单元（语文没有词条，参数错了就明确报 10001）
+        - 同单元同 `en` 视为重复 → `10001`（导入链路的 upsert 语义不适用于手工单条：
+          手工场景下「覆盖」多半是误操作，宁可让管理者自己去看）
+        - `order_no` 缺省排到该单元末尾（max+1），新词不出现在最前面打断顺序
+        """
+        unit = ContentService.get_unit(unit_id)  # 不存在 → 30002
+        if unit["subject"] != "english":
+            raise BizError(ErrorCode.PARAM_INVALID, f"「{unit['name']}」是语文单元，词条只能添加到英语单元")
+
+        try:
+            with write_tx() as conn:
+                dup = conn.execute(
+                    "SELECT id FROM words WHERE unit_id = ? AND en = ?", (unit_id, en)
+                ).fetchone()
+                if dup is not None:
+                    raise BizError(
+                        ErrorCode.PARAM_INVALID,
+                        f"该单元已有英文为「{en}」的词条，可直接编辑它",
+                    )
+                if order_no is None:
+                    row = conn.execute(
+                        "SELECT COALESCE(MAX(order_no), -1) AS m FROM words WHERE unit_id = ?",
+                        (unit_id,),
+                    ).fetchone()
+                    order_no = int(row["m"]) + 1
+                cur = conn.execute(
+                    """
+                    INSERT INTO words (unit_id, type, en, cn, accepted, phonetic, pos,
+                                       example_en, example_cn, require_spell, order_no,
+                                       status, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)
+                    """,
+                    (
+                        unit_id,
+                        type_,
+                        en,
+                        cn,
+                        dump_accepted(accepted or []),
+                        phonetic,
+                        pos,
+                        example_en,
+                        example_cn,
+                        1 if require_spell else 0,
+                        int(order_no),
+                        utc_now_iso(),
+                    ),
+                )
+                word_id = int(cur.lastrowid or 0)
+                write_audit(
+                    conn,
+                    user_id=operator_id,
+                    action="word.create",
+                    target_type="word",
+                    target_id=word_id,
+                    detail={"unit_id": unit_id, "en": en, "cn": cn},
+                    ip=ip,
+                )
+        except sqlite3.IntegrityError as exc:
+            raise BizError(ErrorCode.PARAM_INVALID, f"该单元已有英文为「{en}」的词条") from exc
+
+        return ContentService.get_word(word_id)
+
+    @staticmethod
     def mastery_map(student_id: int | None, word_ids: list[int]) -> dict[int, dict[str, Any]]:
         """批量取掌握度摘要（**一次 SQL，O(1) 批量，禁止循环单查**）。
 
@@ -913,6 +1058,209 @@ class ContentService:
         return out
 
     @staticmethod
+    def list_texts_admin_global(
+        *,
+        subject: str | None = None,
+        grade: int | None = None,
+        semester: str | None = None,
+        unit_id: int | None = None,
+        keyword: str | None = None,
+        status: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """跨单元课文列表（语文内容管理页，2026-09-30 新增）。
+
+        列表项形态与 `list_texts`（admin 分支）一致，额外 JOIN `units`
+        带出 `unit_name / grade / semester`；按 标题/作者 模糊搜 `keyword`。
+        """
+        where = ["1=1"]
+        params: list[Any] = []
+
+        if unit_id is not None:
+            where.append("t.unit_id = ?")
+            params.append(unit_id)
+        if subject:
+            where.append("u.subject = ?")
+            params.append(subject)
+        if grade is not None:
+            where.append("u.grade = ?")
+            params.append(grade)
+        if semester:
+            where.append("u.semester = ?")
+            params.append(semester)
+
+        clause, extra = _status_filter("t.status", status)
+        if clause:
+            where.append(clause.removeprefix(" AND "))
+            params.extend(extra)
+
+        if keyword and keyword.strip():
+            where.append("(t.title LIKE ? ESCAPE '\\' OR t.author LIKE ? ESCAPE '\\')")
+            kw = _like_param(keyword.strip())
+            params.extend([kw, kw])
+
+        sql_where = " WHERE " + " AND ".join(where)
+
+        with read_conn() as conn:
+            total = int(
+                conn.execute(
+                    f"SELECT COUNT(*) AS c FROM texts t JOIN units u ON u.id = t.unit_id{sql_where}",
+                    params,
+                ).fetchone()["c"]
+            )
+            rows = conn.execute(
+                f"""SELECT t.*, u.name AS unit_name, u.grade, u.semester, u.subject AS unit_subject
+                    FROM texts t JOIN units u ON u.id = t.unit_id{sql_where}
+                    ORDER BY u.grade, u.semester, u.order_no, t.order_no, t.id
+                    LIMIT ? OFFSET ?""",
+                (*params, page_size, (page - 1) * page_size),
+            ).fetchall()
+
+        items = [dict(r) for r in rows]
+        out: list[dict[str, Any]] = []
+        for row in items:
+            paras = ContentService.parse_paragraphs(row.get("paragraphs"))
+            scope = _parse_scope(row.get("recite_scope"))
+            picked = scope if scope else [int(p["idx"]) for p in paras]
+            recite_chars = sum(
+                int(p.get("chars", 0) or 0) for p in paras if int(p.get("idx", -1)) in set(picked)
+            )
+            out.append(
+                {
+                    "id": int(row["id"]),
+                    "unit_id": int(row["unit_id"]),
+                    "title": row["title"],
+                    "author": row.get("author"),
+                    "status": row.get("status", "active"),
+                    "order_no": int(row.get("order_no") or 0),
+                    "total_chars": int(row.get("total_chars") or 0),
+                    "recite_scope_chars": recite_chars,
+                    "paragraph_count": len(paras),
+                    "recite_paragraph_count": len(picked),
+                    "recite_scope": scope,
+                    "unit_name": row.get("unit_name"),
+                    "grade": int(row["grade"]) if row.get("grade") is not None else None,
+                    "semester": row.get("semester"),
+                    "created_at": row.get("created_at"),
+                }
+            )
+        return out, total
+
+    @staticmethod
+    def create_text(
+        *,
+        unit_id: int,
+        title: str,
+        content_raw: str,
+        author: str | None = None,
+        recite_scope: list[int] | None = None,
+        operator_id: int | None = None,
+        ip: str | None = None,
+    ) -> dict[str, Any]:
+        """单条新增课文（`POST /api/texts`，2026-09-30）。
+
+        派生序列（`paragraphs / content_plain / content_pinyin / total_chars`）
+        与导入走**同一套拼音服务**（`split_paragraphs / build_scoped`），
+        口径不一致判分就会错 —— 不要在这里另写一份解析。
+        正文含无法拼音化的字 → `40003`（同导入 U7，拒收入库）。
+        """
+        from app.services import pinyin_service  # 延迟导入，避免 services 内循环依赖
+
+        unit = ContentService.get_unit(unit_id)  # 不存在 → 30002
+        if unit["subject"] != "chinese":
+            raise BizError(ErrorCode.PARAM_INVALID, f"「{unit['name']}」是英语单元，课文只能添加到语文单元")
+
+        para_texts = pinyin_service.split_paragraphs(content_raw)
+        if not para_texts:
+            raise BizError(ErrorCode.PARAM_INVALID, "段落正文里没有可用的文字")
+
+        paragraphs = [
+            {
+                "idx": i,
+                "text": text,
+                "chars": pinyin_service.count_han(text),
+                "recite": True,
+            }
+            for i, text in enumerate(para_texts)
+        ]
+
+        if recite_scope is None or len(recite_scope) == 0:
+            scope = [p["idx"] for p in paragraphs]
+        else:
+            out_of_range = [i for i in recite_scope if i < 0 or i >= len(paragraphs)]
+            if out_of_range:
+                raise BizError(
+                    ErrorCode.PARAM_INVALID,
+                    f"背诵范围里的段落号 {out_of_range} 超出实际段落数（共 {len(paragraphs)} 段，从 0 数起）",
+                )
+            scope = sorted({int(i) for i in recite_scope})
+
+        build = pinyin_service.build_scoped(para_texts, scope)
+        if not build.ok:
+            positions_text = "、".join(str(p) for p in build.mismatch_positions[:10])
+            raise BizError(
+                ErrorCode.IMPORT_VALIDATION_FAILED,
+                f"正文里有无法拼音化的字（第 {positions_text} 个字），语文对齐会在那里漏字，请修改后再保存",
+                data={"mismatch_positions": build.mismatch_positions[:20], "mismatches": build.mismatches[:10]},
+            )
+
+        try:
+            with write_tx() as conn:
+                dup = conn.execute(
+                    "SELECT id FROM texts WHERE unit_id = ? AND title = ?", (unit_id, title)
+                ).fetchone()
+                if dup is not None:
+                    raise BizError(
+                        ErrorCode.PARAM_INVALID,
+                        f"该单元已有课文《{title}》，可重新导入覆盖它，或换个标题",
+                    )
+                row = conn.execute(
+                    "SELECT COALESCE(MAX(order_no), -1) AS m FROM texts WHERE unit_id = ?",
+                    (unit_id,),
+                ).fetchone()
+                order_no = int(row["m"]) + 1
+                paragraphs_json = json.dumps(
+                    [{**p, "recite": p["idx"] in set(scope)} for p in paragraphs],
+                    ensure_ascii=False,
+                )
+                cur = conn.execute(
+                    """
+                    INSERT INTO texts (unit_id, title, author, content_raw,
+                                       content_plain, content_pinyin, paragraphs,
+                                       recite_scope, total_chars, order_no, status, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)
+                    """,
+                    (
+                        unit_id,
+                        title,
+                        author,
+                        content_raw,
+                        build.plain,
+                        build.pinyin,
+                        paragraphs_json,
+                        json.dumps(scope, ensure_ascii=False),
+                        build.length,
+                        order_no,
+                        utc_now_iso(),
+                    ),
+                )
+                text_id = int(cur.lastrowid or 0)
+                write_audit(
+                    conn,
+                    user_id=operator_id,
+                    action="text.create",
+                    target_type="text",
+                    target_id=text_id,
+                    detail={"unit_id": unit_id, "title": title, "total_chars": build.length},
+                    ip=ip,
+                )
+        except sqlite3.IntegrityError as exc:
+            raise BizError(ErrorCode.PARAM_INVALID, f"该单元已有课文《{title}》") from exc
+
+        return ContentService.get_text_detail(text_id)
+
+    @staticmethod
     def get_text_detail(
         text_id: int,
         *,
@@ -960,20 +1308,85 @@ class ContentService:
     ) -> tuple[dict[str, Any], bool]:
         """`PATCH /api/texts/{id}`（契约未定义，见 `schemas/content.py::TextPatchIn` 说明）。
 
+        2026-09-30 起支持改正文 / 背诵范围（语文内容管理页行内「编辑」）：
+        派生序列与 `create_text` 走**同一套拼音服务**；**已有背诵记录 → 30003 拒绝**
+        （历史记录的对齐口径会被破坏，同「有记录只能停用」原则）。
+        `recite_scope` 缺省沿用现有范围；正文改短导致越界的段被裁掉，裁空则回退全文。
+
         Returns:
             `(text_detail, history_affected)`。
         """
-        ContentService.get_text_row(text_id)
+        row = ContentService.get_text_row(text_id)
+
+        history_affected = ContentService.text_has_records(text_id)
 
         sets: list[str] = []
         params: list[Any] = []
+
+        # ---- 正文 / 背诵范围改动（先于元信息列处理）----
+        body_changed = "content_raw" in changes or "recite_scope" in changes
+        if body_changed:
+            if history_affected:
+                raise BizError(
+                    ErrorCode.CONTENT_HAS_RECORDS,
+                    "该课文已有背诵记录，改正文或背诵范围会让历史记录的判分口径失效；请停用后另建新课文",
+                )
+            from app.services import pinyin_service  # 延迟导入，同 create_text
+
+            content_raw = changes.pop("content_raw", None)
+            if content_raw is None:
+                content_raw = row.get("content_raw") or ""
+            para_texts = pinyin_service.split_paragraphs(content_raw)
+            if not para_texts:
+                raise BizError(ErrorCode.PARAM_INVALID, "段落正文里没有可用的文字")
+
+            paragraphs = [
+                {"idx": i, "text": t, "chars": pinyin_service.count_han(t), "recite": True}
+                for i, t in enumerate(para_texts)
+            ]
+
+            scope_in = changes.pop("recite_scope", None) or _parse_scope(row.get("recite_scope"))
+            if not scope_in:
+                scope = [p["idx"] for p in paragraphs]
+            else:
+                scope = sorted({int(i) for i in scope_in if 0 <= int(i) < len(paragraphs)})
+                if not scope:
+                    scope = [p["idx"] for p in paragraphs]
+
+            build = pinyin_service.build_scoped(para_texts, scope)
+            if not build.ok:
+                positions_text = "、".join(str(p) for p in build.mismatch_positions[:10])
+                raise BizError(
+                    ErrorCode.IMPORT_VALIDATION_FAILED,
+                    f"正文里有无法拼音化的字（第 {positions_text} 个字），语文对齐会在那里漏字，请修改后再保存",
+                    data={"mismatch_positions": build.mismatch_positions[:20], "mismatches": build.mismatches[:10]},
+                )
+
+            sets += [
+                "content_raw = ?",
+                "content_plain = ?",
+                "content_pinyin = ?",
+                "paragraphs = ?",
+                "recite_scope = ?",
+                "total_chars = ?",
+            ]
+            params += [
+                content_raw,
+                build.plain,
+                build.pinyin,
+                json.dumps(
+                    [{**p, "recite": p["idx"] in set(scope)} for p in paragraphs], ensure_ascii=False
+                ),
+                json.dumps(scope, ensure_ascii=False),
+                build.length,
+            ]
+
         for col in _TEXT_PATCHABLE:
             if col not in changes:
                 continue
             sets.append(f"{col} = ?")
             params.append(changes[col])
 
-        history_affected = ContentService.text_has_records(text_id)
         if not sets:
             return ContentService.get_text_detail(text_id), history_affected
 
@@ -991,7 +1404,11 @@ class ContentService:
                     action="text.update",
                     target_type="text",
                     target_id=text_id,
-                    detail={"changes": {k: changes[k] for k in changes}},
+                    detail={
+                        "changes": {k: changes[k] for k in changes},
+                        # 正文/范围改动在上方已 pop 出 changes，这里补个标记便于审计检索
+                        "body_changed": body_changed,
+                    },
                     ip=ip,
                 )
         except sqlite3.IntegrityError as exc:

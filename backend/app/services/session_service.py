@@ -26,7 +26,7 @@ from typing import Any
 from app.core.db import read_conn, utc_now_iso, write_tx
 from app.core.errors import BizError, ErrorCode
 from app.core.logging import get_logger
-from app.services.judge import JudgeService
+from app.services.judge import JudgeService, judge_word_or_spell
 from app.services.judge.normalize import normalize_letters
 from app.services.mastery_service import MasteryService
 from app.services.settings_service import SettingsService
@@ -548,12 +548,24 @@ class SessionService:
                 }
 
             # ---- 判定：100% 在服务端 ----
+            # 英语模式一（cn2en）走「双口径」：念整词 / 逐字母拼都收（二期口径，
+            # 见 `judge/word_spell.py`）。`used_spell=True` 表示最终采纳的是拼读口径，
+            # 决定下面是否回填 `letter_seq` / `target_seq`。
+            used_spell = False
             if timed_out and behavior == "A":
                 verdict = cls._timeout_verdict(expected, asr_text, payload.get("asr_confidence"))
             elif step == 2:
+                # 兼容旧客户端：合并单轮后 App 不再发 step=2，历史版本仍可能发。
                 verdict = JudgeService.judge_spell(
                     asr_text=answer,
                     target=word["en"],
+                    asr_confidence=payload.get("asr_confidence"),
+                )
+            elif mode == "cn2en":
+                verdict, used_spell = judge_word_or_spell(
+                    answer=answer,
+                    expected=expected,
+                    accepted=accepted,
                     asr_confidence=payload.get("asr_confidence"),
                 )
             else:
@@ -571,8 +583,11 @@ class SessionService:
                 hint_level=payload.get("hint_level") or 0,
             )
 
-            letter_seq = verdict.normalized if step == 2 else None
-            target_seq = normalize_letters(word["en"]) if step == 2 else None
+            # 逐字母序列只在「真的是拼读口径」时才落：显式 step=2，或模式一走字母
+            # 序列回退。念整词判对时不该有 letter_seq（否则统计会说谎）。
+            as_spell = step == 2 or used_spell
+            letter_seq = verdict.normalized if as_spell else None
+            target_seq = normalize_letters(word["en"]) if as_spell else None
 
             cursor = conn.execute(
                 """
@@ -647,6 +662,109 @@ class SessionService:
             result["diff"] = [item.model_dump() for item in verdict.diff]
         return result
 
+    @classmethod
+    def record_ws_answer(
+        cls,
+        *,
+        student_id: int,
+        session_id: int,
+        word_id: int,
+        mode: str,
+        step: int,
+        verdict: Any,
+        asr_text: str,
+        used_spell: bool = False,
+        duration_ms: int = 0,
+        first_voice_ms: int | None = None,
+        retry_count: int = 0,
+        hint_level: int = 0,
+        used_hint_count: int = 0,
+        provider: str | None = None,
+    ) -> int:
+        """语音（WS）判分落库：写 `answers` + **同事务**更新 `word_mastery`。
+
+        判定已由 WS 侧 `JudgeService` 完成（含仲裁改判），这里**只负责持久化**，
+        score 口径与 REST `submit_answer` 完全一致（同一 `score_answer`）。
+        场次不存在/已结束/越权/词条缺失 → 抛 `BizError`（调用方降级为不落库，
+        不影响判分回传）。
+
+        Returns:
+            新写入的 `answer_id`（verdict 回传与断线补发 replay 都靠它）。
+        """
+        with write_tx() as conn:
+            cls._load_session(conn, session_id, student_id)
+
+            row = conn.execute("SELECT * FROM words WHERE id = ?", (int(word_id),)).fetchone()
+            if row is None:
+                raise BizError(ErrorCode.CONTENT_NOT_FOUND, "词条不存在或已被删除")
+            word = dict(row)
+
+            score = score_answer(
+                is_correct=verdict.is_correct,
+                retry_count=retry_count,
+                used_keyboard=False,
+                hint_level=hint_level,
+            )
+
+            # 同 REST：显式 step=2 或模式一走字母序列回退，才回填逐字母序列
+            as_spell = step == 2 or used_spell
+            letter_seq = verdict.normalized if as_spell else None
+            target_seq = normalize_letters(word["en"]) if as_spell else None
+
+            cursor = conn.execute(
+                """
+                INSERT INTO answers
+                    (session_id, student_id, word_id, mode, step, expected,
+                     asr_text, letter_seq, target_seq, answer_text,
+                     is_correct, match_type, asr_confidence,
+                     duration_ms, first_voice_ms, retry_count, used_keyboard,
+                     hint_level, used_hint_count, provider)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                        ?, ?, ?,
+                        ?, ?, ?, ?,
+                        ?, ?, ?)
+                """,
+                (
+                    int(session_id),
+                    int(student_id),
+                    int(word_id),
+                    mode,
+                    int(step),
+                    verdict.expected,
+                    asr_text,
+                    letter_seq,
+                    target_seq,
+                    None,
+                    1 if verdict.is_correct else 0,
+                    str(verdict.match_type),
+                    verdict.asr_confidence,
+                    int(duration_ms or 0),
+                    first_voice_ms,
+                    int(retry_count or 0),
+                    0,
+                    int(hint_level or 0),
+                    int(used_hint_count or 0),
+                    provider,
+                ),
+            )
+            answer_id = int(cursor.lastrowid)
+
+            if str(verdict.match_type) == "empty":
+                # 与 REST 口径一致：empty 不更新掌握度（契约 §7.2）
+                MasteryService.get_snapshot(student_id, word_id)
+            else:
+                MasteryService.update_after_answer(
+                    conn,
+                    student_id=int(student_id),
+                    word_id=int(word_id),
+                    is_correct=verdict.is_correct,
+                    match_type=str(verdict.match_type),
+                    duration_ms=int(duration_ms or 0),
+                    hint_level=int(hint_level or 0),
+                    mastered_streak=MasteryService.mastered_streak(),
+                )
+        return answer_id
+
     @staticmethod
     def _is_time_over(session: dict[str, Any], payload: dict[str, Any]) -> bool:
         """服务端兜底判超时：`time_limit_ms > 0` 且本次用时已达上限。
@@ -714,16 +832,19 @@ class SessionService:
                 bucket["all_correct"] = False
                 continue
 
-            needs_spell = bool(bucket.get("require_spell"))
-            needs_two_steps = needs_spell and any(
-                r["mode"] == "cn2en" for r in valid
-            )
             bucket["all_correct"] = all(r["is_correct"] for r in valid)
 
-            if needs_two_steps:
-                bucket["requirement_met"] = 1 in steps and 2 in steps
-            else:
-                bucket["requirement_met"] = 1 in steps
+            # §八 #96 / #97（2026-09-29）**英语模式一合并单轮**：客户端只发 `word`
+            # （`step=1`），「念整词 / 逐字母拼」两个口径都在 `judge_word_or_spell`
+            # 内部收口，一个词条只落一条 `answers`。因此**不再要求「两步都做」** ——
+            # 旧口径（`cn2en` + `require_spell` 强制 `step1` **且** `step2`）在合并单轮后
+            # 会把**念对的词**判成「没做完」→ `correct_items` 恒为 0
+            # （真机实测：apple / banana 都判对，结算页却显示「题量 0/2 · 正确率 0% ·
+            # 卡住 2 处」，而 `score` 又是 100 —— 自相矛盾的根因就在这）。
+            # 口径：`valid` 非空即证明学生已实际作答，作答要求即为满足；只要有效记录
+            # 全对（`all_correct`，含「错了又重试」仍算错，不改）即该项正确。
+            # `step=2` 仅在旧客户端 / 显式拼读任务出现，此时「任一命中即对」同样成立。
+            bucket["requirement_met"] = bool(valid)
 
             if bucket["all_correct"] and bucket["requirement_met"]:
                 bucket["state"] = "correct"

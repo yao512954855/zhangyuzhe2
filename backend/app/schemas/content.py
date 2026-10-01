@@ -459,12 +459,73 @@ class TextPatchIn(BaseModel):
     author: str | None = Field(default=None, max_length=60)
     order_no: int | None = Field(default=None, ge=0)
     status: ContentStatus | None = None
+    # 2026-09-30 追加：语文内容管理页行内「编辑」需要改正文。
+    # ⚠️ 正文/背诵范围改动会让历史背诵记录的对齐口径失效 —— 服务层强守卫：
+    #    已有背诵记录 → 30003 拒绝（与「有记录只能停用」同一原则）。
+    content_raw: str | None = Field(default=None, min_length=1)
+    recite_scope: list[int] | None = None
 
     @field_validator("title")
     @classmethod
     def _v_title(cls, v: str | None) -> str | None:
         if v is None:
             return None
+        text = _clean_show(v)
+        if not text:
+            raise ValueError("课文标题不能为空")
+        return text
+
+    @field_validator("author")
+    @classmethod
+    def _v_author(cls, v: str | None) -> str | None:
+        return _clean_show(v)
+
+
+class WordCreateIn(BaseModel):
+    """`POST /api/words` —— 管理端单条新增词条（英语内容管理页，2026-09-30）。
+
+    与导入链路（F12/F13）并存：导入管批量，本接口管「漏了一个词随手补」。
+    `en` / `cn` 必填；`accepted` 传数组；`order_no` 缺省由服务端排到单元末尾。
+    """
+
+    unit_id: int
+    type: WordType = "word"
+    en: str = Field(min_length=1, max_length=100)
+    cn: str = Field(min_length=1, max_length=100)
+    accepted: list[str] = Field(default_factory=list)
+    phonetic: str | None = Field(default=None, max_length=100)
+    pos: str | None = Field(default=None, max_length=30)
+    example_en: str | None = Field(default=None, max_length=500)
+    example_cn: str | None = Field(default=None, max_length=500)
+    require_spell: bool = True
+    order_no: int | None = Field(default=None, ge=0)
+
+    @field_validator("en", "cn")
+    @classmethod
+    def _v_text(cls, v: str) -> str:
+        text = _clean_show(v)
+        if not text:
+            raise ValueError("不能为空")
+        return text
+
+
+class TextCreateIn(BaseModel):
+    """`POST /api/texts` —— 管理端单条新增课文（语文内容管理页，2026-09-30）。
+
+    `content_raw` 按空行/换行分段（与导入同一套 `split_paragraphs`）；
+    `recite_scope` 传段落号数组（**从 0 数起**，与导入预览口径一致），
+    缺省 = 全文背诵。正文会经拼音服务校验，含无法拼音化的字 → `40003`。
+    """
+
+    unit_id: int
+    title: str = Field(min_length=1, max_length=100)
+    author: str | None = Field(default=None, max_length=60)
+    content_raw: str = Field(min_length=1)
+    recite_scope: list[int] | None = None
+
+    @field_validator("title")
+    @classmethod
+    def _v_title(cls, v: str) -> str:
         text = _clean_show(v)
         if not text:
             raise ValueError("课文标题不能为空")
@@ -517,4 +578,6 @@ __all__ = [
     "TextBriefOut",
     "TextDetailOut",
     "TextPatchIn",
+    "WordCreateIn",
+    "TextCreateIn",
 ]

@@ -371,9 +371,45 @@ class TestAliyunProvider:
 
     def test_ws_event_parsing(self) -> None:
         evt = {"header": {"event": "result-generated"},
-               "payload": {"output": {"sentence": {"text": "我与父亲"}}}}
-        assert AliyunProvider._parse_ws_event(evt) == "我与父亲"
-        assert AliyunProvider._parse_ws_event({"payload": {}}) == ""
+               "payload": {"output": {"sentence": {"text": "我与父亲", "sentence_id": 1}}}}
+        assert AliyunProvider._parse_ws_event(evt) == ("我与父亲", 1)
+        # 缺 `sentence_id` → 退回纯文本，由调用方走前缀启发式兜底
+        no_sid = {"payload": {"output": {"sentence": {"text": "背影"}}}}
+        assert AliyunProvider._parse_ws_event(no_sid) == ("背影", None)
+        assert AliyunProvider._parse_ws_event({"payload": {}}) == ("", None)
+
+    def test_accumulate_handles_in_sentence_rewrite(self) -> None:
+        """云端 `sentence.text` 是**该句累计全文**，且会**回改前面的字**。
+
+        旧实现用 `text.startswith(_acc_text)` 判断「增量 vs 全文」——
+        同句内一回改就不满足前缀，被误判成增量 → **整段被重复拼接**
+        （2026-09-29 真机前自检抓到课文被拼了 4 遍）。本用例钉住正确行为。
+        """
+        p = AliyunProvider({"aliyun": {"api_key": "sk-test"}})
+        seq = [
+            ("我与父亲", 1),
+            ("我与父亲不相见已二年余了", 1),
+            ("我与父亲不相见已二年余了，那年冬天正是活", 1),          # 回改前
+            ("我与父亲不相见已二年余了，那年冬天正是祸不单行的日子", 1),  # 回改后
+        ]
+        acc = ""
+        for text, sid in seq:
+            acc = p._accumulate(text, sid)
+        assert acc == "我与父亲不相见已二年余了，那年冬天正是祸不单行的日子"
+        assert acc.count("我与父亲") == 1, "同句回改不得造成重复拼接"
+
+        # 跨句：新 `sentence_id` → 追加到已定稿句之后，而不是覆盖
+        acc = p._accumulate("那年冬天", 2)
+        assert acc == "我与父亲不相见已二年余了，那年冬天正是祸不单行的日子那年冬天"
+        assert "我与父亲" in acc and acc.count("我与父亲") == 1
+
+        # 无 `sentence_id` → 前缀启发式兜底（`_acc_text` 由调用方回写）
+        p2 = AliyunProvider({"aliyun": {"api_key": "sk-test"}})
+        assert p2._accumulate("我", None) == "我"
+        p2._acc_text = "我"
+        assert p2._accumulate("我与父亲", None) == "我与父亲"      # 以旧文本开头 → 替换
+        p2._acc_text = "我与父亲"
+        assert p2._accumulate("不相见", None) == "我与父亲不相见"  # 否则 → 追加
 
     def test_no_audio_written_to_disk(self) -> None:
         """U15：非流式会把整段音频缓存在内存 —— 断言**没有任何音频文件落盘**。"""

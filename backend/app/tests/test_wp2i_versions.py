@@ -366,3 +366,102 @@ def test_v8b_version_monotonic(client):
 
     vers = _versions("unit", unit_id)
     assert [v["version"] for v in vers] == [1, 2, 3, 4], "version 未严格递增"
+
+
+# ---------------------------------------------------------------------------
+# V9 全局最近变更列表（2026-09-30 方案 B：版本页默认视图）
+# ---------------------------------------------------------------------------
+
+
+def test_v9_recent_lists_with_names_and_context(client):
+    """`GET /api/content/versions/recent`：倒序 + JOIN 出实体名/单元上下文/操作人。"""
+    token, _ = _admin(client)
+    unit_id = _make_unit(client, token, name="Unit 9A")  # v1 create
+    client.patch(f"/api/units/{unit_id}", json={"name": "Unit 9A 改"}, headers=_auth(token))  # v2
+
+    # 落一个词（挂在单元下）并停用 → word 的 disable 版本应带单元上下文
+    with write_tx() as conn:
+        cur = conn.execute(
+            "INSERT INTO words (unit_id, type, en, cn, status, created_at) "
+            "VALUES (?, 'word', 'apple', '苹果', 'active', '2026-09-25T00:00:00Z')",
+            (unit_id,),
+        )
+        word_id = int(cur.lastrowid)
+    resp = client.patch(
+        f"/api/words/{word_id}", json={"status": "inactive"}, headers=_auth(token)
+    )
+    assert resp.json()["code"] == 0, resp.json()
+
+    resp = client.get("/api/content/versions/recent", headers=_auth(token))
+    body = resp.json()
+    assert body["code"] == 0, body
+    items = body["data"]["items"]
+    assert body["data"]["total"] == 3
+    # 倒序：最新在前
+    assert [i["op"] for i in items] == ["disable", "update", "create"]
+    # JOIN 出操作人姓名（admin 的 real_name）
+    assert all(i["operator_name"] for i in items), items
+    # 词的 disable 行：实体名 + 单元上下文
+    word_row = items[0]
+    assert word_row["entity_type"] == "word"
+    assert word_row["entity_name"] == "apple 苹果"
+    assert word_row["unit_name"] == "Unit 9A 改"
+    assert word_row["grade"] == 3
+    assert word_row["semester"] == "first"
+    assert word_row["subject"] == "english"
+
+
+def test_v9b_recent_filters_and_invalid_params(client):
+    """`recent` 支持 entity_type/op 过滤；非法值 10001；非 admin 10003。"""
+    token, _ = _admin(client)
+    unit_id = _make_unit(client, token)
+    client.patch(f"/api/units/{unit_id}", json={"name": "X"}, headers=_auth(token))
+    client.delete(f"/api/units/{unit_id}", headers=_auth(token))  # delete 版本
+
+    # op 过滤：只看 delete
+    resp = client.get("/api/content/versions/recent?op=delete", headers=_auth(token))
+    items = resp.json()["data"]["items"]
+    assert len(items) == 1 and items[0]["op"] == "delete"
+    # 单元已物理删除 → 实体名从快照兜底
+    assert items[0]["entity_name"] == "X", items
+
+    # entity_type 过滤：word 类型 → 空
+    resp = client.get("/api/content/versions/recent?entity_type=word", headers=_auth(token))
+    assert resp.json()["data"]["total"] == 0
+
+    # 非法参数
+    assert client.get(
+        "/api/content/versions/recent?entity_type=bogus", headers=_auth(token)
+    ).json()["code"] == 10001
+    assert client.get(
+        "/api/content/versions/recent?op=bogus", headers=_auth(token)
+    ).json()["code"] == 10001
+
+    # 非 admin
+    student = _new_student(client)
+    assert client.get(
+        "/api/content/versions/recent", headers=_auth(student)
+    ).json()["code"] == 10003
+
+
+# ---------------------------------------------------------------------------
+# V10 版本历史带快照 + 操作人（diff 展示数据源）
+# ---------------------------------------------------------------------------
+
+
+def test_v10_history_with_snapshot_and_operator_name(client):
+    """`with_snapshot=1` 返回解析后的快照 dict + operator_name；缺省不带 snapshot。"""
+    token, _ = _admin(client)
+    unit_id = _make_unit(client, token, name="Unit 10")
+    client.patch(f"/api/units/{unit_id}", json={"name": "Unit 10 改"}, headers=_auth(token))
+
+    url = f"/api/content/versions?entity_type=unit&entity_id={unit_id}"
+    # 缺省：不带 snapshot，带 operator_name
+    items = client.get(url, headers=_auth(token)).json()["data"]["items"]
+    assert "snapshot" not in items[0]
+    assert items[0]["operator_name"], items
+
+    # with_snapshot=1：快照是 dict，字段值正确
+    items = client.get(f"{url}&with_snapshot=1", headers=_auth(token)).json()["data"]["items"]
+    assert items[0]["snapshot"]["name"] == "Unit 10"
+    assert items[1]["snapshot"]["name"] == "Unit 10 改"

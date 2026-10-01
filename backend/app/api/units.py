@@ -94,6 +94,63 @@ async def list_units(request: Request, admin: CurrentUser = Depends(require_admi
     return page([UnitOut.model_validate(i).model_dump() for i in items], total, page_no, page_size)
 
 
+#: `GET /api/units/options` 一次给全（不分页）。单元量级 = 9 年级 × 2 学期 × 2 学科 × 若干单元，
+#: 500 已是极宽松上限；超过说明数据异常，宁可少给也不让响应无限膨胀。
+MAX_UNIT_OPTIONS = 500
+
+
+@router.get("/api/units/options")
+async def unit_options(request: Request, admin: CurrentUser = Depends(require_admin)) -> dict:
+    """管理端下拉用的单元选项清单（**一次给全，不分页**，2026-09-29 新增）。
+
+    与 `GET /api/classes/options`（`classes.py`）是同一类接口、同一套理由：
+
+    1. 管理端下拉（作业布置选单元 / 单元掌握度选单元）要「一次拿全」；
+    2. 而 `GET /api/units` 受契约 §5.1 `page_size ≤ 100` 约束 —— 管理端页面原先传
+       `page_size=200` 想绕过分页，被后端 `10001`（参数非法）打回，**下拉拉不到 =
+       页面功能不可用**（不是弹个提示那么简单）；
+    3. 选项接口本就是「一次给全」语义，扩它比放宽分页上限更合规（分页上限是契约写死的）。
+
+    字段收窄到 6 个：**不含 4 个派生计数**（`word_count` 等）—— 下拉只需要能显示、能定位。
+    `status` 语义与 `GET /api/units` 完全一致（缺省 / `all` → 不过滤，含停用；见
+    `content_service._status_filter`），不在这里另立一套默认，免得「同一个服务两个默认」。
+    """
+    grade_raw = _opt(request, "grade")
+    grade: int | None = None
+    if grade_raw is not None:
+        try:
+            grade = int(grade_raw)
+        except ValueError as exc:
+            raise BizError(ErrorCode.PARAM_INVALID, "grade 必须是整数") from exc
+        if grade < 1 or grade > 9:
+            raise BizError(ErrorCode.PARAM_INVALID, "grade 必须在 1 到 9 之间")
+
+    items, total = ContentService.list_units(
+        subject=_opt(request, "subject"),
+        grade=grade,
+        semester=_opt(request, "semester"),
+        status=_opt(request, "status"),
+        page=1,
+        page_size=MAX_UNIT_OPTIONS,
+    )
+    return ok(
+        {
+            "items": [
+                {
+                    "id": int(i["id"]),
+                    "name": i["name"],
+                    "subject": i["subject"],
+                    "grade": int(i["grade"]),
+                    "semester": i["semester"],
+                    "order_no": int(i["order_no"]),
+                }
+                for i in items
+            ],
+            "total": total,
+        }
+    )
+
+
 @router.post("/api/units")
 async def create_unit(
     payload: UnitCreateIn,

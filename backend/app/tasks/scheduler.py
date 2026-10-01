@@ -160,8 +160,12 @@ async def _tick(now: datetime | None = None) -> None:
     moment = now or local_now()
 
     # ---- F4：IP 变化检测
+    # ⚠️ 必须放线程池：网卡探测要起 PowerShell（实测 ~2.5 s），同步跑会把
+    # 事件循环卡住 —— 全站请求跟着堵 2.5 s（#109，2026-09-30）
     try:
-        changed = state.refresh(now_ts=time.monotonic())
+        changed = await asyncio.to_thread(
+            lambda: state.refresh(now_ts=time.monotonic())
+        )
     except Exception as exc:  # noqa: BLE001 - 检测失败不该打断心跳
         logger.warning("IP 变化检测失败（忽略本次）：%s", exc)
     else:

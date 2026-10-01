@@ -855,6 +855,37 @@ def test_class_options_grade_filter(client):
     assert body["data"]["total"] == 1
 
 
+def test_class_options_status_param(client):
+    """`status` 参数（2026-09-29 新增）：缺省只看活跃；`all` 连归档一起给。
+
+    加它的原因：管理端「班级筛选」下拉要能筛到**已归档班里的学生**
+    （归档只归档班级，学生不会自动移出），而 `GET /api/classes` 受契约 §5.1
+    `page_size ≤ 100` 约束、没法一次拿全。扩选项接口比放宽分页上限合规。
+    ⚠️ 默认行为必须**完全不变** —— 注册页看到的仍是「只有活跃班」。
+    """
+    token = _admin_token(client)
+    kept = _make_class(client, token, "三年级二班", 3, "first")
+    gone = _make_class(client, token, "四年级一班", 4, "first")
+    assert (
+        client.patch(
+            f"/api/classes/{gone}", json={"status": "archived"}, headers=_auth(token)
+        ).json()["code"]
+        == 0
+    )
+
+    # ① 缺省：只看活跃（与加参数之前逐字一致）
+    body = client.get("/api/classes/options").json()
+    assert [i["id"] for i in body["data"]["items"]] == [kept]
+    # ② 显式 status=active：同上
+    body = client.get("/api/classes/options", params={"status": "active"}).json()
+    assert [i["id"] for i in body["data"]["items"]] == [kept]
+    # ③ status=all：归档班也出来
+    body = client.get("/api/classes/options", params={"status": "all"}).json()
+    assert sorted(i["id"] for i in body["data"]["items"]) == sorted([kept, gone])
+    # ④ 字段仍是收窄的 4 个 —— 加参数不能把管理字段（student_count 等）带出来
+    assert set(body["data"]["items"][0]) == {"id", "name", "grade", "semester"}
+
+
 def test_import_template_download(client):
     """补充：名单模板可下载，且含数据有效性下拉（班级名）。"""
     token = _admin_token(client)

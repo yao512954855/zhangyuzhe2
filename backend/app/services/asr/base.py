@@ -99,8 +99,44 @@ def validate_pcm_chunk(chunk: bytes, *, max_bytes: int = MAX_CHUNK_BYTES) -> Non
         )
 
 
-def audio_to_data_uri(pcm: bytes, fmt: str = "wav") -> str:
-    """裸 PCM → `data:audio/wav;base64,...`（非流式 HTTP 调用用）。"""
+def pcm_to_wav(
+    pcm: bytes, sample_rate: int = 16000, channels: int = 1, bits: int = 16
+) -> bytes:
+    """裸 PCM → 完整 WAV(RIFF) 容器。
+
+    ⚠️ 非流式 HTTP 调用前**必须包壳**：`http_format: wav` 声称的是容器格式，
+    百炼按 RIFF 解码 —— 直接把裸 PCM base64 过去会报 `DECODE_ERROR`（400）。
+    本项目客户端（App）只发 16k/单声道/16bit 裸 PCM（`validate_pcm_chunk` 保证），
+    所以这里按同规格补 44 字节 RIFF 头。
+    """
+    import struct
+
+    block_align = channels * bits // 8
+    byte_rate = sample_rate * block_align
+    data_len = len(pcm)
+    header = (
+        b"RIFF"
+        + struct.pack("<I", 36 + data_len)
+        + b"WAVE"
+        + b"fmt "
+        + struct.pack("<IHHIIHH", 16, 1, channels, sample_rate, byte_rate, block_align, bits)
+        + b"data"
+        + struct.pack("<I", data_len)
+    )
+    return header + bytes(pcm)
+
+
+def audio_to_data_uri(
+    pcm: bytes, fmt: str = "wav", sample_rate: int = 16000
+) -> str:
+    """裸 PCM → data URI（非流式 HTTP 调用用）。
+
+    `fmt == "wav"` 时先补 WAV(RIFF) 头再 base64 —— 2026-09-28 真机联调实测：
+    裸 PCM 直接标 wav，百炼返回 400 DECODE_ERROR（选型报告 §3.1 的坑 +1，
+    当年预研用的是完整 wav 文件，没暴露这层差异）。
+    """
+    if fmt == "wav":
+        pcm = pcm_to_wav(pcm, sample_rate)
     return f"data:audio/{fmt};base64,{base64.b64encode(pcm).decode('ascii')}"
 
 
