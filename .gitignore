@@ -93,3 +93,4 @@ student-app/.packages
 Thumbs.db
 Desktop.ini
 .DS_Store
+release/
