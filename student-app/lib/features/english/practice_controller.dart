@@ -58,10 +58,12 @@ const int kCodeHintNotAllowed = 70007;
 
 /// 一步的题型（决定 WS `task_type` 与是否拼读）。
 enum PracticeStepKind {
-  /// 说单词（模式一 step1）。WS `task_type=word`。
+  /// 说单词或拼字母（模式一，**单轮双口径**）。WS `task_type=word`。
+  /// 念整词 / 逐字母拼都在服务端 `judge_word_or_spell` 里收。
   word,
 
-  /// 拼读（模式一 step2）。WS `task_type=spell`。
+  /// 拼读。⚠️ **模式一合并单轮后前端不再产生此步**；保留枚举是为了兼容
+  /// WS 协议里仍在的 `task_type=spell`（旧客户端 / 历史数据）。
   spell,
 
   /// 说中文（模式二）。WS `task_type=zh_answer`。
@@ -76,7 +78,7 @@ enum PracticeStepKind {
 
   /// 这一步的口语化标题。
   String get label => switch (this) {
-        PracticeStepKind.word => '说单词',
+        PracticeStepKind.word => '说单词或拼字母',
         PracticeStepKind.spell => '拼读',
         PracticeStepKind.zhAnswer => '说中文',
       };
@@ -681,6 +683,15 @@ class PracticeController extends Notifier<PracticeState> {
     );
   }
 
+  /// 「再练一次」：清掉上一场的状态，准备 `start()` 新的场次。
+  ///
+  /// `start()` 有「已启动就不再初始化」的保护（防页面重建时重复初始化），
+  /// 所以按原配置重开时**必须先显式清场**，否则新场次会被上一场的状态挡住，
+  /// 出现「点了再练一次、题目还是上一场的」这种假重开。
+  void resetForRestart() {
+    state = const PracticeState();
+  }
+
   // ----------------------------------------------------------- 题目 / 步骤推导
 
   PracticeItem? get currentItem {
@@ -698,14 +709,17 @@ class PracticeController extends Notifier<PracticeState> {
     return EnglishMode.cn2en;
   }
 
-  /// 该题的步骤序列：模式一 = [word, spell]，模式二 = [zhAnswer]。
+  /// 该题的步骤序列：模式一 = `[word]`，模式二 = `[zhAnswer]`。
+  ///
+  /// 2026-09-29 姚工拍板：**模式一合并为单轮**。以前是 `[word, spell]` 两轮
+  /// （同一个词判两条、结算题量 2 条/词），现在一个词只判一次 —— 「念整词」与
+  /// 「逐字母拼」两个口径都在**服务端** `judge_word_or_spell` 里收
+  /// （念整词优先，判错再回退字母序列）。`requireSpell` 不再决定步数。
   List<PracticeStepKind> _steps(PracticeItem item) {
     if (_itemMode(item) == EnglishMode.en2cn) {
       return const [PracticeStepKind.zhAnswer];
     }
-    return item.requireSpell
-        ? const [PracticeStepKind.word, PracticeStepKind.spell]
-        : const [PracticeStepKind.word];
+    return const [PracticeStepKind.word];
   }
 
   /// 当前步骤序列（随 item 变化）。
@@ -733,6 +747,21 @@ class PracticeController extends Notifier<PracticeState> {
 
   /// 当前步 WS `task_type`（页面 `sendStart` 用）。
   String get currentTaskType => state.stepKind.taskType;
+
+  /// 当前题的 wire 模式（`cn2en`/`en2cn`）—— WS `start.mode` 供服务端
+  /// 落 `answers.mode` 与计分口径对齐 REST；服务端按它 + step 推导 expected。
+  String? get currentModeWire {
+    final item = currentItem;
+    if (item == null) return null;
+    return _itemMode(item).wire;
+  }
+
+  /// 本步已失败次数（WS `start.retry_count`，计分口径用）。
+  int get currentRetryCount => state.failuresForStep;
+
+  /// 当前提示档位 / 累计提示次数（WS `start.hint_level` / `used_hint_count`）。
+  int get currentHintLevel => state.hintLevel;
+  int get currentUsedHintCount => state.usedHintCount;
 
   int? get currentWordId => currentItem?.wordId;
 
@@ -788,18 +817,29 @@ class PracticeController extends Notifier<PracticeState> {
         usedHintCount: state.usedHintCount,
         idempotencyKey: buildIdempotencyKey(),
       );
-      _consumeVerdict(verdict, durationMs: durationMs, firstVoiceMs: firstVoiceMs, usedKeyboard: true);
+      _consumeVerdict(
+        verdict,
+        durationMs: durationMs,
+        firstVoiceMs: firstVoiceMs,
+        usedKeyboard: true,
+        // 键盘通道服务端不回 `asr_text` → 用学生实际输入补「你读的」回显。
+        heardText: text,
+      );
     } on ApiException catch (e) {
       state = state.copyWith(phase: PracticePhase.error, errorMessage: e.displayText);
     }
   }
 
   /// 统一消费一次判定（voice / keyboard 共用）。
+  ///
+  /// `heardText`：键盘通道服务端**不回** `asr_text`，由调用方把学生实际输入传进来，
+  /// 让「你读的」回显对两条通道都成立（语音通道 `verdict.asrText` 已有识别结果）。
   void _consumeVerdict(
     AnswerVerdict verdict, {
     required int durationMs,
     required int firstVoiceMs,
     required bool usedKeyboard,
+    String? heardText,
   }) {
     final item = currentItem;
     if (item == null) return;
@@ -819,7 +859,7 @@ class PracticeController extends Notifier<PracticeState> {
       usedHintCount: state.usedHintCount,
       durationMs: durationMs,
       firstVoiceMs: firstVoiceMs,
-      asrText: verdict.asrText,
+      asrText: verdict.asrText ?? heardText,
       answerId: verdict.answerId,
       diff: verdict.diff,
       canAppeal: verdict.canAppeal,

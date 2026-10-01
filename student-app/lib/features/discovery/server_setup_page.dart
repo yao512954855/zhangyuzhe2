@@ -7,6 +7,10 @@
 /// - 文案里不出现「IP」「端口」「网络」等术语。
 ///
 /// 这条链路的第一道坎之所以放在最前面，是因为**连不上服务器，后面全是白做**。
+///
+/// ⚠️ **本页是「必经之门」，连上之后由本页负责离场**（见 [_ServerSetupPageState._enter]）：
+/// 绝不依赖"导航栈里还有上层"—— 启动流程是用 `pushReplacement` 跳过来的，
+/// 本页就是栈底，`pop` 只会把栈弹空（黑屏，2026-09-29 真机 bug）。
 library;
 
 import 'dart:async';
@@ -17,11 +21,13 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../core/discovery/qr_parser.dart';
 import '../../core/providers.dart';
+import '../../core/router/app_router.dart';
 import '../../core/storage/server_store.dart';
 import '../../core/theme/age_profile.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_button.dart';
 import '../../core/widgets/feedback.dart';
+import '../../features/auth/auth_controller.dart';
 
 /// 页面在找服务器过程中的状态。
 enum _FindPhase { searching, failed }
@@ -132,14 +138,46 @@ class _ServerSetupPageState extends ConsumerState<ServerSetupPage> {
     return false;
   }
 
-  /// 连上了：保存地址并自动进入登录页。
+  /// 连上了：保存地址，然后**由本页负责离场**。
+  ///
+  /// ⚠️ **这里踩过一个真机必现的黑屏坑（2026-09-29），改之前务必读完**：
+  /// 启动流程连不上时用的是 `Navigator.pushReplacementNamed(discoveryRoute)`，
+  /// **启动页已经从栈里消失**，本页就是栈底。旧实现无条件 `pop(true)`，
+  /// 于是整个栈被弹空 —— 学生看到的正是「**黑屏、没有任何跳转**」
+  /// （换网络 → IP 变了 → 手输新地址点「连接」必现）。
+  ///
+  /// 所以**不能依赖"栈里还有上层"**（`canPop()` 也不可靠：手动输入用的是
+  /// `showDialog`，对话框退场动画没跑完时 `canPop()` 仍是 `true`，照样弹空）。
+  /// 正解是 `pushNamedAndRemoveUntil` 清栈并显式落到下一站。
   Future<void> _enter(ServerAddress address) async {
-    await ref.read(serverStoreProvider).save(address);
+    final serverStore = ref.read(serverStoreProvider);
+    final auth = ref.read(authControllerProvider.notifier);
+    // 地址变了 = 换了一台服务器：旧 token 在新服务器上无效，必须先清掉
+    // （设置页 U9「换服务器后要重新登录」是同一个约定）。
+    final changed = serverStore.current != address;
+
+    await serverStore.save(address);
     if (!mounted) {
       return;
     }
-    // 用回调让上层决定去哪（启动页会据此判断是进登录还是进首页）
-    Navigator.of(context).pop(true);
+
+    var goHome = false;
+    if (changed) {
+      await auth.logout();
+    } else if (ref.read(localStoreProvider).token != null) {
+      // 同一个服务器：有 token 就核一次，核得过直接进首页，省掉一次登录。
+      goHome = await auth.restore();
+    }
+    if (!mounted) {
+      return;
+    }
+    _replaceAllWith(goHome ? AppRouter.homeRoute : AppRouter.loginRoute);
+  }
+
+  /// 清空导航栈并落到 [route]（只留一个页面）——
+  /// 从根上杜绝「栈被弹空 = 黑屏」这一类问题，不管本页是被谁打开的。
+  void _replaceAllWith(String route) {
+    Navigator.of(context).pushNamedAndRemoveUntil(route, (r) => false);
   }
 
   // ------------------------------------------------------------ 扫码 / 手输
@@ -149,6 +187,12 @@ class _ServerSetupPageState extends ConsumerState<ServerSetupPage> {
       MaterialPageRoute<String>(builder: (_) => const _ScanPage()),
     );
     if (raw == null || !mounted) {
+      return;
+    }
+    // 扫码页的退场动画还没跑完（`push` 的 Future 在 pop 瞬间就 complete），
+    // 此时它里面的相机预览仍然 mounted，直接清栈会 detach 出一堆断言。
+    await Future<void>.delayed(_overlayExitGuard);
+    if (!mounted) {
       return;
     }
     final result = ServerLinkParser.parse(raw, fromQr: true);
@@ -192,6 +236,11 @@ class _ServerSetupPageState extends ConsumerState<ServerSetupPage> {
         );
       },
     );
+    // ⚠️ 先等对话框退场，再 dispose controller：对话框还在退场动画里时
+    //    它的 TextField 仍然 mounted，此时 dispose 会在卸载那一刻踩到
+    //    已释放的对象；紧接着 `_enter` 又要清导航栈，两件事叠在一起就是
+    //    真机上的黑屏（原因见 [_overlayExitGuard]）。
+    await Future<void>.delayed(_overlayExitGuard);
     controller.dispose();
     if (raw == null || raw.trim().isEmpty || !mounted) {
       return;
@@ -205,7 +254,25 @@ class _ServerSetupPageState extends ConsumerState<ServerSetupPage> {
     await _connectManually((result as ServerLinkOk).address);
   }
 
+  /// 上一个弹层（手动输入的对话框 / 扫码页）退场需要用掉的时间。
+  ///
+  /// ⚠️ **必须等**：`showDialog` 与 `Navigator.push` 的 Future 都在 `pop()`
+  /// 的**那一瞬间**就 complete，而弹层的**退场动画还没跑完** —— 里面的
+  /// `TextField`、相机预览此时仍然 mounted。若紧接着清导航栈，它们会在
+  /// detach 之后继续跑 post-frame 回调（`EditableText._scheduleShowCaretOnScreen`）
+  /// → `Failed assertion: 'attached': is not true`；真机上的表现就是
+  /// **渲染错乱 / 黑屏**（2026-09-29 与「换 IP 后连接黑屏」一起查出来的）。
+  ///
+  /// 取 400ms 是安全的：路由退场动画是**时间驱动**的（对话框 150ms、
+  /// Material 转场 300ms、iOS 400ms），帧率再低也只影响流畅度，
+  /// 不影响它按时结束。
+  static const Duration _overlayExitGuard = Duration(milliseconds: 400);
+
   /// 用手输/扫码拿到的地址连一次，成功就进下一步。
+  ///
+  /// ⚠️ 调用方必须先 `await Future.delayed(_overlayExitGuard)` 放走上一个弹层
+  /// （见 [_overlayExitGuard]），否则这里成功后的清栈动作会踩到还没退场完的
+  /// 对话框 / 扫码页。
   Future<void> _connectManually(ServerAddress address) async {
     setState(() {
       _connecting = true;
@@ -231,6 +298,11 @@ class _ServerSetupPageState extends ConsumerState<ServerSetupPage> {
     final isSearching = _phase == _FindPhase.searching;
 
     return Scaffold(
+      // 启动流程（autoFind=true）是必经之门，不给后退；
+      // 从设置页主动打开（autoFind=false）时给返回键，允许学生中途放弃。
+      appBar: widget.autoFind
+          ? null
+          : AppBar(title: const Text('更换服务器')),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.symmetric(

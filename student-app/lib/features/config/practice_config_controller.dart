@@ -200,11 +200,14 @@ class PracticeConfigController extends Notifier<PracticeConfigState> {
 
     state = state.copyWith(submitting: true, clearError: true);
     try {
+      final body = config.toRequest();
       final data = await ref.read(apiClientProvider).post<Map<String, dynamic>>(
             '/api/sessions',
-            body: config.toRequest(),
+            body: body,
           );
-      final session = PracticeSession.fromJson(data ?? const <String, dynamic>{});
+      // 带上原请求体：结算页「再练一次」按**同一配置**重开（真重开，不回首页）。
+      final session = PracticeSession.fromJson(data ?? const <String, dynamic>{})
+          .withReplay(body);
       if (session.isEmpty) {
         state = state.copyWith(
           submitting: false,

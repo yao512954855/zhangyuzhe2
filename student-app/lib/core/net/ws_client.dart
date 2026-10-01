@@ -84,6 +84,10 @@ class WsStartOptions {
     this.answerId,
     this.recitationId,
     this.wordId,
+    this.mode,
+    this.retryCount,
+    this.hintLevel,
+    this.usedHintCount,
     this.enableIntermediate = true,
   });
 
@@ -91,11 +95,24 @@ class WsStartOptions {
   final String taskType;
 
   /// 标准答案：**只发给服务端留存，服务端绝不下发云厂商**（契约 F10）。
+  ///
+  /// 英语词条场景客户端拿不到答案（§9.1 场次响应不含答案），留空即可，
+  /// 服务端会按 `word_id` 自查 `words.en`；语文背诵等客户端合法持有
+  /// 文本的场景才传。
   final String? expected;
 
   final int? answerId;
   final int? recitationId;
   final int? wordId;
+
+  /// 题目模式（`cn2en`/`en2cn`）—— 服务端落 `answers.mode` 与 score 口径用。
+  final String? mode;
+
+  /// 本步已失败次数 / 提示档位 / 提示次数 —— 供服务端按 REST 同口径计分。
+  final int? retryCount;
+  final int? hintLevel;
+  final int? usedHintCount;
+
   final bool enableIntermediate;
 
   Map<String, dynamic> toJson() => {
@@ -106,6 +123,10 @@ class WsStartOptions {
         if (answerId != null) 'answer_id': answerId,
         if (recitationId != null) 'recitation_id': recitationId,
         if (wordId != null) 'word_id': wordId,
+        if (mode != null) 'mode': mode,
+        if (retryCount != null) 'retry_count': retryCount,
+        if (hintLevel != null) 'hint_level': hintLevel,
+        if (usedHintCount != null) 'used_hint_count': usedHintCount,
         'enable_intermediate': enableIntermediate,
       };
 }
@@ -113,6 +134,14 @@ class WsStartOptions {
 /// 语音长连接客户端。
 class WsClient {
   WsClient({required this.serverStore, required this.localStore});
+
+  /// 收发帧调试日志开关（main.dart 在 debug 构建下置 true；
+  /// 测试里保持 false 防止刷屏）。2026-09-28「识别中」排障用。
+  static bool verbose = false;
+
+  void _log(String message) {
+    if (verbose) debugPrint('[ws] $message');
+  }
 
   final ServerStore serverStore;
   final LocalStore localStore;
@@ -200,6 +229,7 @@ class WsClient {
       await channel.ready;
       _channel = channel;
 
+      _log('connected $uri');
       _sub = channel.stream.listen(
         _onFrame,
         onError: (Object e) => _onClosed(null, e),
@@ -217,6 +247,7 @@ class WsClient {
 
   void _onFrame(dynamic frame) {
     if (frame is! String) {
+      _log('收帧非文本: ${frame.runtimeType}');
       return; // 服务端目前只发文本帧
     }
     Map<String, dynamic>? msg;
@@ -225,10 +256,12 @@ class WsClient {
       if (decoded is Map<String, dynamic>) {
         msg = decoded;
       }
-    } catch (_) {
+    } catch (e) {
+      _log('收帧解析失败: $e / ${frame.length > 120 ? frame.substring(0, 120) : frame}');
       return;
     }
     if (msg == null) {
+      _log('收帧非对象: ${frame.length > 120 ? frame.substring(0, 120) : frame}');
       return;
     }
 
@@ -237,12 +270,16 @@ class WsClient {
     if (answerId is int) {
       _lastAnswerId = answerId;
     }
+    _log('收到 type=${msg['type']} answer_id=${msg['answer_id']}');
     if (!_messages.isClosed) {
       _messages.add(msg);
+    } else {
+      _log('⚠️ 消息流已关闭，帧被丢弃');
     }
   }
 
   void _onClosed(int? code, Object? reason) {
+    _log('连接关闭 code=$code reason=$reason manual=$_manualClose');
     _stopHeartbeat();
     _channel = null;
     final wasManual = _manualClose;
@@ -297,6 +334,7 @@ class WsClient {
     if (options.answerId != null) {
       _lastAnswerId = options.answerId;
     }
+    _log('→ start session=${options.sessionId} task=${options.taskType} word=${options.wordId}');
     _sendJson(options.toJson());
   }
 

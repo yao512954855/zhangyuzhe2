@@ -434,6 +434,52 @@ void main() {
       expect(matched.style?.color, isNotNull);
       expect(matched.style!.color, isNot(equals(palette.primaryColor)));
     });
+
+    testWidgets('回归：汉字不得被裁掉下沿（行盒必须装得进单元格）', (tester) async {
+      // 真机 2026-09-29：背诵页每个字的下半截被削掉（「二」只剩一横、
+      // 「已」只剩一个口），学生根本看不清要背什么。
+      //
+      // 机理：已背字的格子是 `SizedBox(width/height = cellSize)`，
+      // 里面 `Center` 一个 `Text`。`SizedBox` 给的是**紧约束**，`Center`
+      // 只把约束「放松」到 `maxHeight = cellSize`；而当时的文字样式是课文用的
+      // `reciteStyle`（`height: 2.0`，行盒 = 2.0em > cellSize = 1.12em）。
+      // → `RenderParagraph` 的 `size` 被 `constrain` 到 cellSize
+      // → `didOverflowHeight` 成立 → **它自己 `clipRect` 到被压矮的尺寸**
+      // → 每个汉字下沿约 40% 被裁。
+      //
+      // ⚠️ 纯渲染层：`find` / 尺寸 / `analyze` / `build` 全都看不出来，
+      //    真机截图才可见。这里用「文字行盒高度 ≤ 渲染盒高度」这条不变量把它钉死。
+      await tester.pumpWidget(
+        _themed(
+          CharGrid(
+            chars: const ['我'],
+            matched: 1,
+            paragraphCharCounts: const [1],
+          ),
+        ),
+      );
+
+      final style = tester.widget<Text>(find.text('我')).style!;
+      final painter = TextPainter(
+        text: TextSpan(text: '我', style: style),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      final lineBox = painter.height;
+      final textBox = tester.getSize(find.text('我'));
+      final cellBox = tester.getSize(find.byType(CharGrid));
+
+      expect(
+        textBox.height + 0.01,
+        greaterThanOrEqualTo(lineBox),
+        reason: '文字行盒（$lineBox）比渲染盒（${textBox.height}）高 → '
+            'RenderParagraph 会纵向溢出并裁掉汉字下沿',
+      );
+      expect(
+        cellBox.height + 0.01,
+        greaterThanOrEqualTo(lineBox),
+        reason: '单元格（${cellBox.height}）装不下文字行盒（$lineBox）→ 字会被裁',
+      );
+    });
   });
 
   // =========================================================================
@@ -671,6 +717,120 @@ void main() {
         _themed(ReciteSettlePage(settle: clean, durationMs: 90000, firstVoiceMs: 500)),
       );
       expect(find.textContaining('没有漏字'), findsOneWidget);
+    });
+  });
+
+  // =========================================================================
+  // F14 产品调整（2026-09-29，姚工）—— 回看由「逐字清单」改为「全文着色」
+  // =========================================================================
+  group('ReciteSettlePage · 回看全文着色（F14 产品调整）', () {
+    const full = ['我', '与', '父', '亲', '相', '见'];
+
+    ReciteSettle settleWith(List<ReciteMissedChar> missed) => ReciteSettle(
+          recitationId: 1,
+          totalChars: 6,
+          matchedChars: 6 - missed.length,
+          missedCount: missed.length,
+          missedDetail: missed,
+          coveredRatio: (6 - missed.length) / 6,
+          score: 88,
+          grade: '良好',
+          hintCount: const {},
+          replay: false,
+        );
+
+    /// 取出回看全文的 `Text`，按字摊平成「字 → 样式」（用于校验着色）。
+    Map<String, TextStyle> charStyles(WidgetTester tester) {
+      final widget = tester.widget<Text>(
+        find.byKey(const Key('reciteReviewText')),
+      );
+      final root = widget.textSpan! as TextSpan;
+      final out = <String, TextStyle>{};
+      root.visitChildren((span) {
+        if (span is TextSpan && span.text != null && span.style != null) {
+          for (final rune in span.text!.runes) {
+            final ch = String.fromCharCode(rune);
+            if (ch.trim().isEmpty) continue;
+            out[ch] = span.style!;
+          }
+        }
+        return true;
+      });
+      return out;
+    }
+
+    /// 取出回看全文的 `Text`，把各 span 的文本原样拼起来（用于校验分段换行）。
+    String flatString(WidgetTester tester) {
+      final widget = tester.widget<Text>(
+        find.byKey(const Key('reciteReviewText')),
+      );
+      final root = widget.textSpan! as TextSpan;
+      final buf = StringBuffer();
+      root.visitChildren((span) {
+        if (span is TextSpan && span.text != null) buf.write(span.text);
+        return true;
+      });
+      return buf.toString();
+    }
+
+    testWidgets('回看展示全文：漏字与背出的字用不同颜色（不再是逐字清单）', (tester) async {
+      await tester.pumpWidget(
+        _themed(ReciteSettlePage(
+          settle: settleWith(const [ReciteMissedChar(pos: 4, char: '相')]),
+          durationMs: 1000,
+          firstVoiceMs: 500,
+          fullChars: full,
+          paragraphCharCounts: const [6],
+        )),
+      );
+
+      final styles = charStyles(tester);
+      // 全文 6 个字都在，且不再出现「第 N 个字」清单
+      expect(styles.keys.toSet(), full.toSet());
+      expect(find.textContaining('第 5 个字'), findsNothing);
+
+      final errorColor = AppPalettes.day.errorColor;
+      // 漏掉的「相」→ 强调色（并带浅底，颜色之外再给一档）
+      expect(styles['相']!.color, errorColor);
+      expect(styles['相']!.backgroundColor, AppPalettes.day.errorLightColor);
+      // 背出来的字 → 正文色
+      for (final ch in ['我', '与', '父', '亲', '见']) {
+        expect(styles[ch]!.color, isNot(errorColor), reason: '$ch 不该被标成漏字');
+      }
+      // 图例（不靠单色传达）
+      expect(find.text('背出来的字'), findsOneWidget);
+      expect(find.text('没背出来的字'), findsOneWidget);
+    });
+
+    testWidgets('全文长度 ≠ 服务端 total_chars → 退回逐字清单，绝不画错人', (tester) async {
+      await tester.pumpWidget(
+        _themed(ReciteSettlePage(
+          settle: settleWith(const [ReciteMissedChar(pos: 4, char: '相')]),
+          durationMs: 1000,
+          firstVoiceMs: 500,
+          // 故意少一个字：5 ≠ total_chars(6)
+          fullChars: const ['我', '与', '父', '亲', '相'],
+          paragraphCharCounts: const [5],
+        )),
+      );
+      expect(find.byKey(const Key('reciteReviewText')), findsNothing);
+      expect(find.textContaining('第 5 个字'), findsOneWidget);
+    });
+
+    testWidgets('全文按段落换行；全对时也展示全文并给正向反馈', (tester) async {
+      await tester.pumpWidget(
+        _themed(ReciteSettlePage(
+          settle: settleWith(const []),
+          durationMs: 1000,
+          firstVoiceMs: 500,
+          fullChars: full,
+          paragraphCharCounts: const [3, 3],
+        )),
+      );
+      expect(flatString(tester), '我与父\n亲相见');
+      expect(find.textContaining('没有漏字'), findsOneWidget);
+      // 没有漏字时不摆图例
+      expect(find.text('没背出来的字'), findsNothing);
     });
   });
 

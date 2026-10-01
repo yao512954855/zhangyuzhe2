@@ -231,7 +231,12 @@ class _RecitePageState extends ConsumerState<RecitePage> {
       _transcript = text;
       _resetSilence();
       if (_firstVoiceMs == null && _recordStartTs > 0) {
-        _firstVoiceMs = DateTime.now().microsecondsSinceEpoch - _recordStartTs;
+        // ⚠️ 单位必须换算成**毫秒**：`_recordStartTs` 记的是微秒时间戳，
+        //    直接相减得到微秒，却被当作毫秒格式化、上报为 `first_voice_ms`
+        //    → 界面上「首次发声延迟」显示成 66:27（真身 3.99 秒），
+        //    服务端 `asr`/`recitations` 两处也一起被污染（2026-09-29 真机）。
+        _firstVoiceMs =
+            (DateTime.now().microsecondsSinceEpoch - _recordStartTs) ~/ 1000;
       }
       // 累计文本交给服务端对齐（契约 §13：客户端不自对齐）。
       unawaited(
@@ -354,6 +359,14 @@ class _RecitePageState extends ConsumerState<RecitePage> {
     // 管理端统计同源的那一份；客户端本地计时在切后台 / 杀进程时会失真，只作兜底。
     final settleDurationMs = result.durationMs > 0 ? result.durationMs : durationMs;
     final settleFirstVoiceMs = result.firstVoiceMs ?? firstVoiceMs;
+
+    // 回看要用全文（结算页按「服务端下标」着色，屏幕上第几个字必须与它对齐）。
+    // 直接取本页**已加载**的那一份 —— 与网格同源，不再多打一次请求；
+    // 万一它没加载成功（`valueOrNull == null`）就传空，结算页退回逐字清单。
+    final loaded = ref.read(
+      reciteTextProvider(ReciteTextKey(_item!.textId!, _item!.reciteScope)),
+    ).asData?.value;
+
     unawaited(
       Navigator.of(context).push(
         MaterialPageRoute(
@@ -361,6 +374,8 @@ class _RecitePageState extends ConsumerState<RecitePage> {
             settle: result!,
             durationMs: settleDurationMs,
             firstVoiceMs: settleFirstVoiceMs,
+            fullChars: loaded?.chars ?? const <String>[],
+            paragraphCharCounts: loaded?.paragraphCharCounts ?? const <int>[],
             hasNext: false,
           ),
         ),

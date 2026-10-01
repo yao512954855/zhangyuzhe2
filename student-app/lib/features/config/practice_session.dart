@@ -97,6 +97,7 @@ class PracticeSession {
     this.contentType = 'english',
     this.timeLimitMs = 0,
     this.startedAt,
+    this.replayRequest,
   });
 
   factory PracticeSession.fromJson(Map<String, dynamic> json) {
@@ -130,6 +131,25 @@ class PracticeSession {
   final int timeLimitMs;
 
   final String? startedAt;
+
+  /// 组卷请求体 —— **本地字段，不在服务端响应里**（`fromJson` 不填）。
+  ///
+  /// 「再练一次」按原配置重开时原样重发（2026-09-29 姚工拍板：真重开，
+  /// 不再回首页）。由组卷调用方（`PracticeConfigController.submit`）在拿到
+  /// 响应后补上 —— 所有英语入口都走它，所以一处补全 = 处处可用。
+  final Map<String, dynamic>? replayRequest;
+
+  /// 补上「重开用的请求体」，返回带该字段的副本。
+  PracticeSession withReplay(Map<String, dynamic> request) => PracticeSession(
+        sessionId: sessionId,
+        unitId: unitId,
+        unitName: unitName,
+        contentType: contentType,
+        items: items,
+        timeLimitMs: timeLimitMs,
+        startedAt: startedAt,
+        replayRequest: request,
+      );
 
   int get itemCount => items.length;
 

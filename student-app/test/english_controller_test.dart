@@ -131,7 +131,7 @@ class FakePracticeRepository implements PracticeRepository {
 // 夹具
 // ---------------------------------------------------------------------------
 
-/// 模式一、需要拼读：步骤 = [word, spell]。
+/// 模式一（单轮双口径）：步骤 = [word]（念整词 / 拼字母都收，2026-09-29 合并）。
 PracticeItem wordItemWithSpell({int seq = 1, int wordId = 101}) => PracticeItem(
       seq: seq,
       wordId: wordId,
@@ -177,13 +177,17 @@ PracticeState stateOf(ProviderContainer c) => c.read(practiceControllerProvider)
 // ---------------------------------------------------------------------------
 
 void main() {
-  // U1：两步流程（word→spell）在一道题内落库 2 条记录。
-  test('U1 两步流程 word→spell 各记一条，顺序正确', () {
+  // U1：模式一合并单轮（2026-09-29）—— 一个词只判一次、只落一条记录。
+  test('U1 模式一单轮：整词/拼字母同一条 verdict，只记一条', () {
     final fake = FakePracticeRepository();
     final c = makeContainer(fake);
     ctrl(c).start(sessionOf([wordItemWithSpell()]));
 
-    // 第 1 步 word 正确。
+    expect(stateOf(c).step, 1);
+    expect(stateOf(c).stepKind, PracticeStepKind.word,
+        reason: '合并单轮后模式一从 word 步开始，**没有** spell 第二步');
+
+    // 念整词 / 逐字母拼都由服务端一条 verdict 回传（judge_word_or_spell）。
     ctrl(c).submitVoiceVerdict(
       const AnswerVerdict(isCorrect: true, matchType: 'exact'),
       durationMs: 1000,
@@ -192,22 +196,36 @@ void main() {
     expect(stateOf(c).phase, PracticePhase.result);
     expect(stateOf(c).records.length, 1);
     expect(stateOf(c).records.first.stepKind, PracticeStepKind.word);
-
-    // 推进到第 2 步 spell。
-    ctrl(c).next();
-    expect(stateOf(c).step, 2);
-    expect(stateOf(c).stepKind, PracticeStepKind.spell);
-
-    // 第 2 步 spell 正确。
-    ctrl(c).submitVoiceVerdict(
-      const AnswerVerdict(isCorrect: true, matchType: 'exact'),
-      durationMs: 1200,
-      firstVoiceMs: 250,
-    );
-    expect(stateOf(c).records.length, 2);
-    expect(stateOf(c).records.last.stepKind, PracticeStepKind.spell);
+    expect(stateOf(c).step, 1, reason: '不再推进到 step=2');
+    // word 就是最后一步 → 「继续」直接结算。
+    expect(ctrl(c).isLastStep, isTrue);
     expect(fake.submitCalls.length, 0, // 语音通道由 WS 落库，键盘通道才走 submitAnswer
         reason: '语音正确路径不经键盘 submitAnswer');
+  });
+
+  // 「再练一次」依赖：`resetForRestart` 必须把上一场状态清干净，
+  // 否则 `start()` 的「已启动就不再初始化」保护会把重开静默挡掉。
+  test('resetForRestart 清场后新场次能正常 start', () {
+    final fake = FakePracticeRepository();
+    final c = makeContainer(fake);
+    ctrl(c).start(sessionOf([wordItemWithSpell()]));
+    ctrl(c).submitVoiceVerdict(
+      const AnswerVerdict(isCorrect: true, matchType: 'exact'),
+      durationMs: 1000,
+      firstVoiceMs: 200,
+    );
+    expect(stateOf(c).records.length, 1);
+
+    ctrl(c).resetForRestart();
+    expect(stateOf(c).session.sessionId, 0);
+    expect(stateOf(c).records, isEmpty);
+
+    // 清场后新场次能正常启动
+    ctrl(c).start(sessionOf([en2cnItem()], id: 555));
+    expect(stateOf(c).session.sessionId, 555);
+    expect(stateOf(c).itemIndex, 0);
+    expect(stateOf(c).step, 1);
+    expect(stateOf(c).phase, PracticePhase.asking);
   });
 
   // U3：答对的判定结果停留 result，不自动消失、不自动翻页。
@@ -419,14 +437,9 @@ void main() {
       durationMs: 1000,
       firstVoiceMs: 200,
     );
-    ctrl(c).next(); // 因为 requireSpell=true，会进 spell 步。
-    ctrl(c).submitVoiceVerdict(
-      const AnswerVerdict(isCorrect: true, matchType: 'exact'),
-      durationMs: 1000,
-      firstVoiceMs: 200,
-    );
-    ctrl(c).next(); // 进入第 2 题 zhAnswer
+    ctrl(c).next(); // 合并单轮后模式一只有 word 一步 → 直接进第 2 题
     expect(stateOf(c).itemIndex, 1);
+    // 第 2 题（模式二 zhAnswer）正确 → 全部完成。
     ctrl(c).submitVoiceVerdict(
       const AnswerVerdict(isCorrect: true, matchType: 'exact'),
       durationMs: 1000,

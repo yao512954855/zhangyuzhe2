@@ -32,6 +32,28 @@ class CharGrid extends StatelessWidget {
   /// 每段字数（用于按段换行）。
   final List<int> paragraphCharCounts;
 
+  /// 单格内文字的行高（em）。
+  ///
+  /// ⚠️ **不能直接用 `AgeProfile.reciteLineHeight`（2.0）**。
+  /// 那个 2.0 是给**多行课文**用的行间距（UI 规范 §3.3 明文），
+  /// 而这里是「一个字一个格子」，行间距没有意义，只有副作用：
+  ///
+  /// 原来的写法是 `SizedBox(height: reciteBig * 1.12)` 里放 `reciteStyle`
+  /// （`height: 2.0`，行盒 = 2.0em > 单元 1.12em）。行盒比单元高 →
+  /// `RenderParagraph` 收到 `maxHeight = 1.12em` → `size` 被压到 1.12em →
+  /// `didOverflowHeight` 成立 → **它自己 `clipRect` 到 1.12em** →
+  /// 每个汉字的**下沿约 40% 被裁掉**（「二」只剩一横、「已」只剩一个口）。
+  /// 真机 2026-09-29 抓到；`flutter test` / `analyze` **都看不出来**
+  /// （纯渲染层，无断言可测）。
+  ///
+  /// 修法：单元内的行盒压到 1.15em（≥ 汉字墨迹 1.0em + 上下余量），
+  /// 并把单元高度同步放大到 `1.25em`（见 `_cellSizeFactor`），
+  /// 让行盒**装得进**单元 → 不触发纵向溢出 → 不裁。
+  static const double _cellLineHeight = 1.15;
+
+  /// 单元边长 = `reciteBig * _cellSizeFactor`；必须 > `_cellLineHeight`。
+  static const double _cellSizeFactor = 1.25;
+
   /// 「当前位置空框」的 key。
   ///
   /// 供测试/联调精确定位这个框，并对「框内没有任何字符」做断言（见 `build`）。
@@ -63,7 +85,7 @@ class CharGrid extends StatelessWidget {
       paragraphs.add(const []);
     }
 
-    final cellSize = profile.reciteBig * 1.12;
+    final cellSize = profile.reciteBig * _cellSizeFactor;
     final futureGap = profile.reciteBig * 0.45;
 
     // 防御：展示正文可能还没加载完（异步），此时不能让 matched 越界访问 chars。
@@ -78,9 +100,11 @@ class CharGrid extends StatelessWidget {
           child: Center(
             child: Text(
               chars[index],
+              // 行高必须换成单格行高：用课文行高（2.0em）会被单元压矮后裁掉下沿。
               style: profile.reciteStyle.copyWith(
                 color: textColor,
                 fontWeight: FontWeight.w500,
+                height: _cellLineHeight,
               ),
             ),
           ),

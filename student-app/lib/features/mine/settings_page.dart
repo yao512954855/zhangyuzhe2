@@ -91,7 +91,10 @@ class SettingsPage extends ConsumerWidget {
             icon: Icons.dns_outlined,
             title: '服务器地址',
             subtitle: server.current?.authority ?? '未设置',
-            onTap: () => Navigator.of(context).pushNamed(DiscoveryRoutes.setup),
+            // ⚠️ 必须传 arguments: false —— 不传的话发现页按默认 autoFind:true
+            // 启动自动查找，当前地址探活成功会立刻 pop 回本页，
+            // 学生永远来不及点「扫码 / 手动输入」（真机踩坑，勿删）。
+            onTap: () => _changeServer(context),
           ),
           const SizedBox(height: 12),
           _Row(
@@ -149,6 +152,20 @@ class SettingsPage extends ConsumerWidget {
   void _setEyeCare(WidgetRef ref, bool value) {
     ref.read(localStoreProvider).setEyeCareEnabled(value);
     ref.read(eyeCareProvider).setEnabled(value);
+  }
+
+  /// 打开服务器发现页（autoFind=false，让学生自己选扫码/手输）。
+  ///
+  /// ⚠️ 连上之后**由发现页统一接管**（它会清栈并落到登录页/首页），本页
+  /// 不处理返回值 —— 发现页用的是 `pushNamedAndRemoveUntil`，本页会被一起
+  /// 移除，所以这个 `await` 只会拿到 `null`。
+  /// （2026-09-29 修「换 IP 后连接黑屏」时改的：旧写法是发现页 `pop(true)` +
+  /// 本页再跳登录页，在**启动流程**下导航栈会被弹空，学生看到的就是黑屏。）
+  Future<void> _changeServer(BuildContext context) async {
+    await Navigator.of(context).pushNamed<void>(
+      DiscoveryRoutes.setup,
+      arguments: false,
+    );
   }
 }
 

@@ -6,7 +6,10 @@ plugins {
 
 android {
     namespace = "com.bjsys.student_app"
-    compileSdk = flutter.compileSdkVersion
+    // permission_handler(13.x) 要求 compileSdk >= 37，而 Flutter 3.47.5 的
+    // flutter.compileSdkVersion 仍是 36。本机已装 sdk/platforms/android-37.0，
+    // 故显式抬到 37（只影响编译期可用 API，targetSdk 不动 → 运行时行为不变）。
+    compileSdk = maxOf(flutter.compileSdkVersion, 37)
     ndkVersion = flutter.ndkVersion
 
     compileOptions {

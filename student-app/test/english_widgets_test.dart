@@ -35,6 +35,7 @@ import 'package:student_app/features/english/widgets/keyboard_input_panel.dart';
 import 'package:student_app/features/english/widgets/recording_indicator.dart';
 import 'package:student_app/features/english/widgets/spell_result_card.dart';
 import 'package:student_app/features/english/widgets/timer_badge.dart';
+import 'package:student_app/router/routes/practice.dart';
 
 // ---------------------------------------------------------------------------
 // 假 WS 客户端（只驱动页面，不连真后端）
@@ -387,6 +388,193 @@ void main() {
 
     // 键盘面板出现（降级路径生效）。
     expect(find.byType(KeyboardInputPanel), findsOneWidget);
+  });
+
+  /// 2026-10-01 真机 bug 回归（姚工）：自动切键盘后点「还是用麦克风」没反应。
+  /// 根因：页面把 KeyboardInputPanel.onCancel 错接成 `_controller.useKeyboard()`
+  /// （等于再开一次键盘，no-op）。必须回到录音态（键盘消失、出现「按住说话」）。
+  testWidgets('键盘态点「还是用麦克风」回到语音录音态', (tester) async {
+    setBigViewport(tester);
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final prefs = await SharedPreferences.getInstance();
+    final local = LocalStore(prefs);
+    final server = ServerStore(local);
+    final fakeWs = FakeWsClient(serverStore: server, localStore: local);
+    final fakeRepo = FakePracticeRepository();
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          wsClientProvider.overrideWithValue(fakeWs),
+          practiceRepositoryProvider.overrideWithValue(fakeRepo),
+        ],
+        child: wrap(PracticePage(session: sessionOf([wordItem()]))),
+      ),
+    );
+    await tester.pump();
+    fakeWs.push(<String, dynamic>{
+      'type': 'error',
+      'code': 50001,
+      'action': 'keyboard',
+      'ui_hint': '网络不太顺，换成打字继续吧',
+    });
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(find.byType(KeyboardInputPanel), findsOneWidget);
+
+    await tester.tap(find.text('还是用麦克风'));
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(find.byType(KeyboardInputPanel), findsNothing,
+        reason: '取消键盘后键盘面板必须消失');
+    expect(find.text('按住说话'), findsOneWidget,
+        reason: '必须回到语音录音态（bug #2）');
+  });
+
+  // 姚工 2026-09-29：答完必须回显「你读的」与「正确」——语音判分最大不确定性来自
+  // ASR 听错，学生看不到自己被听成什么，就只能盲点「我读对了」申诉。
+  testWidgets('答题后回显「你读的」与「正确」', (tester) async {
+    setBigViewport(tester);
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final prefs = await SharedPreferences.getInstance();
+    final local = LocalStore(prefs);
+    final server = ServerStore(local);
+    final fakeWs = FakeWsClient(serverStore: server, localStore: local);
+    final fakeRepo = FakePracticeRepository();
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          wsClientProvider.overrideWithValue(fakeWs),
+          practiceRepositoryProvider.overrideWithValue(fakeRepo),
+        ],
+        child: wrap(PracticePage(session: sessionOf([wordItem()]))),
+      ),
+    );
+    await tester.pump();
+    // ASR 把 banana 听成「不辣了」——真机真实发生过的错听。
+    fakeWs.push(<String, dynamic>{
+      'type': 'verdict',
+      'is_correct': false,
+      'match_type': 'wrong',
+      'expected': 'banana',
+      'asr_text': '不辣了。',
+    });
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(find.text('你读的：'), findsOneWidget);
+    expect(find.text('不辣了。'), findsOneWidget);
+    expect(find.text('正确答案：'), findsOneWidget);
+    expect(find.text('banana'), findsOneWidget);
+  });
+
+  // 姚工 2026-09-29：**答对也要看到正确答案**（此前「与所读一致就省略」导致只看到
+  // 「你读的：apple」，看不到标准写法）。钉住「正确答案」常驻。
+  testWidgets('答对且所读一致时，正确答案仍展示', (tester) async {
+    setBigViewport(tester);
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final prefs = await SharedPreferences.getInstance();
+    final local = LocalStore(prefs);
+    final server = ServerStore(local);
+    final fakeWs = FakeWsClient(serverStore: server, localStore: local);
+    final fakeRepo = FakePracticeRepository();
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          wsClientProvider.overrideWithValue(fakeWs),
+          practiceRepositoryProvider.overrideWithValue(fakeRepo),
+        ],
+        child: wrap(PracticePage(session: sessionOf([wordItem()]))),
+      ),
+    );
+    await tester.pump();
+    fakeWs.push(<String, dynamic>{
+      'type': 'verdict',
+      'is_correct': true,
+      'match_type': 'exact',
+      'expected': 'banana',
+      'asr_text': 'banana',
+    });
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(find.text('读对啦，真棒'), findsOneWidget);
+    expect(find.text('你读的：'), findsOneWidget);
+    expect(find.text('正确答案：'), findsOneWidget);
+    // banana 出现两次：一次「你读的」、一次「正确答案」。
+    expect(find.text('banana'), findsNWidgets(2));
+  });
+
+  // 姚工 2026-09-29 真机修复（dev/02 §八 #98）：练习页**不能在 `build()` 里直接
+  // 导航**去结算页 —— build 期间导航器处于锁定态，`push` 会被推迟到转场 ticker
+  // 结束后执行，撞 `!_debugLocked` 断言后**锁不复位**：结算页是显示出来了，但之后
+  // 任何导航都抛异常（「再练一次」直接抛 → 按钮永久变灰、整页变死页）。
+  // 这里钉住「帧后回调确实把结算页推出来」，防回归成 build 内导航。
+  testWidgets('完成练习 → 帧后跳结算页（不在 build 里导航）', (tester) async {
+    setBigViewport(tester);
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final prefs = await SharedPreferences.getInstance();
+    final local = LocalStore(prefs);
+    final server = ServerStore(local);
+    final fakeWs = FakeWsClient(serverStore: server, localStore: local);
+    final fakeRepo = FakePracticeRepository();
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          wsClientProvider.overrideWithValue(fakeWs),
+          practiceRepositoryProvider.overrideWithValue(fakeRepo),
+        ],
+        child: MaterialApp(
+          theme: AppTheme.build(palette: AppPalettes.day),
+          initialRoute: PracticeRoutes.practice,
+          onGenerateRoute: (settings) {
+            if (settings.name == PracticeRoutes.practice) {
+              return MaterialPageRoute<void>(
+                settings: settings,
+                builder: (_) => AgeScope(
+                  profile: AgeProfile.ofGrade(3),
+                  child: PracticePage(session: sessionOf([wordItem()])),
+                ),
+              );
+            }
+            if (settings.name == PracticeRoutes.summary) {
+              return MaterialPageRoute<void>(
+                settings: settings,
+                builder: (_) => const Scaffold(body: Text('结算页标记')),
+              );
+            }
+            return null;
+          },
+        ),
+      ),
+    );
+    await tester.pump();
+
+    // 答对 → 出现「继续」。
+    fakeWs.push(<String, dynamic>{
+      'type': 'verdict',
+      'is_correct': true,
+      'match_type': 'exact',
+      'expected': 'apple',
+      'asr_text': 'apple',
+    });
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(find.text('继续'), findsOneWidget);
+
+    // 点「继续」→ 最后一步 → finish → phase=finished。
+    await tester.tap(find.text('继续'));
+    await tester.pump(); // 触发 build（排下帧后回调）
+    await tester.pump(const Duration(milliseconds: 50)); // 帧后回调执行 → push
+    await tester.pump(const Duration(milliseconds: 400)); // 转场动画
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.text('结算页标记'), findsOneWidget,
+        reason: '完成练习必须跳到结算页（帧后导航）');
   });
 }
 

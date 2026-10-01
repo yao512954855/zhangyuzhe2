@@ -14,11 +14,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app.dart';
+import 'core/net/ws_client.dart';
 import 'core/providers.dart';
 import 'core/storage/local_store.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // 真机排障（2026-09-28「识别中」卡死）：debug 构建打开 WS 收帧日志。
+  // 用静态开关而不是直接 kDebugMode 判断，避免 flutter test 里刷屏。
+  if (kDebugMode) WsClient.verbose = true;
 
   // F19：任何 widget 构建异常都不能露出红屏与英文堆栈
   ErrorWidget.builder = (details) => SafeErrorWidget(details: details);

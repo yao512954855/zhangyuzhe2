@@ -1,12 +1,17 @@
 /// WP-APP-01 外壳与页面 —— 路由聚合、启动流程、主题切换（U1 / U7 / U9）。
 library;
 
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:student_app/app.dart';
 import 'package:student_app/core/discovery/broadcast_finder.dart';
+import 'package:student_app/core/net/api_client.dart';
 import 'package:student_app/core/providers.dart';
 import 'package:student_app/core/router/app_router.dart';
 import 'package:student_app/core/storage/local_store.dart';
@@ -19,10 +24,14 @@ import 'package:student_app/features/theme/theme_switcher_sheet.dart';
 
 /// 测试环境里不真的发 UDP（真实现会广播 3 轮、每轮等 2 秒）。
 class _FakeFinder implements BroadcastFinder {
-  _FakeFinder({this.supported = true});
+  _FakeFinder({this.supported = true, this.found});
 
   @override
   final bool supported;
+
+  /// 不传 = 广播找不到（走扫码/手输）；传了 = 模拟广播命中。
+  final ServerAddress? found;
+
   String? _error;
 
   @override
@@ -35,6 +44,10 @@ class _FakeFinder implements BroadcastFinder {
     void Function(String status)? onStatus,
   }) async {
     onStatus?.call('正在寻找服务器…');
+    final hit = found;
+    if (hit != null) {
+      return hit;
+    }
     _error = supported ? '同一个网络里没有找到服务器，可以让管理者给你扫二维码' : '当前环境不支持自动查找';
     return null;
   }
@@ -42,6 +55,44 @@ class _FakeFinder implements BroadcastFinder {
   @override
   Future<void> dispose() async {}
 }
+
+/// 用假的 HTTP 适配器替掉真网络（发现页探活会真发 `/api/ping`）。
+class _FakeAdapter implements HttpClientAdapter {
+  _FakeAdapter(this.handler);
+
+  final Future<ResponseBody> Function(RequestOptions options) handler;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) =>
+      handler(options);
+
+  @override
+  void close({bool force = false}) {}
+}
+
+/// 一个「探活必成功」的适配器（`GET /api/ping` → code 0）。
+_FakeAdapter _okPingAdapter() => _FakeAdapter(
+      (_) async => ResponseBody.fromString(
+        jsonEncode({
+          'code': 0,
+          'message': 'ok',
+          'data': {
+            'service': 'bjsys',
+            'version': '1.0.0',
+            'server_name': '背记系统',
+          },
+          'trace_id': 't-ping',
+        }),
+        200,
+        headers: {
+          Headers.contentTypeHeader: ['application/json'],
+        },
+      ),
+    );
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -168,6 +219,81 @@ void main() {
       final scanY = tester.getCenter(find.text('扫码连接')).dy;
       final manualY = tester.getCenter(find.text('手动输入地址')).dy;
       expect(scanY, lessThan(manualY), reason: '规范 §7.2：主按钮是扫码');
+    });
+
+    /// 复刻「换了地方 / IP 变了 → 连上 → 黑屏不跳转」这条真机路径。
+    ///
+    /// 关键前提：**发现页是导航栈底**。启动流程连不上时用的是
+    /// `pushReplacementNamed(discoveryRoute)`，启动页已经不在栈里了，
+    /// 旧实现无条件 `pop(true)` 会把整个栈弹空 → 黑屏。
+    Widget bootstrapLikeApp({required BroadcastFinder finder}) {
+      return ProviderScope(
+        overrides: [
+          localStoreProvider.overrideWithValue(local),
+          broadcastFinderProvider.overrideWithValue(finder),
+          apiClientProvider.overrideWith(
+            (ref) => ApiClient(
+              serverStore: ref.watch(serverStoreProvider),
+              localStore: local,
+              dio: Dio()..httpClientAdapter = _okPingAdapter(),
+            ),
+          ),
+        ],
+        child: MaterialApp(
+          routes: AppRouter.routes,
+          // ⚠️ 栈底直接就是发现页 —— 等价于「启动页已被 pushReplacement 顶掉」
+          initialRoute: AppRouter.discoveryRoute,
+          theme: AppTheme.build(palette: AppPalettes.day),
+          builder: (context, child) => AgeScope(
+            profile: AgeProfile.of(AgeBand.junior),
+            child: child ?? const SizedBox.shrink(),
+          ),
+        ),
+      );
+    }
+
+    testWidgets('U4 回归：栈底的发现页连上后必须离场（广播命中，不许黑屏）', (tester) async {
+      await tester.pumpWidget(
+        bootstrapLikeApp(
+          finder: _FakeFinder(
+            found: const ServerAddress(host: '192.168.88.19', port: 8810),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // 修复前：栈被弹空 → 这里什么都找不到
+      expect(
+        find.text('我的学号'),
+        findsOneWidget,
+        reason: '连上后必须落到登录页（无 token），不能停在空栈上黑屏',
+      );
+      expect(find.text('扫码连接'), findsNothing, reason: '发现页应当已经离场');
+      expect(local.serverHost, '192.168.88.19', reason: '新地址要落到本地，下次启动直接用');
+    });
+
+    testWidgets('U4 回归：栈底的发现页手输新地址连上后同样要离场', (tester) async {
+      await tester.pumpWidget(
+        bootstrapLikeApp(finder: _FakeFinder(supported: false)),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('手动输入地址'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).last, '192.168.88.19');
+      await tester.tap(find.text('连接'));
+      // ⚠️ 页面会先等 400ms 让对话框退场干净（见 `_overlayExitGuard`），
+      //    纯 timer 不会被 `pumpAndSettle` 推进，这里必须显式 elapse。
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('我的学号'),
+        findsOneWidget,
+        reason: '手输地址连上后必须跳登录页，不许黑屏',
+      );
+      expect(local.serverHost, '192.168.88.19');
     });
   });
 
