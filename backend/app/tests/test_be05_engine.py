@@ -1143,6 +1143,56 @@ class TestAlignerWindowBias:
         )
         assert engine.pos == 50
 
+    def test_realign_rescues_char_missed_by_partial_correction(self):
+        """结算重对齐：ASR 中间 partial 把「那年冬天」岔成「那冬天」→ 增量
+        对齐把「年」判 missed 且不回头（2026-10-01 真机《猴子》实锤，64/65）；
+        结算用最终转写 realign 后必须救回 65/65。"""
+        text = "我与李同学不相见已二年余了我最不能忘记的是他的大脑袋那年冬天他去深圳了正是他开始奋斗的日子他有一个爱好就是打英雄联盟但是他玩的很菜"
+        engine = _engine_of(text)
+
+        seg1 = "我与李同学不相见已二年余了。我最不能忘记的是他的大脑袋。那冬天，"
+        seg2 = "他去深圳了，正是他开始奋斗的日子。"
+        seg3 = "他有一个爱好，就是打《英雄联盟》，但是他玩得很菜。"
+        for s in (seg1, seg1 + seg2, seg1 + seg2 + seg3):
+            engine.feed(s)
+        assert sorted(engine._missed) == [27], (
+            f"前置：增量对齐应把「年」(pos 27) 判 missed，实际 {sorted(engine._missed)}"
+        )
+
+        # ASR 自我纠正后的最终转写（含「那年冬天」）
+        final = "我与李同学不相见已二年余了。我最不能忘记的是他的大脑袋。那年冬天，他去深圳了，正是他开始奋斗的日子。他有一个爱好，就是打《英雄联盟》，但是他玩得很菜。"
+        assert engine.realign(final) is True
+        assert engine.matched_count == 65, f"重对齐后应 65/65，实际 {engine.matched_count}"
+        assert engine._missed == set()
+
+        # 不碰提示/重开计数：realign 前后保持原值
+        assert engine.hint_count == {"1": 0, "2": 0, "3": 0}
+        assert engine.restart_count == 0
+
+    def test_realign_noop_when_transcript_empty_or_not_better(self):
+        """空转写 / 无新增匹配时 realign 不动状态、返回 False。"""
+        text = "我与李同学不相见已二年余了"
+        engine = _engine_of(text)
+        engine.feed(text)
+        before = engine.matched_count
+
+        assert engine.realign("") is False
+        assert engine.realign("   ") is False
+        assert engine.realign(text) is False  # 无新增匹配
+        assert engine.matched_count == before
+
+    def test_realign_union_keeps_incremental_matches(self):
+        """并集口径：增量过程匹配过、但全量重对齐判噪声的内容仍算背出。"""
+        text = "我与李同学不相见已二年余了我最不能忘记的是他的大脑袋那年冬天"
+        engine = _engine_of(text)
+        # 增量喂前半段（后半段学生念了但 ASR 全岔成英文数字）
+        engine.feed("我与李同学不相见已二年余了我最不能忘记的是他的大脑袋那年冬天")
+        assert engine.matched_count == len(text)
+        # 最终转写后半段全是英文数字（噪声）——重对齐不得把增量已点亮的丢掉
+        final = "我与李同学不相见已二年余了我最不能忘记的是他的大脑袋那年冬天 hehe 123"
+        assert engine.realign(final) is False
+        assert engine.matched_count == len(text)
+
     def test_alignment_distance_ignores_window_size(self):
         """`distance` 只累计认领区间 —— **窗口变大不得让 distance 变大**。
 

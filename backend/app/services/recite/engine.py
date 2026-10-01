@@ -245,6 +245,44 @@ class ReciteEngine:
             result = self.feed(text)
         return result
 
+    def realign(self, full_text: str) -> bool:
+        """结算前用**最终转写**从头重对齐一遍（2026-10-01 真机案例）。
+
+        **为什么需要**：ASR 的中间 partial 会自我纠正（先识别成 A 后来改成 B），
+        增量对齐是「窗口内、不回头」的 —— 中间岔掉的那一下会把某个字判成
+        `missed`，即便最终转写里那个字好好的（案例：《猴子》65 字，
+        「那年冬天」的「年」被中间 partial 岔掉，结算漏判；同一份转写
+        一次性喂入是 65/65 全对）。
+
+        口径：**并集** —— 增量过程匹配过的 + 全量重对齐匹配过的，都算背出
+        （学生确实念了）。只动对齐结果（`_matched` / `_missed` / `pos`），
+        **不碰**事件流、提示计数与重开计数：事件是过程实录（回放页展示），
+        结算数字才是最终裁决。
+
+        Returns:
+            是否有新增匹配（便于测试与日志）。
+        """
+        text = str(full_text or "")
+        if not text.strip() or self.total_chars == 0:
+            return False
+
+        shadow = ReciteEngine(
+            content_plain="".join(self.target_chars),
+            content_pinyin=" ".join(self.target_pinyin),
+            scope=self.scope,
+            window=self.window,
+            noise_threshold=self.noise_threshold,
+        )
+        shadow.feed(text)
+
+        before = len(self._matched)
+        for index in shadow._matched:
+            self._matched.add(index)
+            self._missed.discard(index)
+        if self.pos < shadow.pos:
+            self.pos = shadow.pos
+        return len(self._matched) > before
+
     # ------------------------------------------------------------------
     # 提示
     # ------------------------------------------------------------------

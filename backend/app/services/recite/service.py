@@ -494,6 +494,15 @@ class ReciteService:
         elif transcript:
             # 补喂：`feed` 内部按累计语义只消费增量，短文本会被自动忽略
             engine.feed(transcript)
+            # 结算重对齐（2026-10-01「年」字案例）：流式中间 partial 被 ASR
+            # 自我纠正过，增量对齐窗口外不回头会把已纠正的字漏判成 missed。
+            # 结算以**最终转写**从头重对齐一遍取并集口径（详见 engine.realign）。
+            if engine.realign(transcript):
+                logger.info(
+                    "背诵 #%s 结算重对齐救回 %s 字",
+                    recitation_id,
+                    engine.matched_count,
+                )
 
         if int(payload.get("restart_count") or 0) > engine.restart_count:
             # 客户端记的重开次数更多（例如服务端重启丢了实时状态）→ 取较大值
