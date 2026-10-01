@@ -81,6 +81,43 @@ export function listClasses(params: ClassListQuery = {}): Promise<ClassListResul
   return api.get<ClassListResult>('/classes', { params: q })
 }
 
+// ---------------------------------------------------------------------------
+// 班级选项（下拉「一次拿全」专用）
+//
+// ⚠️ 下拉**不要**用 `listClasses({pageSize:200})` 去绕分页：契约 §5.1 规定
+// `page_size ≤ 100`（`backend/app/core/pagination.py` 的 `PAGE_SIZE_MAX`），超限后端回
+// `10001` 参数非法。班级一多，下拉就整页拉空 —— 而 `ClassOverview` / `HomeworkList`
+// 是「下拉为空 = 功能不可用」。所以下拉一律走本函数（后端 `/api/classes/options`
+// 是「一次给全」语义，上限 500）。**2026-09-29 修**（见 docs/dev/02 §八 #93）。
+// ---------------------------------------------------------------------------
+
+export interface ClassOptionItem {
+  id: number
+  name: string
+  grade: number
+  semester: Semester
+}
+
+export interface ClassOptionsQuery {
+  grade?: number
+  semester?: Semester
+  /** 缺省 / 空 → 只看活跃班级；`all` → 含已归档（用于筛「归档班里的学生」）。 */
+  status?: ClassStatus | 'all' | ''
+}
+
+export interface ClassOptionsResult {
+  items: ClassOptionItem[]
+  total: number
+}
+
+export function listClassOptions(params: ClassOptionsQuery = {}): Promise<ClassOptionsResult> {
+  const q: Record<string, unknown> = {}
+  if (params.grade) q.grade = params.grade
+  if (params.semester) q.semester = params.semester
+  if (params.status) q.status = params.status
+  return api.get<ClassOptionsResult>('/classes/options', { params: q })
+}
+
 export function createClass(payload: CreateClassPayload): Promise<ClassItem> {
   return api.post<ClassItem>('/classes', payload, {
     idempotencyKey: `class-create-${Date.now()}`,

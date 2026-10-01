@@ -11,19 +11,19 @@ const routes: RouteRecordRaw[] = [
     path: '/students/classes',
     name: 'students-classes',
     component: () => import('@/views/students/ClassList.vue'),
-    meta: { title: '班级管理', icon: 'Files', order: 30 },
+    meta: { title: '班级管理', icon: 'Files', order: 30, group: '学生' },
   },
   {
     path: '/students/list',
     name: 'students-list',
     component: () => import('@/views/students/StudentList.vue'),
-    meta: { title: '学生管理', icon: 'User', order: 31 },
+    meta: { title: '学生管理', icon: 'User', order: 31, group: '学生' },
   },
   {
     path: '/students/import',
     name: 'students-import',
     component: () => import('@/views/students/StudentImportWizard.vue'),
-    meta: { title: '学生导入', icon: 'UploadFilled', order: 32 },
+    meta: { title: '学生导入', icon: 'UploadFilled', order: 32, group: '学生' },
   },
 ]
 

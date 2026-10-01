@@ -73,6 +73,46 @@ export function listUnits(params: UnitListQuery): Promise<PageResult<UnitItem>> 
   return api.get<PageResult<UnitItem>>('/units', { params: params as Record<string, unknown> })
 }
 
+// ---------------------------------------------------------------------------
+// 单元选项（管理端下拉「一次拿全」专用）
+//
+// ⚠️ 理由同 `students.ts` 的 `listClassOptions`：`GET /api/units` 受契约 §5.1
+// `page_size ≤ 100` 约束，下拉传 `page_size:200` 会被后端 `10001` 打回。
+// 后端 `/api/units/options` 是「一次给全」语义（上限 500），字段收窄到 6 个。
+// **2026-09-29 修**（见 docs/dev/02 §八 #93）。
+// ---------------------------------------------------------------------------
+
+export interface UnitOptionItem {
+  id: number
+  name: string
+  subject: Subject
+  grade: number
+  semester: Semester
+  order_no: number
+}
+
+export interface UnitOptionsQuery {
+  subject?: Subject
+  grade?: number
+  semester?: Semester
+  /** 缺省 / `all` → 不过滤（含停用）；`active` → 只活跃。语义同 `GET /api/units`。 */
+  status?: ContentStatus | 'all' | ''
+}
+
+export interface UnitOptionsResult {
+  items: UnitOptionItem[]
+  total: number
+}
+
+export function listUnitOptions(params: UnitOptionsQuery = {}): Promise<UnitOptionsResult> {
+  const q: Record<string, unknown> = {}
+  if (params.subject) q.subject = params.subject
+  if (params.grade) q.grade = params.grade
+  if (params.semester) q.semester = params.semester
+  if (params.status) q.status = params.status
+  return api.get<UnitOptionsResult>('/units/options', { params: q })
+}
+
 export function createUnit(payload: CreateUnitPayload): Promise<UnitItem> {
   return api.post<UnitItem>('/units', payload, { idempotencyKey: `unit-create-${Date.now()}` })
 }
@@ -216,6 +256,10 @@ export type TextPatchPayload = Partial<{
   author: string | null
   order_no: number
   status: ContentStatus
+  /** 2026-09-30：语文页行内编辑支持改正文（有背诵记录时后端 30003 拒绝） */
+  content_raw: string
+  /** 段落号从 0 数起；缺省沿用现有范围 */
+  recite_scope: number[] | null
 }>
 
 export function listUnitTexts(unitId: number, params: { status?: ContentStatus } = {}): Promise<TextListResult> {
@@ -233,4 +277,88 @@ export function patchText(id: number, payload: TextPatchPayload): Promise<TextDe
 /** 删除课文：有背诵记录 → `30003`（data.record_count）。 */
 export function deleteText(id: number): Promise<{ record_count: number }> {
   return api.delete(`/texts/${id}`)
+}
+
+// ---------------------------------------------------------------------------
+// 跨单元词条 / 课文列表 + 单条新增（英语/语文内容管理页，2026-09-30）
+//
+// 英语内容管理 = listWords（固定 subject=english）；
+// 语文内容管理 = listTexts（固定 subject=chinese）。
+// 列表项 JOIN 带出 unit_name/grade/semester —— 跨单元浏览时看归属（页面定稿）。
+// ---------------------------------------------------------------------------
+
+export interface GlobalWordItem extends WordItem {
+  unit_name: string | null
+  grade: number
+  semester: Semester
+}
+
+export interface GlobalTextItem extends TextBrief {
+  unit_name: string | null
+  grade: number
+  semester: Semester
+}
+
+export interface GlobalWordQuery {
+  subject?: Subject
+  grade?: number
+  semester?: Semester
+  unit_id?: number
+  keyword?: string
+  status?: ContentStatus
+  page?: number
+  page_size?: number
+}
+
+export interface GlobalTextQuery {
+  subject?: Subject
+  grade?: number
+  semester?: Semester
+  unit_id?: number
+  keyword?: string
+  status?: ContentStatus
+  page?: number
+  page_size?: number
+}
+
+export function listWords(params: GlobalWordQuery): Promise<PageResult<GlobalWordItem>> {
+  return api.get<PageResult<GlobalWordItem>>('/words', { params: params as Record<string, unknown> })
+}
+
+export function listTextsGlobal(params: GlobalTextQuery): Promise<PageResult<GlobalTextItem>> {
+  return api.get<PageResult<GlobalTextItem>>('/texts', { params: params as Record<string, unknown> })
+}
+
+export interface WordCreatePayload {
+  unit_id: number
+  type?: WordType
+  en: string
+  cn: string
+  accepted?: string[]
+  phonetic?: string | null
+  pos?: string | null
+  example_en?: string | null
+  example_cn?: string | null
+  require_spell?: boolean
+  order_no?: number | null
+}
+
+export function createWord(payload: WordCreatePayload): Promise<WordItem> {
+  const key = 'word-create-' + Date.now()
+  return api.post<WordItem>('/words', payload, { idempotencyKey: key })
+}
+
+export interface TextCreatePayload {
+  unit_id: number
+  title: string
+  author?: string | null
+  /** 段落正文：空行/换行分段，与导入同一套解析 */
+  content_raw: string
+  /** 段落号从 0 数起；缺省 = 全文背诵 */
+  recite_scope?: number[] | null
+}
+
+export function createText(payload: TextCreatePayload): Promise<TextDetail> {
+  const key = 'text-create-' + Date.now()
+  return api.post<TextDetail>('/texts', payload, { idempotencyKey: key })
 }

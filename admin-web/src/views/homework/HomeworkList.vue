@@ -10,13 +10,15 @@
  * - 截止时间 `due_at` 早于现在 → 后端回 `70003`（「作业已截止」），前端只透传；
  * - 删除走 `DELETE /api/homework/{id}`，成功后刷新列表。
  */
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 import PageHeader from '@/components/PageHeader.vue'
 import LoadingBox from '@/components/LoadingBox.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import { api } from '@/api/client'
+import { listClassOptions } from '@/api/students'
+import { listUnitOptions } from '@/api/content'
 import { formatDateTime } from '@/utils/format'
 
 interface ClassOption {
@@ -47,13 +49,6 @@ interface HomeworkItem {
 
 interface HomeworkPage {
   items: HomeworkItem[]
-  total: number
-  page: number
-  page_size: number
-}
-
-interface ClassListPage {
-  items: ClassOption[]
   total: number
   page: number
   page_size: number
@@ -94,10 +89,21 @@ const form = reactive<HomeworkForm>({
 
 const isEdit = ref(false)
 
+/** 弹窗里的关联单元选项：只给当前选中学科的单元（2026-09-30 姚工反馈） */
+const dialogUnitOptions = computed(() =>
+  unitOptions.value.filter((u) => u.subject === form.subject),
+)
+
+/** 切换学科时，清掉不属于新学科的已选单元 */
+function onSubjectChange(): void {
+  const allow = new Set(dialogUnitOptions.value.map((u) => u.id))
+  form.unit_ids = form.unit_ids.filter((id) => allow.has(id))
+}
+
 async function loadClassOptions(): Promise<void> {
   try {
-    const res = await api.get<ClassListPage>('/classes', { params: { page: 1, page_size: 200 } })
-    classOptions.value = (res?.items ?? []).map((c) => ({ id: c.id, name: c.name }))
+    const res = await listClassOptions()
+    classOptions.value = res.items.map((c) => ({ id: c.id, name: c.name }))
   } catch {
     // 错误由 client.ts 统一提示；下拉留空即可
   }
@@ -105,8 +111,8 @@ async function loadClassOptions(): Promise<void> {
 
 async function loadUnitOptions(): Promise<void> {
   try {
-    const res = await api.get<{ items: UnitOption[] }>('/units', { params: { page: 1, page_size: 200 } })
-    unitOptions.value = res?.items ?? []
+    const res = await listUnitOptions()
+    unitOptions.value = res.items.map((u) => ({ id: u.id, name: u.name, subject: u.subject }))
   } catch {
     // 单元非必填，加载失败不影响布置
   }
@@ -238,20 +244,18 @@ onMounted(() => {
 
 <template>
   <div class="homework">
-    <PageHeader title="作业布置" :show-back="false">
-      <template #extra>
-        <el-select
-          v-model="filterClassId"
-          placeholder="全部班级"
-          clearable
-          style="width: 160px; margin-right: 12px"
-          @change="changePage(1)"
-        >
-          <el-option v-for="c in classOptions" :key="c.id" :label="c.name" :value="c.id" />
-        </el-select>
-        <el-button type="primary" @click="openCreate">布置作业</el-button>
-        <el-button :loading="loading" @click="load">刷新</el-button>
-      </template>
+    <PageHeader title="作业布置" subtitle="把练习任务按班级布置给学生">
+      <el-select
+        v-model="filterClassId"
+        placeholder="全部班级"
+        clearable
+        style="width: 160px; margin-right: 12px"
+        @change="changePage(1)"
+      >
+        <el-option v-for="c in classOptions" :key="c.id" :label="c.name" :value="c.id" />
+      </el-select>
+      <el-button type="primary" @click="openCreate">布置作业</el-button>
+      <el-button :loading="loading" @click="load">刷新</el-button>
     </PageHeader>
 
     <LoadingBox v-if="loading && !loadedOnce" />
@@ -330,7 +334,7 @@ onMounted(() => {
           <el-input v-model="form.title" placeholder="如：背诵第 1 课生词" maxlength="100" />
         </el-form-item>
         <el-form-item label="学科">
-          <el-radio-group v-model="form.subject">
+          <el-radio-group v-model="form.subject" @change="onSubjectChange">
             <el-radio value="chinese">语文</el-radio>
             <el-radio value="english">英语</el-radio>
           </el-radio-group>
@@ -344,9 +348,9 @@ onMounted(() => {
             style="width: 100%"
           >
             <el-option
-              v-for="u in unitOptions"
+              v-for="u in dialogUnitOptions"
               :key="u.id"
-              :label="`${u.name}（${u.subject === 'english' ? '英语' : '语文'}）`"
+              :label="u.name"
               :value="u.id"
             />
           </el-select>

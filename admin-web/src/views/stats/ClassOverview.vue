@@ -20,20 +20,18 @@ import LoadingBox from '@/components/LoadingBox.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import TrendChart from '@/components/stats/TrendChart.vue'
 import { getClassOverview, type ClassOverview } from '@/api/stats'
-import { listClasses, type ClassItem } from '@/api/students'
+import { listClassOptions } from '@/api/students'
 import { formatDuration, formatPercent } from '@/utils/format'
 
 const router = useRouter()
 
 // ----------------------------- 班级下拉
 const classOptions = ref<{ label: string; value: number }[]>([])
-const classList = ref<ClassItem[]>([])
 const selectedClassId = ref<number | null>(null)
 
 async function loadClassOptions(): Promise<void> {
   try {
-    const res = await listClasses({ status: 'all', pageSize: 200 })
-    classList.value = res.items
+    const res = await listClassOptions({ status: 'all' })
     classOptions.value = res.items.map((c) => ({ label: c.name, value: c.id }))
     if (selectedClassId.value === null && res.items.length > 0) {
       selectedClassId.value = res.items[0].id

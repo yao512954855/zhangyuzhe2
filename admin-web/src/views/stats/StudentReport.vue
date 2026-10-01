@@ -53,25 +53,49 @@ const FINISH_LABEL: Record<string, string> = {
   completed: '背诵完成',
 }
 
-// ----------------------------- 学生下拉
+// ----------------------------- 学生下拉（远程搜索：学生量级最大，不能一次拉全）
+//
+// ⚠️ 原来 `listStudents({pageSize:200})` 一次拉全 —— 既超契约 §5.1 `page_size ≤ 100`
+// 上限（后端 `10001` 打回），又会把全校学生一次性塞进下拉。改为 el-select 远程搜索：
+// 输入关键字才查（最多 20 条）。`classFilterId` 来自 URL query（别的页面带班跳进来），
+// 作为额外筛选保留。**2026-09-29 修**（见 docs/dev/02 §八 #93）。
 const studentOptions = ref<{ label: string; value: number }[]>([])
 const selectedStudentId = ref<number | null>(null)
 const classFilterId = ref<number | null>(null)
+const searching = ref(false)
+/** 是否「有学生」—— 空态判定专用。不能用 `studentOptions.length === 0`，
+ * 否则「搜了个不存在的关键字」会被误判成「还没有学生」。 */
+const hasAnyStudent = ref(false)
 
-async function loadStudentOptions(): Promise<void> {
+function toStudentOption(s: StudentItem): { label: string; value: number } {
+  return {
+    label: `${s.real_name}（${s.username}${s.class_name ? ' · ' + s.class_name : ' · 未分班'}）`,
+    value: s.id,
+  }
+}
+
+async function searchStudentOptions(keyword: string): Promise<void> {
+  searching.value = true
   try {
+    const kw = keyword.trim()
     const res = await listStudents({
       page: 1,
-      pageSize: 200,
+      pageSize: 20,
+      ...(kw ? { keyword: kw } : {}),
       ...(classFilterId.value !== null ? { classId: classFilterId.value } : {}),
     })
-    studentOptions.value = res.items.map((s: StudentItem) => ({
-      label: `${s.real_name}（${s.username}${s.class_name ? ' · ' + s.class_name : ' · 未分班'}）`,
-      value: s.id,
-    }))
+    studentOptions.value = res.items.map(toStudentOption)
+    if (!kw) hasAnyStudent.value = res.total > 0
   } catch {
     // 统一提示
+  } finally {
+    searching.value = false
   }
+}
+
+/** 初始候选（无关键字）：给前 20 条，避免下拉打开是空的。 */
+async function loadStudentOptions(): Promise<void> {
+  await searchStudentOptions('')
 }
 
 // ----------------------------- 数据
@@ -161,7 +185,7 @@ onMounted(() => {
       <el-button :loading="loading" :disabled="selectedStudentId === null" @click="load">刷新</el-button>
     </PageHeader>
 
-    <el-card v-if="studentOptions.length === 0" shadow="never">
+    <el-card v-if="!hasAnyStudent" shadow="never">
       <EmptyState description="还没有学生，先导入名单或让学生自主注册">
         <el-button type="primary" @click="router.push('/students/import')">导入学生</el-button>
         <el-button @click="router.push('/students/list')">去学生管理</el-button>
@@ -174,8 +198,12 @@ onMounted(() => {
           <el-form-item label="学生">
             <el-select
               v-model="selectedStudentId"
-              placeholder="选择学生（可输入姓名或学号搜索）"
+              placeholder="输入姓名或学号搜索学生"
               filterable
+              remote
+              reserve-keyword
+              :remote-method="searchStudentOptions"
+              :loading="searching"
               style="width: 320px"
               @change="onStudentChange"
             >

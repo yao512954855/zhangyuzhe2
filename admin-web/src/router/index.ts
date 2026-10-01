@@ -14,13 +14,17 @@
  *     path: '/students',
  *     name: 'students',
  *     component: () => import('@/views/students/StudentList.vue'),
- *     meta: { title: '学生管理', icon: 'User', order: 20 },  // order 决定菜单顺序
+ *     meta: { title: '学生管理', icon: 'User', order: 20, group: '学生' },
  *   },
  * ]
  *
  * export default routes
  * ```
- * 其余 meta 约定：`public`（免登录，如登录页）、`hidden`（不进菜单，如 404）。
+ * 其余 meta 约定：
+ * - `public`：免登录（如登录页）
+ * - `hidden`：不进菜单（如 404、详情页）
+ * - `group`：**侧边菜单分组名**。菜单按 group 归组渲染，组间顺序取组内最小 order；
+ *   未填 group 的路由归入「其他」，不会掉菜单。
  */
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 
@@ -32,6 +36,8 @@ declare module 'vue-router' {
     icon?: string
     /** 菜单排序，越小越靠前，默认 999 */
     order?: number
+    /** 侧边菜单分组名（同类功能归一组）；未填归入「其他」 */
+    group?: string
     /** 免登录可访问 */
     public?: boolean
     /** 不进侧边菜单 */

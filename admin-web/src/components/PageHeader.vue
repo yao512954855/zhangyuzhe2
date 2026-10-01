@@ -6,6 +6,13 @@
  *   <PageHeader title="学生管理" subtitle="共 128 人">
  *     <el-button type="primary">新建</el-button>
  *   </PageHeader>
+ *
+ * 返回类按钮放左侧（返回按钮在右边反人性，2026-09-30 姚工）：
+ *   <PageHeader title="详情页">
+ *     <template #before>
+ *       <el-button>← 返回</el-button>
+ *     </template>
+ *   </PageHeader>
  */
 defineProps<{
   title: string
@@ -16,6 +23,7 @@ defineProps<{
 <template>
   <div class="page-header">
     <div class="page-header__left">
+      <slot name="before" />
       <h2 class="page-header__title">{{ title }}</h2>
       <span v-if="subtitle" class="page-header__subtitle">{{ subtitle }}</span>
     </div>

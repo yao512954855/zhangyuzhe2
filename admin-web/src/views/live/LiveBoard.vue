@@ -16,7 +16,7 @@ import PageHeader from '@/components/PageHeader.vue'
 import LoadingBox from '@/components/LoadingBox.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import { api } from '@/api/client'
-import { listClasses, type ClassItem } from '@/api/students'
+import { listClassOptions } from '@/api/students'
 import { formatDateTime, formatPercent } from '@/utils/format'
 
 interface LiveClass {
@@ -66,8 +66,8 @@ const selectedClassId = ref<number | null>(null)
 
 async function loadClassOptions(): Promise<void> {
   try {
-    const res = await listClasses({ status: 'all', pageSize: 200 })
-    classOptions.value = res.items.map((c: ClassItem) => ({ label: c.name, value: c.id }))
+    const res = await listClassOptions({ status: 'all' })
+    classOptions.value = res.items.map((c) => ({ label: c.name, value: c.id }))
   } catch {
     // 错误由 client.ts 统一提示
   }
@@ -122,27 +122,25 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="live-board">
-    <PageHeader title="课堂实时大屏" :show-back="false">
-      <template #extra>
-        <span class="updated-at">
-          更新于：{{ board ? formatDateTime(board.updated_at) : '—' }}
-        </span>
-        <el-select
-          v-model="selectedClassId"
-          placeholder="全部班级"
-          clearable
-          style="width: 160px; margin-left: 12px"
-          @change="onSelectClass"
-        >
-          <el-option
-            v-for="opt in classOptions"
-            :key="opt.value"
-            :label="opt.label"
-            :value="opt.value"
-          />
-        </el-select>
-        <el-button style="margin-left: 12px" :loading="loading" @click="load">刷新</el-button>
-      </template>
+    <PageHeader title="课堂实时大屏">
+      <span class="updated-at">
+        更新于：{{ board ? formatDateTime(board.updated_at) : '—' }}
+      </span>
+      <el-select
+        v-model="selectedClassId"
+        placeholder="全部班级"
+        clearable
+        style="width: 160px; margin-left: 12px"
+        @change="onSelectClass"
+      >
+        <el-option
+          v-for="opt in classOptions"
+          :key="opt.value"
+          :label="opt.label"
+          :value="opt.value"
+        />
+      </el-select>
+      <el-button style="margin-left: 12px" :loading="loading" @click="load">刷新</el-button>
     </PageHeader>
 
     <LoadingBox v-if="loading && !loadedOnce" />

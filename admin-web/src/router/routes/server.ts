@@ -11,7 +11,7 @@ const routes: RouteRecordRaw[] = [
     path: '/server/address',
     name: 'server-address',
     component: () => import('@/views/server/ServerAddress.vue'),
-    meta: { title: '服务地址', icon: 'Connection', order: 50 },
+    meta: { title: '服务地址', icon: 'Connection', order: 50, group: '系统' },
   },
 ]
 

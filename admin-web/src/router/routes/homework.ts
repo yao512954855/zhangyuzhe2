@@ -11,7 +11,7 @@ const routes: RouteRecordRaw[] = [
     path: '/homework',
     name: 'homework',
     component: () => import('@/views/homework/HomeworkList.vue'),
-    meta: { title: '作业布置', icon: 'Notebook', order: 40 },
+    meta: { title: '作业布置', icon: 'Notebook', order: 40, group: '作业与统计' },
   },
 ]
 

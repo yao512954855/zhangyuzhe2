@@ -20,7 +20,7 @@ import ResetPasswordDialog from './ResetPasswordDialog.vue'
 import {
   assignClass,
   batchAssignClass,
-  listClasses,
+  listClassOptions,
   listStudents,
   patchStudent,
   type RegisterSource,
@@ -38,7 +38,7 @@ const STATUS_LABEL: Record<UserStatus, string> = { active: '正常', disabled: '
 const classOptions = ref<{ label: string; value: number }[]>([])
 async function loadClassOptions(): Promise<void> {
   try {
-    const res = await listClasses({ status: 'all', pageSize: 200 })
+    const res = await listClassOptions({ status: 'all' })
     classOptions.value = res.items.map((c) => ({ label: c.name, value: c.id }))
   } catch {
     // 统一提示

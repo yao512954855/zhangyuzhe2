@@ -37,11 +37,15 @@ const KIND_LABEL: Record<string, string> = {
   unknown: '其他',
 }
 
+const qrCardRef = ref<InstanceType<typeof ServerQRCard> | null>(null)
+
 async function load(refresh = false): Promise<void> {
   loading.value = true
   try {
     info.value = await getServerInfo(refresh)
     loadedOnce.value = true
+    // 强刷探测后同步二维码卡片（卡片 autoLoad 自拉首帧，此后跟随本页刷新）
+    if (refresh) qrCardRef.value?.refresh()
   } catch {
     // 统一提示
   } finally {
@@ -135,7 +139,9 @@ onMounted(() => {
               <span class="block-card__hint">App 扫码即可连接；识别失败可手动输入地址</span>
             </div>
           </template>
-          <ServerQRCard :size="280" :auto-load="false" />
+          <!-- 2026-09-30 修：原来 auto-load=false 却没人喂数据 → 卡片全空白。
+               现在卡片自拉首帧，本页「重新探测网卡」后经 ref 联动 refresh。 -->
+          <ServerQRCard ref="qrCardRef" :size="280" />
           <el-alert
             type="info"
             :closable="false"

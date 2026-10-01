@@ -11,7 +11,7 @@ const routes: RouteRecordRaw[] = [
     path: '/live-board',
     name: 'live-board',
     component: () => import('@/views/live/LiveBoard.vue'),
-    meta: { title: '课堂大屏', icon: 'Monitor', order: 45 },
+    meta: { title: '课堂大屏', icon: 'Monitor', order: 45, group: '大屏' },
   },
 ]
 

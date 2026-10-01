@@ -10,7 +10,7 @@ const routes: RouteRecordRaw[] = [
     path: '/dashboard',
     name: 'dashboard',
     component: () => import('@/views/Dashboard.vue'),
-    meta: { title: '工作台', icon: 'Odometer', order: 10 },
+    meta: { title: '工作台', icon: 'Odometer', order: 10, group: '总览' },
   },
 ]
 

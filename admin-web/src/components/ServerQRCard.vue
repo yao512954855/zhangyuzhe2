@@ -73,9 +73,18 @@ onMounted(() => {
   if (props.autoLoad) load()
 })
 
-watch([qrContent, () => props.size], () => {
+// ⚠️ 必须监听 loading 且用 flush:'post'（2026-09-30 修「二维码空白」）：
+// load() 里 qrContent 与 loading 在同一 tick 内先后变化，默认 flush:'pre' 的
+// watcher 跑在**重渲染之前** —— 此时 skeleton 还在、canvas 未挂载，
+// renderQr 拿到 null 直接 return，之后再没人画 → 用户看到一块空白画布。
+// flush:'post' 保证回调跑在 DOM 更新之后，canvas 已挂载。
+watch([qrContent, loading, () => props.size], () => {
   void renderQr()
-})
+}, { flush: 'post' })
+
+// 供父页面联动刷新（如服务地址页「重新探测网卡」后同步卡片数据）。
+// ⚠️ autoLoad=false 时组件不自拉数据，父页面必须主动调 refresh（2026-09-30 修）。
+defineExpose({ refresh })
 </script>
 
 <template>

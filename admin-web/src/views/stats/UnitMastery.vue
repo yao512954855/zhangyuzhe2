@@ -22,7 +22,7 @@ import LoadingBox from '@/components/LoadingBox.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import WordRateTable from '@/components/stats/WordRateTable.vue'
 import { getUnitOverview, type UnitOverview } from '@/api/stats'
-import { listUnits, type UnitItem } from '@/api/content'
+import { listUnitOptions } from '@/api/content'
 import { formatPercent } from '@/utils/format'
 
 const router = useRouter()
@@ -36,8 +36,8 @@ const SEMESTER_LABEL: Record<string, string> = { first: '上学期', second: '�
 
 async function loadUnitOptions(): Promise<void> {
   try {
-    const res = await listUnits({ page: 1, page_size: 200 })
-    unitOptions.value = res.items.map((u: UnitItem) => ({
+    const res = await listUnitOptions()
+    unitOptions.value = res.items.map((u) => ({
       label: `${u.grade}年级${SEMESTER_LABEL[u.semester] ?? ''} · ${u.name}`,
       value: u.id,
     }))
