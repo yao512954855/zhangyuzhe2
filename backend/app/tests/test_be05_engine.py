@@ -544,6 +544,25 @@ class TestServiceRuntime:
         assert hint["data"]["level"] == 1
         assert hint["data"]["content"] == "_" * 3
 
+    def test_feed_suggests_hint_without_silence(self, client):
+        """silence_ms=0 也出建议（2026-10-01 修「卡壳死锁」）：客户端 partial
+        到达即重置静音计时、恒传 0 —— 原先那行 `if silence_ms > 0` 把噪声/
+        漏字分支的建议也一起挡死，念叨型卡壳永远等不到提示。"""
+        token, _, _, rid, _ = self._bootstrap(client)
+        # ⚠️ 累计文本语义：feed 收「到目前为止的全文」，新增片段才被消费。
+        #    每轮追加一段英文 → 新增片段抽不出汉字 → 走噪声分支。
+        partial = ""
+        for chunk in ("ok", "yes", "sir", "well", "done"):
+            partial += chunk
+            body = client.post(
+                f"/api/recitations/{rid}/feed",
+                json={"partial_text": partial, "silence_ms": 0},
+                headers=_auth(token),
+            ).json()
+            assert body["code"] == 0
+        assert body["data"]["is_noise"] is True
+        assert body["data"]["hint_suggestion"] == 1
+
     def test_manual_hint(self, client):
         token, _, _, rid, _ = self._bootstrap(client)
         client.post(

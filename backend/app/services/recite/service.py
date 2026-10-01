@@ -283,7 +283,11 @@ class ReciteService:
         result = engine.feed(partial_text)
         # 用 `peek_hint_level`（无副作用）而不是 `check_auto_hint`：
         # 后者会把档位记成「已下发」，客户端随后真的调 `hint()` 就再也拿不到了。
-        suggestion = engine.peek_hint_level(silence_ms) if int(silence_ms or 0) > 0 else None
+        # ⚠️ 必须无条件调用（2026-10-01 修「卡壳死锁」）：原先 `silence_ms <= 0`
+        # 直接给 None，而客户端 partial 到达即重置静音计时、恒传 0 ——
+        # 「学生念叨但背不对」时 silence 分支与 miss/noise 分支全被这一行挡死。
+        # silence_ms=0 时静音分支自然为 0 档，miss/noise 分支照常出建议。
+        suggestion = engine.peek_hint_level(silence_ms)
 
         data = dict(engine.snapshot())
         data.update(

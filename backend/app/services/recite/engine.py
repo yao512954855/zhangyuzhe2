@@ -94,6 +94,11 @@ class ReciteEngine:
         # ---- 进行态 ----
         self.pos: int = 0
         self.miss_streak: int = 0
+        # 连续噪声计数（2026-10-01 修复「卡壳死锁」）：学生卡壳时往往反复念叨
+        # 无关内容（「忘记、哎」），每段都被判噪声 —— 原先噪声既不推进 pos 也不涨
+        # miss_streak，导致 miss_streak 类自动提示永远够不到阈值，学生被卡死在原地。
+        # 噪声连续出现也视为「需要提示」的信号。
+        self.noise_streak: int = 0
         self.restart_count: int = 0
         self.hint_count: dict[str, int] = {"1": 0, "2": 0, "3": 0}
 
@@ -183,9 +188,11 @@ class ReciteEngine:
             # 有文本但抽不出汉字（纯英文/数字/符号）—— 识别结果压根不是中文，
             # 按噪声处理：不推进、不记错。学生的自我纠正照旧会被后续 feed 接住。
             self._push_event("noise", pos=self.pos)
+            self.noise_streak += 1
             return FeedResult(pos=self.pos, newly_matched=[], is_noise=True)
 
-        # 已经背到末尾：后面说的都是多余内容，按噪声忽略（U5 回读的第二种形态）
+        # 已经背到末尾：后面说的都是多余内容，按噪声忽略（U5 回读的第二种形态）。
+        # 这种噪声是「背完后的闲聊」，不是卡壳信号 → 不涨 noise_streak。
         if self.total_chars == 0 or self.pos >= self.total_chars:
             self._push_event("noise", pos=self.pos)
             return FeedResult(pos=self.pos, newly_matched=[], is_noise=True)
@@ -198,7 +205,10 @@ class ReciteEngine:
             # 等待学生自我纠正」）。学生重说一遍时新内容会落在 consumed_len 之后，
             # 自然会被重新处理，不会永久丢失。
             self._push_event("noise", pos=self.pos)
+            self.noise_streak += 1
             return FeedResult(pos=self.pos, newly_matched=[], is_noise=True)
+
+        self.noise_streak = 0
 
         newly: list[int] = []
         for index in alignment.matched:
@@ -255,6 +265,12 @@ class ReciteEngine:
 
         if self.miss_streak_hint > 0 and self.miss_streak > 0:
             level = max(level, min(MAX_HINT_LEVEL, self.miss_streak // self.miss_streak_hint))
+
+        # 连续噪声也是卡壳信号（2026-10-01）：学生反复念叨对不上的内容时，
+        # 每段 feed 都判噪声 —— 噪声涨不到 miss_streak，必须单独计数判定。
+        # 阈值复用 miss_streak_hint（同一「卡了多少轮该提示」的语义）。
+        if self.miss_streak_hint > 0 and self.noise_streak > 0:
+            level = max(level, min(MAX_HINT_LEVEL, self.noise_streak // self.miss_streak_hint))
 
         return level or None
 
@@ -339,6 +355,7 @@ class ReciteEngine:
         self._matched.clear()
         self._missed.clear()
         self.miss_streak = 0
+        self.noise_streak = 0
         self._hint_pos = None
         self._hint_ceiling = 0
         self.restart_count += 1

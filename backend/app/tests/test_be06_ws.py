@@ -331,6 +331,59 @@ class TestMainFlow:
         assert verdict is not None and verdict["task_type"] == "recite"
         assert verdict["recite"]["total_chars"] == 10
 
+    def test_recite_settled_race_is_silent(self, client: TestClient, monkeypatch) -> None:
+        """settle 竞态（2026-10-01）：HTTP settle 已落库后 WS final 迟到，feed 撞
+        「已过期」→ 查库确认已结算 → **静默跳过，不下发 error(abort)**。"""
+        uid, _ = _make_student(client)
+
+        class FakeRecite:
+            @classmethod
+            def feed(cls, **kw: Any) -> dict[str, Any]:
+                raise RuntimeError("背诵已过期，请重新开始")  # 模拟引擎已 drop
+
+        import app.services.recite as recite_pkg
+        monkeypatch.setattr(recite_pkg, "ReciteService", FakeRecite)
+        monkeypatch.setattr(ASRSession, "_resolve_recitation", lambda self, sid, msg: 77)
+        monkeypatch.setattr(ASRSession, "_recitation_settled", lambda self: True)
+
+        fs = FakeSession(uid)
+
+        async def flow() -> None:
+            await fs.start(task_type="recite", expected="", lang_hint="zh")
+            await fs.audio(4)
+            await fs.end()
+
+        run(flow())
+        errs = [m for m in fs.sent if m["type"] == "error"]
+        assert not errs, f"已结算的竞态不应报 error：{errs}"
+
+    def test_recite_expired_reports_error_once(self, client: TestClient, monkeypatch) -> None:
+        """真过期（未结算，如进程重启丢引擎）→ 仍要下发 error(abort)；且**只下发一次**。"""
+        uid, _ = _make_student(client)
+
+        class FakeRecite:
+            @classmethod
+            def feed(cls, **kw: Any) -> dict[str, Any]:
+                raise RuntimeError("背诵已过期，请重新开始")
+
+        import app.services.recite as recite_pkg
+        monkeypatch.setattr(recite_pkg, "ReciteService", FakeRecite)
+        monkeypatch.setattr(ASRSession, "_resolve_recitation", lambda self, sid, msg: 77)
+        monkeypatch.setattr(ASRSession, "_recitation_settled", lambda self: False)
+
+        fs = FakeSession(uid)
+
+        async def flow() -> None:
+            await fs.start(task_type="recite", expected="", lang_hint="zh")
+            await fs.audio(4)
+            await fs.audio(4)  # 第二个 partial：已置 _recite_invalid，不再重复报
+            await fs.end()
+
+        run(flow())
+        errs = [m for m in fs.sent if m["type"] == "error"]
+        assert len(errs) == 1, fs.sent
+        assert errs[0]["action"] == "abort"
+
 
 # ===========================================================================
 # U5 ~ U8：音频规格、空结果、超时、连续失败切键盘

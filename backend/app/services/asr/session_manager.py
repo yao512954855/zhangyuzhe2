@@ -736,6 +736,20 @@ class ASRSession:
             )
             return None
 
+    def _recitation_settled(self) -> bool:
+        """该背诵是否已结算（`finish_reason` 非空）——settle 竞态降级的判定依据。"""
+        rid = self._recitation_id
+        if rid is None:
+            return False
+        try:
+            with read_conn() as conn:
+                row = conn.execute(
+                    "SELECT finish_reason FROM recitations WHERE id = ?", (int(rid),)
+                ).fetchone()
+            return row is not None and row["finish_reason"] is not None
+        except Exception:  # noqa: BLE001 - 查库失败按未结算处理，保留 error 上报
+            return False
+
     def _recite_feed(self, text: str) -> dict[str, Any] | None:
         """`task_type=recite`：喂给 BE-05 的 `ReciteService`（同步、要连库）。
 
@@ -744,6 +758,11 @@ class ASRSession:
         """
         from app.services.recite import ReciteService
 
+        if getattr(self, "_recite_invalid", False):
+            # 已判定背诵失效：不再重复 feed / 重复下发 error（此前每个 partial
+            # 都会撞一次「已过期」，客户端收一串 error）。
+            return None
+
         try:
             progress = ReciteService.feed(
                 student_id=self.user_id,
@@ -751,7 +770,17 @@ class ASRSession:
                 partial_text=text,
             )
         except Exception as exc:  # noqa: BLE001 - 背诵过期/越权等
+            # settle 竞态降级（2026-10-01 修「背诵已过期」误报）：点「结束并结算」
+            # 时 HTTP settle 先落库（finish_reason 置值）并 drop 内存引擎，
+            # WS final/partial 慢一步就会撞「已过期」。背诵已正常收尾，
+            # 再发 error(abort) 纯属竞态噪声 → 查库确认已结算则静默跳过。
+            if self._recitation_settled():
+                logger.info(
+                    "背诵 %s 已结算，忽略迟到的 feed（settle 竞态）", self._recitation_id
+                )
+                return None
             logger.warning("背诵 feed 失败：%s", exc)
+            self._recite_invalid = True
             self.outbox.append(
                 self._error_payload(
                     ErrorCode.NOT_FOUND, "背诵已过期或不属于你，请重新开始", action="abort"
