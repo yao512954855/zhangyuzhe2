@@ -226,10 +226,13 @@ def run_all(client: httpx.Client, db: Path, ws_base: str, backups: Path) -> None
     # ---------------- 1. 健康检查 ----------------
     health = client.get("/api/health").json()
     hdata = health.get("data") or {}
+    # ⚠️ 断言的是「迁移已经跑过」，**不是**「版本恰好等于 1」。
+    #    schema_version 会随迁移文件增加而上升（二期 `002_wave2.sql` 后已是 2），
+    #    写死 `== 1` 会在每次加迁移后必然变红，属于「断言写死一期事实」的腐化。
     check(
         "健康检查（db 可达 + 迁移版本 + trace_id）",
         health.get("code") == 0 and hdata.get("db") is True
-        and hdata.get("schema_version") == 1 and bool(health.get("trace_id")),
+        and int(hdata.get("schema_version") or 0) >= 1 and bool(health.get("trace_id")),
         f"db={hdata.get('db')} schema_version={hdata.get('schema_version')}",
     )
 

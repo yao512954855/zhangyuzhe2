@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page-node-id="HOAd9uSSHXQD6Bbsrw8YXL">
+<head data-page-node-id="kk9lDHiKaF94C8CfIElPN8">
+<meta charset="utf-8" data-page-node-id="pCZLQvgzKiV1UyOWuTAB6i">
+<title>语文结算页「回看」改版效果预览 — 全文着色</title>
+<style>
+  :root{
+    --page-bg:#15181c; --page-fg:#e6e8ea; --page-sub:#9aa2aa; --line:#2a2f35;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:28px 20px 48px; background:var(--page-bg); color:var(--page-fg);
+    font-family:"Microsoft YaHei","PingFang SC","Noto Sans SC",system-ui,sans-serif;
+  }
+  h1{font-size:20px;font-weight:600;margin:0 0 6px}
+  .sub{color:var(--page-sub);font-size:13px;line-height:1.8;margin:0 0 22px;max-width:1100px}
+  .sub code{background:#22272c;padding:1px 5px;border-radius:4px;font-size:12px}
+  .row{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start}
+  .col{flex:0 0 auto}
+  .col > h2{font-size:14px;font-weight:500;margin:0 0 10px;color:var(--page-fg)}
+  .col > h2 .tag{
+    font-size:11px;font-weight:400;color:var(--page-sub);border:1px solid var(--line);
+    border-radius:999px;padding:1px 8px;margin-left:8px;
+  }
+  .phone{
+    width:330px;border-radius:20px;overflow:hidden;border:1px solid var(--line);
+    box-shadow:0 10px 30px rgba(0,0,0,.45);
+  }
+  .bar{height:38px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:500;position:relative}
+  .bar .back{position:absolute;left:12px;font-size:16px;opacity:.8}
+  .body{padding:12px 12px 18px;font-size:0}
+  .card{border-radius:14px;padding:14px;margin-bottom:10px}
+
+  /* 评级头 */
+  .grade{text-align:center;padding:16px 14px}
+  .grade .g{font-size:19px;font-weight:600}
+  .grade .stars{font-size:15px;letter-spacing:2px;margin:6px 0 4px}
+  .grade .score{font-size:12px}
+
+  /* 指标 */
+  .metrics .t{font-size:14px;font-weight:600;margin-bottom:10px}
+  .grid{display:flex;flex-wrap:wrap;gap:10px 8px}
+  .cell{width:calc(50% - 4px)}
+  .cell .k{font-size:11px;margin-bottom:2px}
+  .cell .v{font-size:14px;font-weight:600}
+  .cov{font-size:11px;margin:12px 0 5px}
+  .pbar{height:8px;border-radius:4px;overflow:hidden}
+
+  /* 回看卡 */
+  .rev .t{font-size:14px;font-weight:600}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;margin:9px 0 10px}
+  .legend span{display:flex;align-items:center;gap:6px;font-size:11px}
+  .legend i{width:11px;height:11px;border-radius:3px;display:inline-block}
+  .full{font-size:16.5px;line-height:1.95;letter-spacing:.5px}
+  .full p{margin:0 0 2px}
+  .m{font-weight:600;border-radius:3px;padding:0 1px}
+  .ok-list{font-size:14px;color:#4CAF7D;line-height:1.7}
+  .mlist{margin:0;padding:0;list-style:none}
+  .mlist li{display:flex;align-items:center;gap:8px;font-size:14px;line-height:1.6;margin-bottom:8px}
+  .mlist .dot{width:13px;height:13px;border-radius:50%;border:2px solid;flex:0 0 auto}
+
+  /* 按钮 */
+  .btn{margin:0 auto;text-align:center;border-radius:14px;font-size:15px;font-weight:600;padding:14px 0}
+  .btn.sec{margin-top:10px}
+
+  /* 日间 */
+  .day{background:#F7F5F0}
+  .day .bar{background:#FFFFFF;color:#2B2B2B;border-bottom:1px solid #E8E4DC}
+  .day .card{background:#FFFFFF;border:1px solid #E8E4DC}
+  .day .g{color:#2E7D74}
+  .day .stars{color:#4CAF7D}
+  .day .score{color:#6B6B6B}
+  .day .metrics .t,.day .rev .t{color:#2B2B2B}
+  .day .cell .k{color:#9A9A9A}
+  .day .cell .v{color:#2B2B2B}
+  .day .cov{color:#6B6B6B}
+  .day .pbar{background:#E8E4DC}
+  .day .fill{background:#4CAF7D}
+  .day .legend span{color:#6B6B6B}
+  .day .legend .sw-ok{background:#2B2B2B}
+  .day .legend .sw-no{background:#E5645C}
+  .day .full{color:#2B2B2B}
+  .day .m{color:#E5645C;background:#FBEDEC}
+  .day .mlist li{color:#2B2B2B}
+  .day .mlist .dot{border-color:#E5645C}
+  .day .btn{background:#2E7D74;color:#FFFFFF}
+  .day .btn.sec{background:transparent;color:#2E7D74;border:1.5px solid #2E7D74}
+
+  /* 夜间 */
+  .night{background:#1B1F23}
+  .night .bar{background:#24292E;color:#D6D6D6;border-bottom:1px solid #32383E}
+  .night .card{background:#24292E;border:1px solid #32383E}
+  .night .g{color:#5CBDB0}
+  .night .stars{color:#6FCF97}
+  .night .score{color:#9BA1A6}
+  .night .metrics .t,.night .rev .t{color:#D6D6D6}
+  .night .cell .k{color:#6E767B}
+  .night .cell .v{color:#D6D6D6}
+  .night .cov{color:#9BA1A6}
+  .night .pbar{background:#32383E}
+  .night .fill{background:#6FCF97}
+  .night .legend span{color:#9BA1A6}
+  .night .legend .sw-ok{background:#D6D6D6}
+  .night .legend .sw-no{background:#F08A82}
+  .night .full{color:#D6D6D6}
+  .night .m{color:#F08A82;background:#3A2724}
+  .night .mlist li{color:#D6D6D6}
+  .night .mlist .dot{border-color:#F08A82}
+  .night .btn{background:#5CBDB0;color:#12211F}
+  .night .btn.sec{background:transparent;color:#5CBDB0;border:1.5px solid #5CBDB0}
+
+  .note{color:var(--page-sub);font-size:12px;line-height:1.8;margin-top:26px;max-width:1100px;
+        border-top:1px solid var(--line);padding-top:16px}
+  .note b{color:var(--page-fg)}
+</style>
+</head>
+<body data-page-node-id="pVOTa5kv7BRvYFAYtQhv3U">
+
+<h1 data-page-node-id="BUgZgWCy0SdQmrWILQ3dvt">语文背诵结算页 ·「回看」改版效果预览</h1>
+<p class="sub" data-page-node-id="esZyClEYDJiVWii9t0QqCb">
+  课文用真实测试文本《背影（节选）》50 字（<code data-page-node-id="6RPKSlMYrKfldQUPolgHKq">backend/app/tests/test_be05_engine.py::_BEIYING</code>）。
+  示例为「背出 44 字 / 漏 6 字」，数据口径完全来自服务端 <code data-page-node-id="VTDcapycCgXVN8B739sE5E">missed_detail</code>（客户端只做展示）。<br data-page-node-id="LEotQn8oMYZf6KaHqmH7Ua">
+  本次改动只动 <b data-page-node-id="8dMcftcGV8BTpbW0XvGMXp">结算页「回看」这一块</b>：由「一行一个字」的清单 → <b data-page-node-id="rr4o5RCICm00SQc5ZnWepS">全文着色</b>。色值取自 <code data-page-node-id="bhDLHGNkJbqbM3ClEgRCM6">app_theme.dart</code> 的 day / night 调色板。
+</p>
+
+<div class="row" data-page-node-id="oprtuNHftmQ5fpq9QEivnP">
+
+  <!-- ============ 改前 ============ -->
+  <div class="col" data-page-node-id="PrdwAY90sok9MA4tnkDrD1">
+    <h2 data-page-node-id="pmmsGbSR9Md9l6j0zxkv2G">改前 <span class="tag" data-page-node-id="u7zdZKjsXSt5FjL1a0MyIl">逐字清单（原 UI 规范 §7.8）</span></h2>
+    <div class="phone day" data-page-node-id="pDi4IHhQh9jg87LZiJMf3T">
+      <div class="bar" data-page-node-id="gxKyf3ewk2lRugCHzdpfhN"><span class="back" data-page-node-id="aSORt1zh1khi3Sg1d3QBMc">←</span>背完啦</div>
+      <div class="body" data-page-node-id="M2ZTYDGuUTkw3GuOxk0eAm">
+        <div class="card grade" data-page-node-id="9fRWuCcz69CQkjC4sr6bxH">
+          <div class="g" data-page-node-id="BG1vOSx3RosoyvkHmoC1s7">良好</div>
+          <div class="stars" data-page-node-id="i1UxL5zwl9sZ03Mlm1pr29">★★★☆</div>
+          <div class="score" data-page-node-id="06DOfucDzRCzerT2XVpiO5">得分 84</div>
+        </div>
+        <div class="card metrics" data-page-node-id="uAZOfPuA9XUVKUmmA7G3N3">
+          <div class="t" data-page-node-id="b066JNxyf99wsGkHQRJEYD">这一遍的成绩</div>
+          <div class="grid" data-page-node-id="SOl0yLPhixiGxU7Rr6U1Xm">
+            <div class="cell" data-page-node-id="Q8ZcfNvMklVmSqo1ok1F1K"><div class="k" data-page-node-id="rZDLQSkk7DIW6uf3EKLchL">总字数</div><div class="v" data-page-node-id="7N5Bf2zeGfbCRmZ2Z0j5zS">50</div></div>
+            <div class="cell" data-page-node-id="9SWhz0tpKbAeoW0HuAe98R"><div class="k" data-page-node-id="ZknVxhb0ucZZrGBkL71Aab">已背字数</div><div class="v" data-page-node-id="xLENI5G0ldqslv9tfHPrVj">44</div></div>
+            <div class="cell" data-page-node-id="gpcbv8FFYHMeyohD2JGKGK"><div class="k" data-page-node-id="nz3bhqdScrKOL6291ulW4i">漏字数</div><div class="v" data-page-node-id="Kv2RRFzB5ulsRbueVttaIp">6</div></div>
+            <div class="cell" data-page-node-id="1SrqbHUQmL0Y7ZxwyP0kr1"><div class="k" data-page-node-id="gyRSrJo6CDjqbHBOk5N0iK">提示次数</div><div class="v" style="font-size:13px" data-page-node-id="UVSkSSAjnK1oJpAEnw9DpU">未使用</div></div>
+            <div class="cell" data-page-node-id="RurPLhHGwFh6N2Y9W0LdVd"><div class="k" data-page-node-id="LIisxe2FCccHmM3ShrlNb3">总用时</div><div class="v" data-page-node-id="Tsu0DOJiYu29eGlNb0QAkv">01:12</div></div>
+            <div class="cell" data-page-node-id="F2MI0iaDVYAMmssKrMNaGX"><div class="k" data-page-node-id="ROqSA06T0VcMd7IEUuIQ9z">首次发声延迟</div><div class="v" data-page-node-id="ZrbrJZrLTcEdDtAgx5FB3g">00:02</div></div>
+          </div>
+          <div class="cov" data-page-node-id="YBsQgHQ8IFQFWIa7RinGMG">覆盖率 88%</div>
+          <div class="pbar" data-page-node-id="9xZjHbH2NeqWoFge2OpGm3"><div class="fill" style="width:88%;height:8px" data-page-node-id="5dxiMBLVK1eESENnBdtIGx"></div></div>
+        </div>
+        <div class="card rev" data-page-node-id="MuIdbxDTmVHULEFHlElQ4B">
+          <div class="t" data-page-node-id="guaSbNnBE1zX2A8WFqeckn">回看没背出来的地方</div>
+          <div style="height:10px" data-page-node-id="izLPQ9bBuoW0yPCEKBW6if"></div>
+          <ul class="mlist" data-page-node-id="b2CCe8ZjGpHxOJLeZxzEvm">
+            <li data-page-node-id="5xW13B8OF0vnHKu0kUCMZA"><span class="dot" data-page-node-id="R2EiSbp6ySISwFGjmDManB"></span>第 7 个字：见</li>
+            <li data-page-node-id="B0zN9517whIG2Ydg2tG98J"><span class="dot" data-page-node-id="LBtkOJ14CfkQ6rcvD8uEnB"></span>第 14 个字：最</li>
+            <li data-page-node-id="CkF6hABxLoKp2GqzT4dhaC"><span class="dot" data-page-node-id="7g3qFtMDSA4DArIZ0OIamR"></span>第 18 个字：记</li>
+            <li data-page-node-id="qLj8QSp8KNDV7v9qlHYe8J"><span class="dot" data-page-node-id="oUM9ZHvScDH9ooDOjClkk2"></span>第 24 个字：影</li>
+            <li data-page-node-id="Jds3225Vt7yC1KlsDsTWzo"><span class="dot" data-page-node-id="TPvEKXbQabIUwmDSyTTwpu"></span>第 38 个字：也</li>
+            <li data-page-node-id="hBUEQd3aguzu3U1ZG0Id2b"><span class="dot" data-page-node-id="BdAhdua7MWX7CQzornAyjC"></span>第 46 个字：单</li>
+          </ul>
+        </div>
+        <div class="btn" data-page-node-id="Ci0OYNMzb2Hjkz28ZkI8dB">返回首页</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 改后 · 日间 ============ -->
+  <div class="col" data-page-node-id="kFsyVhueJkgwhoIoQuPQK8">
+    <h2 data-page-node-id="hRP42EIw4eQH1To1E4vzTi">改后 · 日间 <span class="tag" data-page-node-id="6NzkqSdNDuXZjtVDCUbOyn">全文着色 + 图例</span></h2>
+    <div class="phone day" data-page-node-id="1azjCECVxgdgwHPxx6pU1B">
+      <div class="bar" data-page-node-id="IDCTzuFGkfVtLFHy5FPWXV"><span class="back" data-page-node-id="dyVypDahw2AHztqRIV0Q69">←</span>背完啦</div>
+      <div class="body" data-page-node-id="RafIJVEJMIPf4q6NMQi9Np">
+        <div class="card grade" data-page-node-id="rlgZsCGWnOpnhFtcbVPyR0">
+          <div class="g" data-page-node-id="bs3Gj1KepWf8pvRJoegc8O">良好</div>
+          <div class="stars" data-page-node-id="dFdgQ5Ok5nOqFq36NWTpuC">★★★☆</div>
+          <div class="score" data-page-node-id="embiohHP79mXWQthQXtPZ0">得分 84</div>
+        </div>
+        <div class="card metrics" data-page-node-id="MYHy7n0PgneDzOgSICdGJA">
+          <div class="t" data-page-node-id="EVtMFrH10izzmBfoI6yEw1">这一遍的成绩</div>
+          <div class="grid" data-page-node-id="9LdoCTodmgWWkUwLhNhCTV">
+            <div class="cell" data-page-node-id="C8wxYKAxdzXV1ociZdQpvB"><div class="k" data-page-node-id="Q2RwnO6adX1IrvDsHCsiME">总字数</div><div class="v" data-page-node-id="cDGkElX7KDBH0cFRjCTFGy">50</div></div>
+            <div class="cell" data-page-node-id="RKN04BDiPvMb5YKTILN49P"><div class="k" data-page-node-id="ZS3ppMNMxtq08kdVYUtSHd">已背字数</div><div class="v" data-page-node-id="Xz27dWH0NeVbyw1GGWQWJs">44</div></div>
+            <div class="cell" data-page-node-id="bxLSAToodBvD0WQgxtkSCI"><div class="k" data-page-node-id="mTrTzY0OPEAiAP8E2G8ZxH">漏字数</div><div class="v" data-page-node-id="KfnstIFrPZNsStdZFbDJa1">6</div></div>
+            <div class="cell" data-page-node-id="uvjGqff3l3qTPeS6ZvFuvt"><div class="k" data-page-node-id="BJuinzRax2h85XFXAErDWp">提示次数</div><div class="v" style="font-size:13px" data-page-node-id="yCtSC0IB8J5LXtGKfdEHDp">未使用</div></div>
+            <div class="cell" data-page-node-id="pBDAvSCBsYmTxBnEVxdydu"><div class="k" data-page-node-id="ioEEqYtPI0D37GDF8xGmh1">总用时</div><div class="v" data-page-node-id="DTKxnL7DP6MdUdCtaXkaBy">01:12</div></div>
+            <div class="cell" data-page-node-id="B8w1zDTPaLSJHNihkDgFqS"><div class="k" data-page-node-id="G47bfrNefIqxYZSHEgU41U">首次发声延迟</div><div class="v" data-page-node-id="O3PqHtSB1CPhuDxzTNqx3t">00:02</div></div>
+          </div>
+          <div class="cov" data-page-node-id="hadgpD6CDAwGuKfEh1hj2I">覆盖率 88%</div>
+          <div class="pbar" data-page-node-id="hm5CO5R9cLwDdiIz40ha03"><div class="fill" style="width:88%;height:8px" data-page-node-id="PQ6O8HcmBwGv6B1YfUMHkr"></div></div>
+        </div>
+        <div class="card rev" data-page-node-id="khgUUPR9w3vavYZlboY8n1">
+          <div class="t" data-page-node-id="FWcRXmcbP1vP81ZRqf1uzh">回看没背出来的地方</div>
+          <div class="legend" data-page-node-id="VNP3NOh4cyO4UCACYan5s4">
+            <span data-page-node-id="bP11oiSD4FMi3X5WOO7hrD"><i class="sw-ok" data-page-node-id="y5J8P5UhjIVvcNduumxQmo"></i>背出来的字</span>
+            <span data-page-node-id="MP0ilZMPA7sFvWy8JA2PHJ"><i class="sw-no" data-page-node-id="Aimbx4sy7vZlSeG4szoBE4"></i>没背出来的字</span>
+          </div>
+          <div class="full" data-page-node-id="ADu8Ggf8UFESFRJYQIrSAJ">
+            <p data-page-node-id="mU2a4Q0V7bZ2HBrdse24q2">我与父亲不相<span class="m" data-page-node-id="UPWV1Qq17VpThNdWFU3j9z">见</span>已二年余了我<span class="m" data-page-node-id="eUeXOvlHrFgTllA0afnimS">最</span>不能忘<span class="m" data-page-node-id="zcgIwqUAJttXTuXUERh65r">记</span>的是他的背<span class="m" data-page-node-id="RT1T8A6IOfun0Qf5l4hR0Q">影</span></p>
+            <p data-page-node-id="gf4aYLeduZgg3LSMQCCPdw">那年冬天祖母死了父亲的差使<span class="m" data-page-node-id="jBE1o5BVNuyygEIAyHKNyf">也</span>交卸了正是祸不<span class="m" data-page-node-id="eA7xFN3YksqdpKkAvE1U5I">单</span>行的日子</p>
+          </div>
+        </div>
+        <div class="btn" data-page-node-id="PhHiDSNO0nYdDfX7014l3m">返回首页</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 改后 · 夜间 ============ -->
+  <div class="col" data-page-node-id="HNqSnPk37JAcyA5DGwfNrb">
+    <h2 data-page-node-id="fUGfI5A6Acc9tcqI7tAzLd">改后 · 夜间 <span class="tag" data-page-node-id="BE3sRyCAZk7U5BTqyP5Lua">同一份代码，跟随主题</span></h2>
+    <div class="phone night" data-page-node-id="9a1GixlhecVg9UG2dTnTcN">
+      <div class="bar" data-page-node-id="e7lz1MsAblEF6JHo4VqyJ8"><span class="back" data-page-node-id="KMROmPhTXH62ADBTD2LRyG">←</span>背完啦</div>
+      <div class="body" data-page-node-id="Qk2fBLCSzFrVzQf7CRXzhz">
+        <div class="card grade" data-page-node-id="LvhW2YibERZX25RW2HPQSn">
+          <div class="g" data-page-node-id="rUNGgNL4c2oNDMQetizbQR">良好</div>
+          <div class="stars" data-page-node-id="apmyBiF2oyG7YmO95o3IGa">★★★☆</div>
+          <div class="score" data-page-node-id="c6kWkgG47Y82TfiiyAmaCu">得分 84</div>
+        </div>
+        <div class="card metrics" data-page-node-id="dTpmIBbak7r8CwynVOz4hD">
+          <div class="t" data-page-node-id="ypQXcqgEXAUfVx342KlusX">这一遍的成绩</div>
+          <div class="grid" data-page-node-id="esLYPxqzjJIky8tl82cgg9">
+            <div class="cell" data-page-node-id="WymzbLQXRRhc1TvIuA95KL"><div class="k" data-page-node-id="r3z0CKQ6ehg2uXbf0MR9VE">总字数</div><div class="v" data-page-node-id="8TTwDmfaL2avv6mwfcbAcy">50</div></div>
+            <div class="cell" data-page-node-id="FHAvmwCS3kELtHIUVGv2Me"><div class="k" data-page-node-id="5SskB8AdnT8mbEFQTXF2Kh">已背字数</div><div class="v" data-page-node-id="Uo284U4rZEFTJQw39l0m5H">44</div></div>
+            <div class="cell" data-page-node-id="YrRTvPk2yE2zDei7UGwWZP"><div class="k" data-page-node-id="1FnWFaa462ACV85yFJLa56">漏字数</div><div class="v" data-page-node-id="kn6FwT5TQ0dQDZ5eH4dVjk">6</div></div>
+            <div class="cell" data-page-node-id="mf3X26w08TjECCzcRzewP8"><div class="k" data-page-node-id="RSVqRkY6xOdKPoDg8YoYwI">提示次数</div><div class="v" style="font-size:13px" data-page-node-id="QhNXMZBXdRxzHP9PxsMMHp">未使用</div></div>
+            <div class="cell" data-page-node-id="pH5HFCJINnH8SPEC8W4hSc"><div class="k" data-page-node-id="SC0JCxta5H7Oh2XO417zRN">总用时</div><div class="v" data-page-node-id="hwNYosuIaHXwg37YEWD0wI">01:12</div></div>
+            <div class="cell" data-page-node-id="Zc9ZgpJ5UNklhsmSrSDBrb"><div class="k" data-page-node-id="Ork92ZIJePHW3louOdzDBi">首次发声延迟</div><div class="v" data-page-node-id="4bWBesOd6FMrR0TK0eALVi">00:02</div></div>
+          </div>
+          <div class="cov" data-page-node-id="5TvQ5m9bxQmA0ImTnucIzg">覆盖率 88%</div>
+          <div class="pbar" data-page-node-id="GJ5DjYxjaxyLyUHSnZAJP4"><div class="fill" style="width:88%;height:8px" data-page-node-id="9wX4tHedP2YPHfliLJaKGE"></div></div>
+        </div>
+        <div class="card rev" data-page-node-id="MarvWfSrxJ5G4hjJzGSIsD">
+          <div class="t" data-page-node-id="HjmnmQDs6HEshpZNipEFJ7">回看没背出来的地方</div>
+          <div class="legend" data-page-node-id="WOqyLwMT6eeUF1kfT6cD5b">
+            <span data-page-node-id="zLJJVSES6Z2twFfOnPQlKb"><i class="sw-ok" data-page-node-id="rYKGFS4wpMwuXMtDtj7x5y"></i>背出来的字</span>
+            <span data-page-node-id="OyzmfE6iFm75VOko4yi8DP"><i class="sw-no" data-page-node-id="G6T5RYHFhOECFK2UKScJAT"></i>没背出来的字</span>
+          </div>
+          <div class="full" data-page-node-id="xt4ZGjZiB0c6B6TRXPtnii">
+            <p data-page-node-id="620nWmqReLaA583xWbYzWO">我与父亲不相<span class="m" data-page-node-id="abPHblxHCE6zlg69nHnoL6">见</span>已二年余了我<span class="m" data-page-node-id="73G3SeIVvBU4HCliRG7e2I">最</span>不能忘<span class="m" data-page-node-id="Vmh3nVDPArJlRRRHO6HoxK">记</span>的是他的背<span class="m" data-page-node-id="ZHZ3SzJYeWdLedCRoTiD9i">影</span></p>
+            <p data-page-node-id="STay9HERMWMjjuVY5w4nGv">那年冬天祖母死了父亲的差使<span class="m" data-page-node-id="ibNSg7FkkO3eQjVPQjHPAX">也</span>交卸了正是祸不<span class="m" data-page-node-id="hX0r329YN8pQR6AfTU3WPX">单</span>行的日子</p>
+          </div>
+        </div>
+        <div class="btn" data-page-node-id="FdDBt33zrclnrfDSHA4Dxi">返回首页</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<p class="note" data-page-node-id="UcQGsiI52eAMTqidXC8Vhs">
+  <b data-page-node-id="HNbaQhVBF9eqLbA6vlCWyZ">怎么区分「背出来 / 没背出来」</b>：不只是颜色 ——「没背出来」的字是
+  <b data-page-node-id="3iBneZw8HwfULxugdILQdU">强调色文字 + 浅色底纹 + 加粗</b> 三重表达，卡片顶部还有<b data-page-node-id="aQwEATy65fBgQbxcywQTge">图例</b>。
+  这与本产品其它地方（评级用「文字 + 星星」、掌握状态「四态各有各的图标」）是同一套无障碍口径，不靠单一颜色传达信息。<br data-page-node-id="1nmkFH3aMrgl0PpzGoqfBQ">
+  <b data-page-node-id="MDBASQ3VSQSWAr0DjhshXJ">数据从哪来</b>：全文 = 背诵页本来就在加载的课文（<code data-page-node-id="Vr6yuytFVcWQN7pkLtPcsl">GET /api/texts/{id}</code> 按背诵范围切片），
+  谁漏了 = 服务端 <code data-page-node-id="DSjLsZxMxA8By5XNtBiugL">settle.missed_detail[].pos</code>。客户端不参与判分。
+  万一全文长度与服务端 <code data-page-node-id="bFqkBGb1HRtKpF3L9uxamn">total_chars</code> 对不上，会<b data-page-node-id="qFJKKxBWp4TivJKdJRnrEF">自动退回上面的逐字清单</b>，宁可不画、也不画错。
+</p>
+
+</body>
+</html>

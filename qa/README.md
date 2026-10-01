@@ -21,7 +21,7 @@ qa/
 │   ├── _bootstrap.sh      # 同 smoke 的那一份起停逻辑（复用，不重写）
 │   ├── nonfunc.sh         # 非功能：NF-01 P95 / NF-02 判分延迟 / NF-05 WS 上限 / NF-07 安全
 │   ├── nonfunc_core.py    # 非功能断言本体（18 条，真 uvicorn :8822）
-│   ├── gaps.sh            # 功能矩阵缺口：年级隔离 / 全字段落库 / 部署交付物 / 二期无实现
+│   ├── gaps.sh            # 功能矩阵缺口：年级隔离 / 全字段落库 / 部署交付物 / 家长端未实现
 │   └── gaps_core.py       # 缺口断言本体（8 条，真 uvicorn :8823）
 ├── fixtures/
 │   ├── make_fixtures.py   # 生成导入用 Excel（学生 / 词条 / 课文）
@@ -110,7 +110,7 @@ env -u PYTHONPATH backend/.venv/Scripts/python.exe qa/fixtures/make_fixtures.py
 
 补的是**功能矩阵里 pytest 覆盖不到**的维度：`G1/G2` 年级维度隔离（多年级内容互不串、
 管理端 `?grade=` 过滤）、`G3` 答题记录全字段落库、`G4` 部署交付物与手册章节、
-`G5` 二期功能（SRS/大屏/家长端）源码零命中。
+`G5` 二期**遗留项**「家长端」（WP-2L）源码零命中（已落地的 SRS / 大屏不再检查）。
 
 ---
 

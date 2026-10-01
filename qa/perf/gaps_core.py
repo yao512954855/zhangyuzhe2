@@ -7,7 +7,7 @@
     G2 (#7)      管理端单元列表按 年级 + 学期 过滤，跨年级不串
     G3 (#24)     记录全字段落库：`retry_count` / `hint_level` / `used_keyboard` / `first_voice_ms`
     G4 (#36)     局域网部署交付物齐全（手册 + 服务注册脚本 + 备份脚本）
-    G5 (#40)     二期功能（SRS / 大屏 / 家长端）在源码里**没有实现**
+    G5 (#40)     二期**遗留项**：家长端（WP-2L）在源码里**仍未实现**（形态未定，禁「未定就动码」）
 
 ⚠️ **为什么 G1/G2 不能只靠 pytest**（读源码确认过，不是想当然）：
     `test_be03_content.py::test_admin_word_filters` 验的是 `keyword` / `status`，
@@ -283,10 +283,11 @@ def g4_deploy_artifacts() -> None:
     )
 
 
-#: 二期功能关键词。⚠️ 不能用 `srs` 裸搜 —— 会命中 `ASRSession`（A-**SRS**-ession）造成假阳性。
-PHASE2_KEYWORDS = {
-    "间隔重复 / SRS 算法": ("间隔重复", "遗忘曲线", "SM-2", "spaced_repetition"),
-    "大屏展示": ("大屏", "投屏", "电子白板"),
+#: 二期**遗留项**关键词（已落地的不再检查，只守「还没做、且被禁『未定就动码』」的那一项）。
+#: ⚠️ 不能用 `srs` 裸搜 —— 会命中 `ASRSession`（A-**SRS**-ession）造成假阳性。
+#: 2026-09-29 收窄：原同时守 SRS / 大屏 / 家长端，但二期 11 条落地后 SRS、大屏已实现
+#: → 该断言必然变红（见 `docs/dev/02` §八 #94）。现只守 **家长端**：WP-2L 形态未定、一行未写。
+PHASE2_PENDING_KEYWORDS = {
     "家长端": ("家长端", "parent_app", "父端"),
 }
 
@@ -294,7 +295,7 @@ PHASE2_KEYWORDS = {
 def g5_no_phase2_impl() -> None:
     targets = [ROOT / "backend/app", ROOT / "admin-web/src", ROOT / "student-app/lib"]
     hits: dict[str, list[str]] = {}
-    for label, words in PHASE2_KEYWORDS.items():
+    for label, words in PHASE2_PENDING_KEYWORDS.items():
         found: list[str] = []
         for root in targets:
             if not root.is_dir():
@@ -312,7 +313,7 @@ def g5_no_phase2_impl() -> None:
         if found:
             hits[label] = found
     check(
-        "G5 二期功能（SRS / 大屏 / 家长端）在源码中无实现，仅预留",
+        "G5 家长端（WP-2L）在源码中仍无实现，仅预留",
         not hits,
         f"命中 {sum(len(v) for v in hits.values())} 处" + (f"：{hits}" if hits else ""),
     )
@@ -360,7 +361,7 @@ def main() -> int:
     print("\n== G4 部署交付物 ==", flush=True)
     g4_deploy_artifacts()
 
-    print("\n== G5 二期无实现 ==", flush=True)
+    print("\n== G5 家长端仍未实现 ==", flush=True)
     g5_no_phase2_impl()
 
     c.close()
