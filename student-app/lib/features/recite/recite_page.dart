@@ -37,6 +37,9 @@ import 'widgets/recite_timer.dart';
 /// 静音多少毫秒后自动降一档提示（F7）。
 const Duration _silenceThreshold = Duration(seconds: 8);
 
+/// `sendEnd` 后等云端 final 的收尾缓冲（见 `_teardownRecording` 注释）。
+const Duration _finalWindow = Duration(milliseconds: 600);
+
 /// 语文背诵页。
 class RecitePage extends ConsumerStatefulWidget {
   const RecitePage({super.key, this.session});
@@ -71,6 +74,15 @@ class _RecitePageState extends ConsumerState<RecitePage> {
   Timer? _tickTimer;
   Timer? _silenceTimer;
 
+  /// 收尾缓冲窗口的 Timer（dispose 时要立即放行，见 _teardownRecording）。
+  Timer? _finalTimer;
+  Completer<void>? _finalDrain;
+
+  /// 本次会话是否真的开过录音（WS `start` 已发）。**只有开过会话**才允许
+  /// `end` / final 缓冲窗 —— 此前无会话也发 `end`，服务端一直记
+  /// 「尚未 start 就 end」的噪音；dispose 一条没背的页面也会挂起缓冲 Timer。
+  bool _sessionActive = false;
+
   @override
   void initState() {
     super.initState();
@@ -88,6 +100,12 @@ class _RecitePageState extends ConsumerState<RecitePage> {
 
   @override
   void dispose() {
+    // 收尾缓冲还没走完 → 立即放行（否则 Timer 挂到树上销毁之后，
+    // flutter_test 的「不得有挂起 Timer」断言会炸，真机上也是干净收尾）。
+    _finalTimer?.cancel();
+    _finalDrain?.complete();
+    _finalTimer = null;
+    _finalDrain = null;
     _teardownRecording();
     _recorder?.dispose();
     unawaited(
@@ -174,6 +192,9 @@ class _RecitePageState extends ConsumerState<RecitePage> {
       );
     } catch (e) {
       // 录音起不来：保持可重试，不把会话打成 failed。
+      // ⚠️ 把真实错误打进日志 ——「麦克风还没打开」的提示是给学生的友好话，
+      //    排障必须看 logcat 里的原始异常（2026-10-01 假没权限案例）。
+      debugPrint('[recite] 录音启动失败（重试后）：$e');
       if (mounted) {
         setState(() => _micBlocked = true);
       }
@@ -183,6 +204,7 @@ class _RecitePageState extends ConsumerState<RecitePage> {
     if (_recordStartTs == 0) {
       _recordStartTs = DateTime.now().microsecondsSinceEpoch;
     }
+    _sessionActive = true; // 新一场录音会话：收尾时才发 `end`
     _tickTimer?.cancel();
     _tickTimer = Timer.periodic(const Duration(seconds: 1), _onTick);
     _resetSilence();
@@ -260,20 +282,23 @@ class _RecitePageState extends ConsumerState<RecitePage> {
   Future<void> _onWsError(Map<String, dynamic> msg) async {
     final message = msg['message']?.toString() ?? '语音服务出了点问题';
     final abort = msg['action']?.toString() == 'abort';
-    if (abort) {
-      await _teardownRecording();
-    }
     if (!mounted) return;
     if (abort) {
+      // 先切错误态（学生立即看到全屏错误），再慢慢收摊 —— 收摊里有 600ms
+      // 的 final 缓冲，不能让学生盯着旧界面干等这一秒。
       ref.read(reciteControllerProvider.notifier).failWith(message);
+      await _teardownRecording();
     } else {
       ref.read(reciteControllerProvider.notifier).noteError(message);
     }
+    if (!mounted) return;
     showAppSnack(context, message);
   }
 
   void _onWsDropped() {
-    if (!mounted) return;
+    // 收尾期间（sendEnd 后 600ms final 缓冲窗口）服务端正常关连接，
+    // 不是断线 —— 误报会把结算页顶出个「语音连接断开了」。
+    if (!mounted || _tearingDown) return;
     // WS 断开：停止录音与计时，明确提示（F10 不能静默卡死），让学生能继续或重试。
     _teardownRecording();
     setState(() {});
@@ -454,9 +479,25 @@ class _RecitePageState extends ConsumerState<RecitePage> {
     _tearingDown = true;
     unawaited(_recSub?.cancel());
     _recSub = null;
+    if (_sessionActive) {
+      _sessionActive = false;
+      _ws?.sendEnd();
+      // ⚠️ **收尾缓冲**（2026-10-01《猴子》案例：最后一个字「菜」丢了）：
+      //      `sendEnd` 后服务端会等云端 final 再下发 —— 这条 final 里正是结尾
+      //      几个字的正确识别结果。不能立刻取消 WS 订阅，留 600ms 收完：
+      //      final 到达会更新 `_transcript`（结算口径更准）并补 feed（网格点亮）。
+      //
+      //      Timer 存到字段里：页面销毁时立即放行（cancel + complete），否则
+      //      flutter_test 的「不得有挂起 Timer」断言会炸，真机上也是干净的收尾。
+      final done = Completer<void>();
+      _finalTimer = Timer(_finalWindow, done.complete);
+      _finalDrain = done;
+      await done.future;
+      _finalTimer = null;
+      _finalDrain = null;
+    }
     unawaited(_wsSub?.cancel());
     _wsSub = null;
-    _ws?.sendEnd();
     if (mounted) setState(() => _recording = false);
   }
 

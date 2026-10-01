@@ -86,7 +86,12 @@ class PcmChunker {
 class PcmRecorder {
   PcmRecorder([AudioRecorder? recorder]) : _recorder = recorder ?? AudioRecorder();
 
-  final AudioRecorder _recorder;
+  // 非 final：start 失败自愈时要换新实例（见 start 注释）。
+  AudioRecorder _recorder;
+
+  // 当前会话的切片器与输出通道（stop 时要把尾包吐出去，见 _stopInternal）。
+  PcmChunker? _chunker;
+  StreamController<Uint8List>? _out;
   StreamSubscription<Uint8List>? _sub;
   bool _recording = false;
 
@@ -118,10 +123,23 @@ class PcmRecorder {
   /// 开始录音，返回**已按 150ms 切片**的音频流。
   ///
   /// 出错抛 [StateError]（调用方负责转成中文提示）。
+  ///
+  /// ⚠️ **失败自愈重试**（2026-10-01 真机实锤：连背第二篇报「麦克风没法打开」
+  /// 而权限是好的）：底层 [AudioRecorder] 在录音流断过 / 上一场收尾异常后可能
+  /// 已经烂掉，再 start 必炸。这里失败后把旧实例整个换新再试一次，仍失败才抛。
   Future<Stream<Uint8List>> start() async {
     if (_recording) {
       throw StateError('已经在录音了');
     }
+    try {
+      return await _startInternal();
+    } on Object {
+      await _rebuild();
+      return _startInternal();
+    }
+  }
+
+  Future<Stream<Uint8List>> _startInternal() async {
     final stream = await _recorder.startStream(
       const RecordConfig(
         encoder: AudioEncoder.pcm16bits,
@@ -138,6 +156,8 @@ class PcmRecorder {
 
     final chunker = PcmChunker();
     final controller = StreamController<Uint8List>();
+    _chunker = chunker;
+    _out = controller;
     _sub = stream.listen(
       (data) {
         for (final chunk in chunker.add(data)) {
@@ -145,12 +165,14 @@ class PcmRecorder {
         }
       },
       onError: controller.addError,
+      // ⚠️ 内层 onDone **只 flush、不 close**：close 会沿订阅链触发页面的
+      // onDone，被断流感知误判成「录音中断」（stop() 的 60ms 尾包窗口里
+      // 页面还处于录音态）。控制器生命周期由 stop() 全权管理。
       onDone: () {
         final tail = chunker.flush();
         if (tail != null) {
           controller.add(tail);
         }
-        controller.close();
       },
       cancelOnError: false,
     );
@@ -163,6 +185,10 @@ class PcmRecorder {
   /// 错误）时，`record` 插件的 `stop()` 可能**挂起不返回** —— 背诵页三个按钮
   /// （暂停/重新开始/结束并结算）都先 `await stop()`，一个挂全挂，学生看就是
   /// 「按钮全部失灵」。超时后强制记帐返回，不再等底层回调。
+  ///
+  /// ⚠️ **尾包必须吐**：切片器里不足 150ms 的残余正是**最后一两个字的声音**
+  /// （2026-10-01 真机：《猴子》最后一个字「菜」没进识别）。停止前 flush 出去，
+  /// 并给事件循环一拍让页面把尾包发上 WS，再收摊。
   Future<void> stop() async {
     if (!_recording) {
       return;
@@ -179,18 +205,47 @@ class PcmRecorder {
   }
 
   Future<void> _stopInternal() async {
-    await _sub?.cancel();
-    _sub = null;
     try {
       await _recorder.stop();
     } catch (_) {
       // 已经停了，忽略
     }
+    // 尾包：先于订阅取消吐出去（此刻页面还没置收尾标记，能正常发上 WS）。
+    final out = _out;
+    final chunker = _chunker;
+    _chunker = null;
+    _out = null;
+    if (out != null && !out.isClosed) {
+      final tail = chunker?.flush();
+      if (tail != null) {
+        out.add(tail);
+        // 让页面监听器的微任务跑完：尾包送达 → 发 WS，然后才收摊。
+        await Future<void>.delayed(const Duration(milliseconds: 60));
+      }
+    }
+    await _sub?.cancel();
+    _sub = null;
+    // 不 close controller：页面随后会取消自己的订阅，挂着让它自然回收即可
+    // （close 会把 onDone 传给页面，被误判成录音中断）。
+  }
+
+  /// 换一个新的底层实例（旧实例销毁失败也忽略 —— 它已经烂了）。
+  Future<void> _rebuild() async {
+    try {
+      await _recorder.dispose().timeout(const Duration(seconds: 2));
+    } on Object {
+      // 挂死 / 抛错都无所谓：直接弃用旧实例
+    }
+    _recorder = AudioRecorder();
   }
 
   /// 释放资源。
+  ///
+  /// ⚠️ **只停不销**（2026-10-01 教训）：本类是全局单例（`pcmRecorderProvider`），
+  /// 页面退出会调这里。此前销毁底层实例导致两类事故 —— ①销毁与下一场 start
+  /// 竞态，连背第二篇报「麦克风没法打开」（权限明明是好的）；②销毁失败时
+  /// 自愈重建也被跳过。底层实例随 App 常驻，反复 start/stop 是它的正常用法。
   Future<void> dispose() async {
     await stop();
-    await _recorder.dispose();
   }
 }
