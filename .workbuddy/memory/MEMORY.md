@@ -35,14 +35,14 @@
 - C 盘满会让 flutter test 假卡死：先 `df -h`，`TMP/TEMP` 指到 D 盘，删可再生 `build/test_cache`，用未改动用例区分环境vs代码
 - UDP 9527 全局互斥 → 任何真起 uvicorn 的测试不能并行
 
-## 当前状态（2026-09-30 更新）
-一期 38/40 验收；§八 #1–#109 全裁（#103/#105/#106 待姚工裁决、#107 建议项）→ 下轮从 **#110** 起。
-#109（09-30 管理端工作台）：① ServerQRCard 二维码空白 = watch 默认 flush:'pre' 时 canvas 未挂载 → 改 flush:'post'+监听 loading；② 工作台慢 = CachedInterfaces 过期后在事件循环同步跑 PowerShell 探测（实测 2.5s）→ 改 SWR（回旧值+后台线程，force/冷启动仍同步）+ 心跳/接口挪 to_thread。be08 28 passed。
-二期 13 条全部收口：11 条落地；家长端裁「不做」（共用管理端+单一 admin 账号）；离线范围 B 不做、范围 A 已落地（`lib/core/offline/`）。
-上线前 9 条人工项见 `qa/reports/二期上线前人工移交清单.md`（C1/C2 key 已填，只差真机复测）。
-提交：`a2a3924`(后端) `1a00788`(学生端) `0c5330a`(管理端) `0e84534`(文档)，未 push（无远端）。#109 改动未提交。
+## 当前状态（2026-10-01 更新）
+一期 38/40 验收；§八 #1–#112 全裁（#103/#105/#106 待姚工裁决、#107 建议项）→ 下轮从 **#113** 起。
+#110/#111 内容管理按学科拆两页（SubjectContent）；#112 内容变更记录（recent 接口+diff+回滚）。
+10-01 学生端真机修复闭环：①结算页「回到首页」卡死 = _routeAnimating 卡 forward → 改 _entered+1.5s 兜底；②键盘态「还是用麦克风」无效 = onCancel 错接 useKeyboard → 改 retryVoice。46 tests passed + adb 真机复验双通过。
+管理端同步修复：PageHeader #extra 假插槽（作业布置/大屏按钮消失）、ServerQRCard auto-load 假关闭（服务地址空白）、作业弹窗单元按学科过滤、返回按钮挪左（#before 插槽）、菜单 order 撞号（22→23）。
+提交（单仓根目录）：`3f9adab`(后端) `14cb41d`(管理端) `b753396`(学生端) `c28264a`(docs/qa) `06a8b0b`(memory)，未 push（无远端）。工作区干净。
 09-29 磁盘清理：净释放 ~19G（C 盘 1.6G→12G）；Windows.edb 20.4G 与 uv cache 2.1G 待姚工手动清。
-⚠️ Bash 命令行首 `cd xxx &&` 会被 harness 剥掉（相对路径全挂）→ 用 `cd xxx; cmd` 分号或绝对路径。
+⚠️ adb.exe 是 Windows 程序，install 等传文件参数必须用 `D:/` 风格路径，不认 MSYS 的 `/d/`。
 
 ## 待办
 - 🔴 语文链路真实运行 0 次（流式云 ASR 从未真调用）→ 真机跑一次语文背诵才算闭合 C1/C9
