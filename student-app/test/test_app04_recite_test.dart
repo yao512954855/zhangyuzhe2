@@ -49,6 +49,15 @@ class _FakeRepo extends ReciteRepository {
   int _hints = 0;
   int _restarts = 0;
 
+  /// 可配置的 feed 行为（回归「噪声轻反馈 / 建议档位自动提示」用）。
+  /// 默认关闭，不影响既有用例。
+  bool feedNoise = false;
+  int feedSuggestion = 0;
+
+  /// 提示计数状态：真服务端每次 feed/hint 都回带**最新** hint_count，
+  /// fake 也必须记状态，否则 feed 会把 hintTotal 抹成 0。
+  final Map<int, int> _hintCount = <int, int>{};
+
   @override
   Future<ReciteCreateResponse> create({
     required int sessionId,
@@ -79,12 +88,14 @@ class _FakeRepo extends ReciteRepository {
         totalChars: totalChars,
         matchedChars: matched,
         remaining: totalChars - matched,
-        hintCount: const <int, int>{},
+        hintCount: Map.of(_hintCount),
         restartCount: _restarts,
         missStreak: 0,
         finished: matched >= totalChars,
       ),
       newlyMatched: matched,
+      isNoise: feedNoise,
+      hintSuggestion: feedSuggestion,
     );
   }
 
@@ -106,6 +117,7 @@ class _FakeRepo extends ReciteRepository {
     }
     _hints += 1;
     final lvl = _hints;
+    _hintCount[lvl] = (_hintCount[lvl] ?? 0) + 1;
     final content = switch (lvl) {
       1 => '_' * totalChars,
       2 => '父',
@@ -115,7 +127,7 @@ class _FakeRepo extends ReciteRepository {
       level: lvl,
       content: content,
       pos: 0,
-      hintCount: <int, int>{lvl: 1},
+      hintCount: Map.of(_hintCount),
     );
   }
 
@@ -123,6 +135,7 @@ class _FakeRepo extends ReciteRepository {
   Future<ReciteProgress> restart(int recitationId) async {
     _restarts += 1;
     _hints = 0;
+    _hintCount.clear();
     return ReciteProgress(
       pos: 0,
       totalChars: totalChars,
@@ -167,11 +180,18 @@ class _FakeRepo extends ReciteRepository {
 
 /// 假录音器：直接放行权限、返回空音频流（不碰真麦克风）。
 class _FakeRecorder extends PcmRecorder {
+  /// 常驻的假音频流：broadcast、不 close —— 订阅后**永不 onDone**。
+  final StreamController<Uint8List> _audio =
+      StreamController<Uint8List>.broadcast();
+
   @override
   Future<MicPermission> ensurePermission() async => MicPermission.granted;
 
+  // ⚠️ 必须是**永不结束**的流（2026-10-01）：原 `Stream.empty()` 订阅后立即
+  // onDone，会被背诵页新加的「录音流断流感知」当成真中断转成暂停态 ——
+  // 那是产品行为，不是 bug；fake 录音源不该模拟「被系统掐断」。
   @override
-  Future<Stream<Uint8List>> start() async => const Stream<Uint8List>.empty();
+  Future<Stream<Uint8List>> start() async => _audio.stream;
 
   @override
   Future<void> stop() async {}
@@ -200,6 +220,8 @@ class _FakeWs extends WsClient {
   Future<void> connect({int? lastAnswerId}) async {}
 
   void emitPartial(String text) => _msg.add({'type': 'partial', 'text': text});
+
+  void emitError(Map<String, dynamic> msg) => _msg.add(msg);
 }
 
 /// 假 API：覆盖「课文详情」与「结算」两条真实接口，避免组件测试打真实后端。
@@ -978,6 +1000,56 @@ void main() {
       expect(p.matchedChars, 0);
       expect(p.restartCount, 1);
     });
+
+    test('回归·噪声轻反馈：feed 判噪声 → 内联提示「刚才那句没对上」；'
+        '下一轮推进成功自动清除', () async {
+      final repo = _FakeRepo(api: ApiClient(serverStore: store, localStore: local))
+        ..feedNoise = true;
+      final c = ProviderContainer(overrides: [
+        localStoreProvider.overrideWithValue(local),
+        reciteRepositoryProvider.overrideWithValue(repo),
+      ]);
+      final notifier = c.read(reciteControllerProvider.notifier);
+      await notifier.start(sessionId: 1, textId: 1, scope: const [0]);
+
+      await notifier.feed('啦啦啦');
+      expect(
+        c.read(reciteControllerProvider).errorMessage,
+        '刚才那句没对上，再试一次',
+        reason: '卡壳学生必须知道为什么屏幕不动（2026-10-01）',
+      );
+
+      // 自我纠正成功 → 提示消失
+      repo.feedNoise = false;
+      await notifier.feed('我与父');
+      expect(c.read(reciteControllerProvider).errorMessage, isNull);
+    });
+
+    test('回归·建议档位自动提示：suggestion=1 → 自动取一档；同档不重复扣分', () async {
+      final repo = _FakeRepo(api: ApiClient(serverStore: store, localStore: local))
+        ..feedSuggestion = 1;
+      final c = ProviderContainer(overrides: [
+        localStoreProvider.overrideWithValue(local),
+        reciteRepositoryProvider.overrideWithValue(repo),
+      ]);
+      final notifier = c.read(reciteControllerProvider.notifier);
+      await notifier.start(sessionId: 1, textId: 1, scope: const [0]);
+
+      await notifier.feed('啦啦啦');
+      expect(c.read(reciteControllerProvider).hint?.level, 1);
+      expect(c.read(reciteControllerProvider).progress?.hintTotal, 1);
+
+      // 同档位的后续 feed 不再重复请求（服务端对显式 level 不去重，
+      // 客户端不挡会导致 hint_count 暴涨扣分）
+      await notifier.feed('啦啦啦');
+      expect(c.read(reciteControllerProvider).progress?.hintTotal, 1);
+
+      // 档位递增 → 再请求一次（升到二档）
+      repo.feedSuggestion = 2;
+      await notifier.feed('啦啦啦');
+      expect(c.read(reciteControllerProvider).hint?.level, 2);
+      expect(c.read(reciteControllerProvider).progress?.hintTotal, 2);
+    });
   });
 
   // =========================================================================
@@ -1064,6 +1136,38 @@ void main() {
       );
       await tester.pump(const Duration(milliseconds: 500));
       expect(find.textContaining('还不能直接背'), findsOneWidget);
+    });
+
+    testWidgets('回归·WS error(abort) 不再被静默吞：全屏错误态 + 重试可重新开始',
+        (tester) async {
+      final repo = _FakeRepo(api: ApiClient(serverStore: store, localStore: local));
+      final ws = _FakeWs(store, local);
+      await tester.pumpWidget(
+        _scoped(
+          local: local,
+          server: store,
+          repo: repo,
+          ws: ws,
+          child: _themedPage(RecitePage(session: _fakeSession())),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.tap(find.widgetWithText(AppButton, '开始背诵'));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // 服务端下发 abort（如「背诵已过期」）——此前页面只认 partial/final/result，
+      // error 消息被静默吞掉，学生看着装死的页面（2026-10-01 修）。
+      ws.emitError({'type': 'error', 'message': '背诵已过期或不属于你', 'action': 'abort'});
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.textContaining('背诵已过期'), findsWidgets,
+          reason: '错误消息必须如实上屏（ErrorView 与 SnackBar 至少一处）');
+      expect(find.text('再试一次'), findsOneWidget, reason: '要有干净的重开入口');
+
+      // 重试 → 重新创建背诵 → 回到「开始背诵」起点
+      await tester.tap(find.text('再试一次'));
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.widgetWithText(AppButton, '开始背诵'), findsOneWidget);
     });
   });
 }

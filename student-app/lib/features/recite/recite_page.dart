@@ -225,6 +225,10 @@ class _RecitePageState extends ConsumerState<RecitePage> {
 
   void _onWsMessage(Map<String, dynamic> msg) {
     final type = msg['type']?.toString() ?? '';
+    if (type == 'error') {
+      unawaited(_onWsError(msg));
+      return;
+    }
     if (type == 'partial' || type == 'final' || type == 'result') {
       final text = (msg['text'] ?? msg['partial'] ?? msg['result'])?.toString() ?? '';
       if (text.isEmpty) return;
@@ -246,6 +250,26 @@ class _RecitePageState extends ConsumerState<RecitePage> {
             ),
       );
     }
+  }
+
+  /// 服务端下发 `error`（2026-10-01 修复：此前被静默吞掉）。
+  ///
+  /// - `action=abort`（如「背诵已过期」）：停录音停计时，切到 failed 全屏错误态，
+  ///   学生走「重试」重新创建背诵 —— 干净的重开路径，不会拿旧 recitation 反复撞墙；
+  /// - 其余（retry 类）：提示但不打断会话。
+  Future<void> _onWsError(Map<String, dynamic> msg) async {
+    final message = msg['message']?.toString() ?? '语音服务出了点问题';
+    final abort = msg['action']?.toString() == 'abort';
+    if (abort) {
+      await _teardownRecording();
+    }
+    if (!mounted) return;
+    if (abort) {
+      ref.read(reciteControllerProvider.notifier).failWith(message);
+    } else {
+      ref.read(reciteControllerProvider.notifier).noteError(message);
+    }
+    showAppSnack(context, message);
   }
 
   void _onWsDropped() {
@@ -274,17 +298,41 @@ class _RecitePageState extends ConsumerState<RecitePage> {
     if (!_paused) return;
     final stream = await _recorder!.start();
     _tearingDown = false;
+    _listenAudio(stream);
+    _tickTimer = Timer.periodic(const Duration(seconds: 1), _onTick);
+    _resetSilence();
+    if (mounted) setState(() => _paused = false);
+  }
+
+  /// 订阅录音流（`_startRecording` / `_resume` 共用）。
+  ///
+  /// ⚠️ **断流必须如实感知**（2026-10-01 修）：此前 `onError: (_) {}` 静默吞错，
+  /// 录音流一断（耳机拔出/底层错误）页面就永远收不到 partial —— 「屏幕不亮、
+  /// 按钮像失灵」一起来了。现在断流按「暂停」处理：停表、提示，学生点
+  /// 「继续背诵」即可恢复（`_resume` 会重新 `start()` 录音，WS 会话不受影响）。
+  void _listenAudio(Stream<Uint8List> stream) {
     _recSub = stream.listen(
       (chunk) {
         // 收尾期间到的帧丢掉（`end` 之后不再发音频）。
         if (!_tearingDown) _ws?.sendAudio(chunk);
       },
-      onError: (_) {},
+      onError: (Object _) => _onAudioBroken('麦克风出了点问题'),
+      onDone: () {
+        // 主动 stop()/暂停不会走到这（是取消订阅，不是流结束）；
+        // onDone 且正在录音 = 流被系统掐断。
+        if (!_tearingDown && _recording && !_paused) {
+          _onAudioBroken('录音中断了');
+        }
+      },
       cancelOnError: false,
     );
-    _tickTimer = Timer.periodic(const Duration(seconds: 1), _onTick);
-    _resetSilence();
-    if (mounted) setState(() => _paused = false);
+  }
+
+  /// 录音流断掉：转成「暂停」态（复用 `_pause` 的完整收尾），给学生明确提示。
+  void _onAudioBroken(String message) {
+    if (!mounted || _tearingDown || !_recording || _paused) return;
+    unawaited(_pause());
+    showAppSnack(context, '$message，点「继续背诵」恢复');
   }
 
   Future<void> _confirmRestart() async {
@@ -449,6 +497,12 @@ class _RecitePageState extends ConsumerState<RecitePage> {
           child: ErrorView(
             message: state.errorMessage ?? '出了点问题，再试一次',
             onRetry: () {
+              // 页面侧计时/转写一并清零（WS abort 走到这里时，上一场的时间、
+              // 识别文本都不该带进新一场）。
+              _transcript = '';
+              _firstVoiceMs = null;
+              _recordStartTs = 0;
+              _elapsed = Duration.zero;
               ref.read(reciteControllerProvider.notifier).reset();
               unawaited(_createRecitation());
             },

@@ -158,11 +158,27 @@ class PcmRecorder {
   }
 
   /// 停止录音（幂等）。
+  ///
+  /// ⚠️ **2 秒超时保护**（2026-10-01 真机实锤）：录音流已断（耳机拔出/底层
+  /// 错误）时，`record` 插件的 `stop()` 可能**挂起不返回** —— 背诵页三个按钮
+  /// （暂停/重新开始/结束并结算）都先 `await stop()`，一个挂全挂，学生看就是
+  /// 「按钮全部失灵」。超时后强制记帐返回，不再等底层回调。
   Future<void> stop() async {
     if (!_recording) {
       return;
     }
     _recording = false;
+    try {
+      await _stopInternal().timeout(const Duration(seconds: 2));
+    } on TimeoutException {
+      unawaited(_sub?.cancel());
+      _sub = null;
+    } catch (_) {
+      // 已经停了等场景，忽略
+    }
+  }
+
+  Future<void> _stopInternal() async {
     await _sub?.cancel();
     _sub = null;
     try {

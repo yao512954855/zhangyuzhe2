@@ -635,12 +635,29 @@ class ReciteController extends Notifier<ReciteState> {
         partialText: partialText,
         silenceMs: silenceMs,
       );
+      // 记下请求前的建议档位：用于「档位递增才自动取提示」的防抖
+      // （服务端对显式 level 不去重，客户端不挡会导致 hint_count 暴涨扣分）。
+      final prevSuggestion = state.suggestedHintLevel;
       state = state.copyWith(
         phase: RecitePhase.reciting,
         progress: result.progress,
         suggestedHintLevel: result.hintSuggestion,
         clearError: true,
       );
+      // 噪声轻反馈（2026-10-01 修「卡住不知道为什么」）：背错/没听清时屏幕
+      // 不再一动不动，给一句轻提示；下一轮 feed 推进成功时自动清除。
+      if (result.isNoise) {
+        _note('刚才那句没对上，再试一次');
+        return;
+      }
+      // 服务端附了「建议提示档位」→ 自动取一次提示（2026-10-01 修「念叨型
+      // 卡壳等不到提示」）。只在档位**递增**时请求：同一档不重复扣分。
+      if (result.hintSuggestion > prevSuggestion) {
+        await requestHint(
+          level: result.hintSuggestion,
+          triggerBy: HintTrigger.auto,
+        );
+      }
     } on ApiException catch (e) {
       // feed 失败**不应阻断录音**：保留进度，只把错误记到 errorMessage，
       // 由页面以内联提示呈现（不切到 failed 全屏，否则会话直接被打断）。
@@ -760,6 +777,12 @@ class ReciteController extends Notifier<ReciteState> {
       state = state.copyWith(clearHint: true);
     }
   }
+
+  /// 记一条**不改变阶段**的运行时提示（WS error / 录音异常等页面直报的场景）。
+  void noteError(String message) => _note(message);
+
+  /// 切到 failed 全屏错误态（WS 下发 abort 类错误时的重开引导入口）。
+  void failWith(String message) => _fail(message);
 
   void _fail(String message) {
     state = state.copyWith(phase: RecitePhase.failed, errorMessage: message);
