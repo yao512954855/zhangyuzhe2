@@ -66,12 +66,22 @@ export JAVA_HOME="${JAVA_HOME_OVERRIDE:-D:/2install/androidstudiotool/dir/jbr}"
 
 # ③' 构建缓存一律不落 C 盘（2026-10-01 姚工要求：构建时不要用 C 盘）
 #
-#   - GRADLE_USER_HOME：gradle wrapper 发行版 + 依赖缓存。不设时默认 ~/.gradle
-#     （C 盘，已积到 800M+）。指到 D 盘后首次构建会重新下载依赖（走 ② 的镜像，很快）。
-#   - PUB_CACHE：pub 包缓存。不设时默认 %LOCALAPPDATA%\Pub\Cache（C 盘）。
+#   ⚠️ 默认值必须指到**热缓存** D:/dev-cache/{gradle,pub}（2026-10-01 实锤）：
+#   本机用户级环境变量本来就是 GRADLE_USER_HOME=D:\dev-cache\gradle（1.4G 热依赖
+#   + init.d/aliyun-mirror.gradle 镜像）。曾改指 D:/2install/.gradle-home（冷目录），
+#   结果全量重新下载依赖 —— 第一次忘拷镜像配置直连 mavenCentral 卡死 26 分钟，
+#   第二次拷了仍有一个构件下载失败。dev-cache 里 init.d + 热缓存都是现成的。
 #   两个都允许外部覆盖（${VAR:-...}），CI / 个人机可再指到别处。
-export GRADLE_USER_HOME="${GRADLE_USER_HOME:-D:/2install/.gradle-home}"
-export PUB_CACHE="${PUB_CACHE:-D:/2install/.pub-cache}"
+export GRADLE_USER_HOME="${GRADLE_USER_HOME:-D:/dev-cache/gradle}"
+export PUB_CACHE="${PUB_CACHE:-D:/dev-cache/pub}"
+
+# 镜像 init 兜底：换了全新 GRADLE_USER_HOME（没有 init.d 也没有 init.gradle）时，
+# 把 C 盘的镜像配置同步过去，避免回落 mavenCentral 直连被限速卡死。
+if [ ! -f "$GRADLE_USER_HOME/init.gradle" ] && [ ! -d "$GRADLE_USER_HOME/init.d" ] \
+   && [ -f "$HOME/.gradle/init.gradle" ]; then
+  mkdir -p "$GRADLE_USER_HOME"
+  cp "$HOME/.gradle/init.gradle" "$GRADLE_USER_HOME/init.gradle"
+fi
 
 # ④ Flutter SDK 位置（改路径只改这一处）
 FLUTTER_HOME="${FLUTTER_HOME:-D:/2install/flutter/flutter_windows_3.47.5-stable/flutter}"
