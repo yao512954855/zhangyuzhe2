@@ -38,7 +38,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app import __version__
 from app.core.config import get_asr_config, get_settings
-from app.core.db import read_conn, utc_now_iso, write_tx
+from app.core.db import read_conn, utc_now_iso
 from app.core.errors import DEFAULT_MESSAGES, BizError, ErrorCode
 from app.core.idempotency import IdempotencyMiddleware
 from app.core.logging import get_logger, setup_logging
@@ -46,7 +46,6 @@ from app.core.migrate import MigrationError, get_current_version, run_migrations
 from app.core.rate_limit import RateLimitMiddleware
 from app.core.response import fail, ok
 from app.core.router_loader import load_routers
-from app.core.security import hash_password
 from app.services.discovery import state as discovery_state
 from app.tasks.scheduler import start_background_tasks, stop_background_tasks
 from app.core.trace import (
@@ -66,57 +65,10 @@ setup_logging(settings.LOG_LEVEL, settings.log_dir)
 
 logger = get_logger(__name__)
 
-# 视为「默认密码」的值，用于启动警告（10a F18）
-_INSECURE_PASSWORDS = {
-    "admin",
-    "admin123",
-    "123456",
-    "password",
-    "CHANGE_ME_admin_password",
-}
-
-
-def _ensure_admin_account() -> bool:
-    """若 `users` 表无 admin，按 `.env` 创建初始管理者。
-
-    Returns:
-        是否新建了账号。
-
-    ⚠️ **这里必须重新取 `get_settings()`，不能用模块级的 `settings`**：
-    模块级 `settings` 是 **import 时**的快照，而 `app.main` 只会被 import 一次。
-    测试里换库靠的是「改 `os.environ` + `reset_config_cache()`」，
-    此时 `db_path()`（动态取）指向新库、而模块级 `settings` 仍指向旧库 ——
-    结果是「admin 建在了新库上，用的是旧库的密码」，登录必然 `20002`。
-    单跑一个测试模块时不会复现，**只有多模块混跑才暴露**，极难排查。
-    """
-    s = get_settings()
-    with write_tx() as conn:
-        row = conn.execute(
-            "SELECT id FROM users WHERE role = 'admin' LIMIT 1"
-        ).fetchone()
-        if row is not None:
-            return False
-
-        conn.execute(
-            """
-            INSERT INTO users
-                (role, username, real_name, password_hash,
-                 register_source, status, created_at)
-            VALUES ('admin', ?, ?, ?, 'import', 'active', ?)
-            """,
-            (
-                s.ADMIN_INIT_USERNAME,
-                "管理者",
-                hash_password(s.ADMIN_INIT_PASSWORD),
-                utc_now_iso(),
-            ),
-        )
-    return True
-
 
 def bootstrap() -> None:
-    """启动初始化：迁移 + 初始管理员。迁移失败则拒绝启动。"""
-    s = get_settings()  # 动态取，理由见 `_ensure_admin_account` 的说明
+    """启动初始化：执行数据库迁移。迁移失败则拒绝启动。"""
+    s = get_settings()
     try:
         applied = run_migrations()
     except MigrationError as exc:
@@ -127,17 +79,6 @@ def bootstrap() -> None:
         logger.info("数据库迁移完成，应用版本：%s", applied)
     else:
         logger.info("数据库已是最新，无需迁移。")
-
-    if _ensure_admin_account():
-        logger.info("已创建初始管理者账号：%s", s.ADMIN_INIT_USERNAME)
-        if s.ADMIN_INIT_PASSWORD in _INSECURE_PASSWORDS:
-            logger.warning(
-                "=" * 68
-                + "\n⚠️  安全警告：管理者账号仍在使用默认密码！\n"
-                + f"    账号：{s.ADMIN_INIT_USERNAME}\n"
-                + "    请立即登录管理端修改密码（PUT /api/me/profile 或改 .env 后重启）。\n"
-                + "=" * 68
-            )
 
     logger.info("数据库文件：%s", s.db_file)
     logger.info("服务监听：%s:%s", s.APP_HOST, s.APP_PORT)

@@ -27,36 +27,6 @@ export interface PageQuery {
   page_size?: number
 }
 
-/** 角色（契约 §5.2）。 */
-export type UserRole = 'admin' | 'student'
-
-/** 账号状态。 */
-export type UserStatus = 'active' | 'disabled'
-
-/** 用户信息（登录响应里的 user 字段）。 */
-export interface UserInfo {
-  id: number
-  role: UserRole
-  username: string
-  real_name: string | null
-  status: UserStatus
-}
-
-/** 登录请求体。管理端 `role` **固定传 `admin`**（WEB-01 F4）。 */
-export interface LoginPayload {
-  username: string
-  password: string
-  role: UserRole
-}
-
-/** 登录响应（契约 §5.2）。 */
-export interface LoginResult {
-  access_token: string
-  token_type: string
-  expires_in: number
-  user: UserInfo
-}
-
 /** 后端错误码 —— 与 `backend/app/core/errors.py` 的 `ErrorCode` 逐条对齐。 */
 export const ErrorCode = {
   PARAM_INVALID: 10001,

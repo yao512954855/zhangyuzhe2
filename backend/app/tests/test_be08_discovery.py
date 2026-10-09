@@ -24,16 +24,8 @@ import pytest
 # ⚠️ 必须在 import app.* **之前**设好环境变量：`app.main` 会立刻读配置。
 _TMP_DIR = Path(tempfile.mkdtemp(prefix="bjsys_be08_disc_"))
 _DB_FILE = _TMP_DIR / "test.db"
-TEST_JWT_SECRET = "test-secret-" + "0" * 32
-TEST_ADMIN_USERNAME = "admin"
-TEST_ADMIN_PASSWORD = "CHANGE_ME_admin_password"
-
 os.environ["DB_PATH"] = str(_DB_FILE)
 os.environ["BACKUP_DIR"] = str(_TMP_DIR / "backups")
-os.environ["JWT_SECRET"] = TEST_JWT_SECRET
-os.environ["JWT_TTL_HOURS"] = "12"
-os.environ["ADMIN_INIT_USERNAME"] = TEST_ADMIN_USERNAME
-os.environ["ADMIN_INIT_PASSWORD"] = TEST_ADMIN_PASSWORD
 os.environ["LOG_LEVEL"] = "WARNING"
 
 from fastapi.testclient import TestClient  # noqa: E402
@@ -88,10 +80,6 @@ def _fresh_config():
     """
     os.environ["DB_PATH"] = str(_DB_FILE)
     os.environ["BACKUP_DIR"] = str(_TMP_DIR / "backups")
-    os.environ["JWT_SECRET"] = TEST_JWT_SECRET
-    os.environ["JWT_TTL_HOURS"] = "12"
-    os.environ["ADMIN_INIT_USERNAME"] = TEST_ADMIN_USERNAME
-    os.environ["ADMIN_INIT_PASSWORD"] = TEST_ADMIN_PASSWORD
     os.environ["LOG_LEVEL"] = "WARNING"
     reset_config_cache()
     return _DB_FILE
@@ -110,16 +98,8 @@ def client(_fresh_config):
 
 
 def _login(c: TestClient) -> str:
-    resp = c.post(
-        "/api/auth/login",
-        json={
-            "username": TEST_ADMIN_USERNAME,
-            "password": TEST_ADMIN_PASSWORD,
-            "role": "admin",
-        },
-    ).json()
-    assert resp["code"] == 0, f"admin 登录失败：{resp}"
-    return resp["data"]["access_token"]
+    """简化版无登录态：返回占位 token（WS/接口均不再校验 token）。"""
+    return "local"
 
 
 @pytest.fixture()
@@ -129,7 +109,8 @@ def admin_token(client) -> str:
 
 @pytest.fixture()
 def auth(admin_token) -> dict:
-    return {"Authorization": f"Bearer {admin_token}"}
+    # 简化版不再要求鉴权头；保留 fixture 仅为不改动调用点
+    return {}
 
 
 @pytest.fixture(autouse=True)
@@ -329,10 +310,13 @@ def test_u4_refresh_query_forces_reprobe(client, auth):
 # =========================================================================== F4 / U5
 
 
-def test_u5_ip_change_updates_timestamp_and_audits(client):
-    """U5：地址变化 → `last_ip_change_at` 更新 + `audit_logs` 有记录。
+def test_u5_ip_change_updates_timestamp(client):
+    """U5：地址变化 → `last_ip_change_at` 更新。
 
     「首次观测」不算变化 —— 否则每台机器每次冷启动都会报一条「IP 变了」的假告警。
+
+    注：原用例还断言 `audit_logs` 写入 IP 变更审计；`audit_logs` 属已删除的
+    鉴权审计体系（WP-F F-2），`scheduler._audit_ip_change` 已改为 no-op，故移除。
     """
     assert state.current_ip is None
     assert state.observe("192.168.1.10") is False, "首次观测是初始化，不是变化"
@@ -341,19 +325,6 @@ def test_u5_ip_change_updates_timestamp_and_audits(client):
     assert state.observe("192.168.1.20") is True, "地址变了"
     assert state.last_ip_change_at is not None
     assert state.previous_ips[:1] == ["192.168.1.10"]
-
-    before = _audit_count("server.ip_changed")
-    scheduler._audit_ip_change()
-    assert _audit_count("server.ip_changed") == before + 1
-
-    with read_conn() as conn:
-        row = conn.execute(
-            "SELECT detail FROM audit_logs WHERE action='server.ip_changed' "
-            "ORDER BY id DESC LIMIT 1"
-        ).fetchone()
-    detail = json.loads(row["detail"])
-    assert detail["current_ip"] == "192.168.1.20"
-    assert "192.168.1.10" in detail["previous_ips"]
 
 
 def test_u5_ip_state_persists_across_instances():
@@ -412,7 +383,7 @@ def test_u9_degraded_reasons_visible_in_health(client):
     kinds = {r["kind"] for r in health["degraded_reasons"]}
     assert "unit_test" in kinds
 
-    info = client.get("/api/server/info", headers={"Authorization": "Bearer " + _login(client)})
+    info = client.get("/api/server/info")
     assert "unit_test" in {r["kind"] for r in info.json()["data"]["degraded_reasons"]}
 
     state.clear_degraded("unit_test")
@@ -693,21 +664,18 @@ def test_udp_bind_failure_degrades_but_does_not_raise():
 
 
 def test_local_tz_is_beijing():
-    """F9：按北京时间算「每日 02:00」。固定 +8 与 Asia/Shanghai 等价。"""
-    from datetime import timedelta
+    """F9：按北京时间算「每日 02:00」。固定 +8 与 Asia/Shanghai 等价。
 
-    offset = scheduler.local_tz().utcoffset(None)
+    注：`ZoneInfo.utcoffset(None)` 在 CPython 3.13 返回 `None`（需传具体日期），
+    故这里用具体日期断言偏移量，意图不变（北京 = +8）。
+    """
+    from datetime import datetime, timedelta
+
+    offset = scheduler.local_tz().utcoffset(datetime(2026, 1, 1))
     assert offset == timedelta(hours=8), offset
 
 
 # =========================================================================== 辅助
-
-
-def _audit_count(action: str) -> int:
-    with read_conn() as conn:
-        return conn.execute(
-            "SELECT COUNT(*) AS n FROM audit_logs WHERE action = ?", (action,)
-        ).fetchone()["n"]
 
 
 def _table_counts() -> dict[str, int]:

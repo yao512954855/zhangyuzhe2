@@ -34,10 +34,6 @@ _ASR_YAML = _TMP_DIR / "asr-test.yaml"
 
 os.environ["DB_PATH"] = str(_DB_FILE)
 os.environ["BACKUP_DIR"] = str(_TMP_DIR / "backups")
-os.environ["JWT_SECRET"] = "be06-ws-secret-0123456789abcd"
-os.environ["JWT_TTL_HOURS"] = "12"
-os.environ["ADMIN_INIT_USERNAME"] = "admin"
-os.environ["ADMIN_INIT_PASSWORD"] = "be06-Admin-Pass"
 os.environ["LOG_LEVEL"] = "WARNING"
 os.environ["ASR_CONFIG_PATH"] = str(_ASR_YAML)
 
@@ -50,7 +46,6 @@ from app.core.config import get_settings, reset_config_cache  # noqa: E402
 from app.core.db import read_conn, utc_now_iso, write_tx  # noqa: E402
 from app.core.deps import CurrentUser  # noqa: E402
 from app.core.errors import ErrorCode  # noqa: E402
-from app.core.security import create_access_token  # noqa: E402
 from app.main import app  # noqa: E402
 from app.services.asr.base import BYTES_PER_MS  # noqa: E402
 from app.services.asr.session_manager import (  # noqa: E402
@@ -111,16 +106,12 @@ def _write_asr_yaml(
 
 
 def _seed_session(user_id: int, content_type: str = "english") -> int:
-    """插一条真实的场次记录 —— `asr_logs.session_id` 有外键，不能拿假 id 糊弄。"""
-    with write_tx() as conn:
-        cur = conn.execute(
-            """
-            INSERT INTO sessions (student_id, content_type, strategy, status, started_at)
-            VALUES (?, ?, 'sequential', 'ongoing', ?)
-            """,
-            (int(user_id), content_type, utc_now_iso()),
-        )
-        return int(cur.lastrowid)
+    """返回会话 id。
+
+    简化版 `sessions` 表已随 WP-F 清理删除，`asr_logs.session_id` 改为普通整型
+    （无外键约束），故无需真实插库，直接返回固定 id 即可。
+    """
+    return 1
 
 
 #: `TestClient` 需要请求头级别的 token；WS 用 query
@@ -133,10 +124,6 @@ def client() -> Any:
     for key, value in {
         "DB_PATH": str(_DB_FILE),
         "BACKUP_DIR": str(_TMP_DIR / "backups"),
-        "JWT_SECRET": "be06-ws-secret-0123456789abcd",
-        "JWT_TTL_HOURS": "12",
-        "ADMIN_INIT_USERNAME": "admin",
-        "ADMIN_INIT_PASSWORD": "be06-Admin-Pass",
         "LOG_LEVEL": "WARNING",
         "ASR_CONFIG_PATH": str(_ASR_YAML),
     }.items():
@@ -159,14 +146,12 @@ def client() -> Any:
 
 
 def _make_student(client: TestClient, username: str = "stu1") -> tuple[int, str]:
-    """注册一个学生并返回 `(user_id, token)`。"""
-    resp = client.post(
-        "/api/auth/register",
-        json={"username": username, "password": "Stu-Pass-123", "real_name": "同学A",
-              "grade": 5, "semester": 1},
-    ).json()
-    assert resp["code"] == 0, resp
-    return int(resp["data"]["user"]["id"]), resp["data"]["access_token"]
+    """简化版无登录态：返回固定占位用户 id 与任意 token（WS 不再鉴权）。
+
+    原实现调 `/api/auth/register` 并返回 JWT，WP-F 拆鉴权后该端点已删除，
+    故改为直接返回占位值。WS 端点对 token 不做校验（见 `core/deps.py`）。
+    """
+    return 1, "local"
 
 
 class FakeSession:
@@ -284,105 +269,8 @@ class TestMainFlow:
         assert verdict["normalized"] == "class"
         assert [d["state"] for d in (verdict["diff"] or [])] == ["match"] * 5
 
-    def test_recite_flow_forwards_progress_to_partial(self, client: TestClient, monkeypatch) -> None:
-        """U4：`task_type=recite` → partial 带背诵进度（服务端推进 pos）。"""
-        uid, _ = _make_student(client)
-        calls: list[dict[str, Any]] = []
-
-        class FakeRecite:
-            @classmethod
-            def feed(cls, **kw: Any) -> dict[str, Any]:
-                calls.append(kw)
-                return {
-                    "recitation_id": kw["recitation_id"],
-                    "pos": len(kw["partial_text"]),
-                    "total_chars": 10,
-                    "matched_chars": len(kw["partial_text"]),
-                    "remaining": 10 - len(kw["partial_text"]),
-                    "finished": len(kw["partial_text"]) >= 10,
-                    "miss_streak": 0,
-                    "hint_count": {},
-                    "newly_matched": 1,
-                    "is_noise": False,
-                    "hint_suggestion": None,
-                }
-
-        import app.services.recite as recite_pkg
-        monkeypatch.setattr(recite_pkg, "ReciteService", FakeRecite)
-        # 背诵记录本身由 BE-05 的接口创建；这里只验「WS 层接线」，故解析直接给结果
-        monkeypatch.setattr(ASRSession, "_resolve_recitation", lambda self, sid, msg: 77)
-
-        fs = FakeSession(uid)
-
-        async def flow() -> None:
-            await fs.start(task_type="recite", expected="", lang_hint="zh")
-            await fs.audio(4)
-            await fs.end()
-
-        run(flow())
-        partials = [m for m in fs.sent if m["type"] == "partial"]
-        assert partials, fs.sent
-        assert partials[-1]["recite"]["total_chars"] == 10
-        assert partials[-1]["recite"]["pos"] > 0
-        assert calls and calls[0]["student_id"] == uid
-        assert calls[0]["recitation_id"] == 77
-
-        verdict = fs.last("verdict")
-        assert verdict is not None and verdict["task_type"] == "recite"
-        assert verdict["recite"]["total_chars"] == 10
-
-    def test_recite_settled_race_is_silent(self, client: TestClient, monkeypatch) -> None:
-        """settle 竞态（2026-10-01）：HTTP settle 已落库后 WS final 迟到，feed 撞
-        「已过期」→ 查库确认已结算 → **静默跳过，不下发 error(abort)**。"""
-        uid, _ = _make_student(client)
-
-        class FakeRecite:
-            @classmethod
-            def feed(cls, **kw: Any) -> dict[str, Any]:
-                raise RuntimeError("背诵已过期，请重新开始")  # 模拟引擎已 drop
-
-        import app.services.recite as recite_pkg
-        monkeypatch.setattr(recite_pkg, "ReciteService", FakeRecite)
-        monkeypatch.setattr(ASRSession, "_resolve_recitation", lambda self, sid, msg: 77)
-        monkeypatch.setattr(ASRSession, "_recitation_settled", lambda self: True)
-
-        fs = FakeSession(uid)
-
-        async def flow() -> None:
-            await fs.start(task_type="recite", expected="", lang_hint="zh")
-            await fs.audio(4)
-            await fs.end()
-
-        run(flow())
-        errs = [m for m in fs.sent if m["type"] == "error"]
-        assert not errs, f"已结算的竞态不应报 error：{errs}"
-
-    def test_recite_expired_reports_error_once(self, client: TestClient, monkeypatch) -> None:
-        """真过期（未结算，如进程重启丢引擎）→ 仍要下发 error(abort)；且**只下发一次**。"""
-        uid, _ = _make_student(client)
-
-        class FakeRecite:
-            @classmethod
-            def feed(cls, **kw: Any) -> dict[str, Any]:
-                raise RuntimeError("背诵已过期，请重新开始")
-
-        import app.services.recite as recite_pkg
-        monkeypatch.setattr(recite_pkg, "ReciteService", FakeRecite)
-        monkeypatch.setattr(ASRSession, "_resolve_recitation", lambda self, sid, msg: 77)
-        monkeypatch.setattr(ASRSession, "_recitation_settled", lambda self: False)
-
-        fs = FakeSession(uid)
-
-        async def flow() -> None:
-            await fs.start(task_type="recite", expected="", lang_hint="zh")
-            await fs.audio(4)
-            await fs.audio(4)  # 第二个 partial：已置 _recite_invalid，不再重复报
-            await fs.end()
-
-        run(flow())
-        errs = [m for m in fs.sent if m["type"] == "error"]
-        assert len(errs) == 1, fs.sent
-        assert errs[0]["action"] == "abort"
+    # 注：recite 三类用例（U4 背诵进度 / settle 竞态 / 过期上报）依赖已删除的
+    # `services/recite/` 背诵引擎（WP-F F-2 删除清单），故移除。
 
 
 # ===========================================================================
@@ -867,23 +755,8 @@ class TestArbitrationWiring:
 # ===========================================================================
 
 class TestEndpointHandshake:
-    def test_invalid_token_closes_with_4001(self, client: TestClient) -> None:
-        """U1：无效 token 连 `/ws/asr` → 关闭码 `4001`。
-
-        注意：关闭码只能靠**收到 close 帧**才能断言。
-        `websocket_connect` 的 `__enter__` 只做握手（此时服务端已 accept），
-        close 帧要等第一次 `receive` 才会被处理 —— 所以断言点必须在 `receive` 上。
-        """
-        with client.websocket_connect("/ws/asr?token=bogus-token") as ws:
-            with pytest.raises(WebSocketDisconnect) as ei:
-                ws.receive_text()
-        assert ei.value.code == 4001
-
-    def test_missing_token_closes_with_4001(self, client: TestClient) -> None:
-        with client.websocket_connect("/ws/asr") as ws:
-            with pytest.raises(WebSocketDisconnect) as ei:
-                ws.receive_text()
-        assert ei.value.code == 4001
+    # 注：原 `test_invalid_token_*` / `test_missing_token_*` 断言无效/缺失 token →
+    # 关闭码 4001，依赖已删除的 WS 鉴权（WP-F 拆鉴权）。简化版 WS 不再校验 token，故移除。
 
     def test_valid_token_runs_full_flow_over_websocket(self, client: TestClient) -> None:
         """真端点跑通主流程（真握手 + 真 ASGI 收发帧）。"""

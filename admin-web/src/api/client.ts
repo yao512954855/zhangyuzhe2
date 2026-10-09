@@ -1,19 +1,17 @@
 /**
- * 统一请求层 —— WP-WEB-01 F2 / 契约 §12.1
+ * 统一请求层 —— 简化版（WP-F 拆鉴权后）。
  *
- * 硬性要求（写在这里是为了让 WEB-02/03 的同事不用再猜）：
- * 1. 自动带 `Authorization: Bearer {token}`；
+ * 硬性要求（契约《01-共享契约冻结》§4/§9）：
+ * 1. **无鉴权**：不携带 `Authorization` 头，后续包不得加回；
  * 2. 统一解包 `{code, message, data, trace_id}`，成功时**只把 `data` 交出去**；
  * 3. `code != 0` → 抛 `BizError`（含 code / message / trace_id）；
- * 4. **错误提示只在本层弹一次**，页面里不要再 `ElMessage.error`（验收用例 U6）；
- * 5. HTTP 401 或业务码 10002 → 清 token 并跳登录（验收用例 U7）；
- * 6. 业务失败一律 HTTP 200 + 非零 code，所以**不能靠 HTTP 状态判断成败**（契约 §5.1）。
+ * 4. **错误提示只在本层弹一次**，页面里不要再 `ElMessage.error`；
+ * 5. 业务失败一律 HTTP 200 + 非零 code，所以**不能靠 HTTP 状态判断成败**（契约 §4）。
  */
 import axios, {
   AxiosError,
   type AxiosInstance,
   type AxiosRequestConfig,
-  type InternalAxiosRequestConfig,
 } from 'axios'
 import { ElMessage } from 'element-plus'
 
@@ -52,41 +50,7 @@ export class BizError extends Error {
 }
 
 // ---------------------------------------------------------------------------
-// token 存取（localStorage 持久化 → 验收用例 U9 刷新后登录态保持）
-// ---------------------------------------------------------------------------
-
-const TOKEN_KEY = 'bjsys_admin_token'
-
-export function getToken(): string {
-  return localStorage.getItem(TOKEN_KEY) ?? ''
-}
-
-export function setToken(token: string): void {
-  localStorage.setItem(TOKEN_KEY, token)
-}
-
-export function clearToken(): void {
-  localStorage.removeItem(TOKEN_KEY)
-}
-
-// ---------------------------------------------------------------------------
-// 401 处理钩子
-//
-// 用「注册回调」而不是直接 import router，是为了避免
-// client.ts → router → views → client.ts 的循环依赖。
-// 由 main.ts 在 router 就绪后注册。
-// ---------------------------------------------------------------------------
-
-type UnauthorizedHandler = () => void
-
-let unauthorizedHandler: UnauthorizedHandler | null = null
-
-export function setUnauthorizedHandler(handler: UnauthorizedHandler | null): void {
-  unauthorizedHandler = handler
-}
-
-// ---------------------------------------------------------------------------
-// 错误提示去重（验收用例 U6：任意非零 code **只弹一次**）
+// 错误提示去重（任意非零 code **只弹一次**）
 // ---------------------------------------------------------------------------
 
 const TOAST_DEDUPE_MS = 1200
@@ -204,14 +168,6 @@ export const http: AxiosInstance = axios.create({
   timeout: 20000,
 })
 
-http.interceptors.request.use((config: InternalAxiosRequestConfig) => {
-  const token = getToken()
-  if (token) {
-    config.headers.set('Authorization', `Bearer ${token}`)
-  }
-  return config
-})
-
 // ---------------------------------------------------------------------------
 // 对外请求方法
 // ---------------------------------------------------------------------------
@@ -287,12 +243,6 @@ async function request<T>(method: string, url: string, options: RequestOptions =
     return body.data
   } catch (error) {
     const bizError = normalizeAxiosError(error)
-
-    // 登录态失效：清 token + 跳登录（业务码 10002 与 HTTP 401 都要处理）
-    if (bizError.code === ErrorCode.UNAUTHORIZED) {
-      clearToken()
-      unauthorizedHandler?.()
-    }
 
     toastOnce(bizError.display)
     throw bizError

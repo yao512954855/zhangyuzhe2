@@ -30,7 +30,6 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from app.core.audit import write_audit
 from app.core.config import get_settings
 from app.core.db import write_tx
 from app.core.logging import get_logger
@@ -290,20 +289,11 @@ def create_backup(
 def _audit(
     *, success: bool, outcome: BackupOutcome, operator_id: int | None, ip: str | None
 ) -> None:
-    """写审计。**审计失败不影响备份结论**（备份已经从磁盘层面成功了）。"""
-    try:
-        with write_tx() as conn:
-            write_audit(
-                conn,
-                user_id=operator_id,
-                action="backup.create" if success else "backup.failed",
-                target_type="backup",
-                target_id=None,
-                detail=outcome.to_dict(),
-                ip=ip,
-            )
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("备份审计写入失败（忽略）：%s", exc)
+    """简化版无审计：原 `write_audit` 落库逻辑随 WP-F 清理移除（契约无鉴权）。
+
+    保留此函数签名仅为不改动所有调用点；函数体为空操作。
+    """
+    return None
 
 
 def latest_backup() -> dict | None:

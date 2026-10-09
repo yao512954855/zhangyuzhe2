@@ -22,10 +22,6 @@ _DB_FILE = _TMP_DIR / "test.db"
 
 os.environ["DB_PATH"] = str(_DB_FILE)
 os.environ["BACKUP_DIR"] = str(_TMP_DIR / "backups")
-os.environ["JWT_SECRET"] = "be06-factory-secret-0123456789"
-os.environ["JWT_TTL_HOURS"] = "12"
-os.environ["ADMIN_INIT_USERNAME"] = "admin"
-os.environ["ADMIN_INIT_PASSWORD"] = "be06-Admin-Pass"
 os.environ["LOG_LEVEL"] = "WARNING"
 
 import yaml  # noqa: E402

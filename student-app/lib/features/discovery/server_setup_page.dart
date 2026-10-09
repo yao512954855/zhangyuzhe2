@@ -27,7 +27,6 @@ import '../../core/theme/age_profile.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_button.dart';
 import '../../core/widgets/feedback.dart';
-import '../../features/auth/auth_controller.dart';
 
 /// 页面在找服务器过程中的状态。
 enum _FindPhase { searching, failed }
@@ -151,27 +150,13 @@ class _ServerSetupPageState extends ConsumerState<ServerSetupPage> {
   /// 正解是 `pushNamedAndRemoveUntil` 清栈并显式落到下一站。
   Future<void> _enter(ServerAddress address) async {
     final serverStore = ref.read(serverStoreProvider);
-    final auth = ref.read(authControllerProvider.notifier);
-    // 地址变了 = 换了一台服务器：旧 token 在新服务器上无效，必须先清掉
-    // （设置页 U9「换服务器后要重新登录」是同一个约定）。
-    final changed = serverStore.current != address;
+    // 简化版无登录态：保存地址后直接进首页（旧「清 token / 核 token」逻辑已拆除）。
 
     await serverStore.save(address);
     if (!mounted) {
       return;
     }
-
-    var goHome = false;
-    if (changed) {
-      await auth.logout();
-    } else if (ref.read(localStoreProvider).token != null) {
-      // 同一个服务器：有 token 就核一次，核得过直接进首页，省掉一次登录。
-      goHome = await auth.restore();
-    }
-    if (!mounted) {
-      return;
-    }
-    _replaceAllWith(goHome ? AppRouter.homeRoute : AppRouter.loginRoute);
+    _replaceAllWith(AppRouter.homeRoute);
   }
 
   /// 清空导航栈并落到 [route]（只留一个页面）——

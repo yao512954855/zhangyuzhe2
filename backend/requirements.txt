@@ -19,21 +19,12 @@ pydantic-settings==2.15.0
 python-dotenv==1.2.3
 PyYAML==6.0.3
 
-# ---------- 鉴权 ----------
+# ---------- 鉴权（简化版已无登录态：bcrypt 已删；PyJWT 暂保留，待后续批次复核）----------
 PyJWT==2.14.0
-bcrypt==5.0.0
-
-# ⚠️ 依赖偏离说明（已上报）：
-#   契约 §1 原写 `passlib[bcrypt]`，实测 passlib 1.7.4 与 bcrypt >= 4.1 **不兼容** ——
-#   passlib 初始化时执行自检代码并传入超过 72 字节的密码，bcrypt 5.x 直接抛
-#   `ValueError: password cannot be longer than 72 bytes`，CryptContext 无法初始化。
-#   passlib 自 2020 年起停止维护。故改为**直接调用 bcrypt 原生 API**，
-#   对外接口（hash_password / verify_password）保持不变，其他工作包无感知。
-#   详见 backend/app/core/security.py 顶部注释。
 
 # ---------- Excel、Word 与拼音 ----------
 openpyxl==3.1.5
-pypinyin==0.51.0
+# pypinyin==0.51.0   # 简化版已删语文背诵，拼音服务暂无用；按 WP-F 规格先注释，待 WP-C 确认拼读判定不依赖后由其物理删除
 # `python-docx` 是 WP-2B（Word→Excel 导入转换脚本 `scripts/word2excel.py`）的直接依赖。
 # 它与本清单同目录同源，故登记在此（脚本本身不新增后端接口，只做离线转换）。
 python-docx==1.2.0

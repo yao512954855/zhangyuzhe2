@@ -25,10 +25,6 @@ _DB_FILE = _TMP_DIR / "test.db"
 
 os.environ["DB_PATH"] = str(_DB_FILE)
 os.environ["BACKUP_DIR"] = str(_TMP_DIR / "backups")
-os.environ["JWT_SECRET"] = "test-secret-" + "0" * 32
-os.environ["JWT_TTL_HOURS"] = "12"
-os.environ["ADMIN_INIT_USERNAME"] = "admin"
-os.environ["ADMIN_INIT_PASSWORD"] = "CHANGE_ME_admin_password"
 os.environ["LOG_LEVEL"] = "WARNING"
 
 from fastapi.testclient import TestClient  # noqa: E402
@@ -60,10 +56,6 @@ def _fresh_config():
     """
     os.environ["DB_PATH"] = str(_DB_FILE)
     os.environ["BACKUP_DIR"] = str(_TMP_DIR / "backups")
-    os.environ["JWT_SECRET"] = "test-secret-" + "0" * 32
-    os.environ["JWT_TTL_HOURS"] = "12"
-    os.environ["ADMIN_INIT_USERNAME"] = "admin"
-    os.environ["ADMIN_INIT_PASSWORD"] = "CHANGE_ME_admin_password"
     os.environ["LOG_LEVEL"] = "WARNING"
     reset_config_cache()
     return _DB_FILE
@@ -87,29 +79,6 @@ def sandbox(tmp_path, monkeypatch):
         lambda: SimpleNamespace(db_file=_DB_FILE, backup_dir=directory),
     )
     return directory
-
-
-def _audits(action: str) -> list[dict]:
-    with read_conn() as conn:
-        rows = conn.execute(
-            "SELECT detail FROM audit_logs WHERE action = ? ORDER BY id DESC", (action,)
-        ).fetchall()
-    return [json.loads(r["detail"]) for r in rows]
-
-
-def _admin_headers(client) -> dict:
-    """登录管理者并返回鉴权头。
-
-    单独抽出来是为了**失败信息可读**：直接 `["data"]["access_token"]` 在
-    登录被拒时会抛 `TypeError: 'NoneType' object is not subscriptable`，
-    完全看不出是 20002（密码错）还是 10005（触发锁定）还是别的。
-    """
-    resp = client.post(
-        "/api/auth/login",
-        json={"username": "admin", "password": "CHANGE_ME_admin_password", "role": "admin"},
-    ).json()
-    assert resp.get("code") == 0, f"admin 登录失败：{resp}"
-    return {"Authorization": f"Bearer {resp['data']['access_token']}"}
 
 
 def _make_history(directory: Path, count: int, *, start_day: int = 1) -> list[str]:
@@ -169,13 +138,9 @@ def test_u6_manual_backup_creates_file_and_audits(client, sandbox):
         }
     finally:
         conn.close()
-    assert {"users", "units", "answers", "word_mastery"} <= tables
-
-    records = _audits("backup.create")
-    assert records, "备份成功必须写审计"
-    assert records[0]["ok"] is True
-    assert records[0]["file"] == target.name
-    assert records[0]["integrity_ok"] is True
+    # 简化版仅保留 asr_logs / asr_daily_stats / settings / schema_version
+    # （其余「多用户背诵系统」业务表已在 WP-F 003 迁移中删除）
+    assert {"settings", "schema_version", "asr_logs", "asr_daily_stats"} <= tables
 
 
 def test_u6_daily_backup_uses_fixed_name(client, sandbox):
@@ -263,11 +228,6 @@ def test_u8_backup_from_corrupt_source_records_failure(client, sandbox, monkeypa
     assert outcome.integrity_ok is None or outcome.integrity_ok is False
     assert not list(sandbox.glob("app_*.db")), "失败时不能留下半成品副本"
 
-    records = _audits("backup.failed")
-    assert records, "失败必须写审计（否则运维无从追查）"
-    assert records[0]["ok"] is False
-    assert records[0]["error"]
-
 
 def test_u8_verify_integrity_edge_cases(client, sandbox):
     """校验的边界：不存在 / 空文件 / 正常文件。"""
@@ -303,8 +263,11 @@ def test_failed_backup_does_not_prune(client, sandbox, monkeypatch):
 
 
 def test_f7_manual_backup_endpoint(client, sandbox):
-    """F7：`POST /api/maintenance/backup`（admin）→ 返回路径与校验结果。"""
-    resp = client.post("/api/maintenance/backup", headers=_admin_headers(client))
+    """F7：`POST /api/maintenance/backup` → 返回路径与校验结果。
+
+    简化版无鉴权（`require_admin` 对占位用户直接放行），故不再需要 admin 头。
+    """
+    resp = client.post("/api/maintenance/backup")
     assert resp.status_code == 200
     body = resp.json()
     assert body["code"] == 0, body
@@ -316,42 +279,6 @@ def test_f7_manual_backup_endpoint(client, sandbox):
     assert data["size_human"]
 
 
-def test_f7_backup_requires_admin(client):
-    """非管理者调备份接口 → `10003`（运维接口不能给学生开）。
-
-    ⚠️ 用户名规则是**4–20 位字母或数字**（`clean_username`），
-    带下划线会被 `10001` 拒掉 —— 用 `be08student` 这种纯字母数字。
-    """
-    registered = client.post(
-        "/api/auth/register",
-        json={
-            "username": "be08student",
-            "password": "student-pass-9911",
-            "real_name": "学生甲",
-        },
-    ).json()
-    if registered.get("code") == 0:
-        token = registered["data"]["access_token"]
-    else:
-        # 已注册过（同一模块被重跑）→ 直接登录
-        logged_in = client.post(
-            "/api/auth/login",
-            json={
-                "username": "be08student",
-                "password": "student-pass-9911",
-                "role": "student",
-            },
-        ).json()
-        assert logged_in.get("code") == 0, f"学生登录失败：{logged_in}"
-        token = logged_in["data"]["access_token"]
-
-    resp = client.post(
-        "/api/maintenance/backup", headers={"Authorization": f"Bearer {token}"}
-    )
-    assert resp.json()["code"] == 10003, resp.json()
-    assert client.post("/api/maintenance/backup").json()["code"] == 10002
-
-
 def test_f7_backup_failure_returns_nonzero_code(client, sandbox, monkeypatch):
     """备份失败是真实故障 —— 接口必须报非零 code，不能用 code=0 糊过去。"""
     corrupt_db = sandbox / "corrupt_source.db"
@@ -361,12 +288,15 @@ def test_f7_backup_failure_returns_nonzero_code(client, sandbox, monkeypatch):
         "get_settings",
         lambda: SimpleNamespace(db_file=corrupt_db, backup_dir=sandbox),
     )
-    headers = _admin_headers(client)
 
-    body = client.post("/api/maintenance/backup", headers=headers).json()
+    body = client.post("/api/maintenance/backup").json()
     assert body["code"] != 0
     assert "备份失败" in body["message"]
     assert body["data"]["ok"] is False
+
+
+# 注：`test_f7_backup_requires_admin` 依赖已删除的「学生/管理员」鉴权体系（WP-F 拆鉴权），
+# 简化版不再区分角色，运维接口对所有本地占位用户开放，故该用例移除。
 
 
 # =========================================================================== 概览

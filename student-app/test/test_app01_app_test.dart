@@ -19,7 +19,6 @@ import 'package:student_app/core/storage/server_store.dart';
 import 'package:student_app/core/theme/age_profile.dart';
 import 'package:student_app/core/theme/app_theme.dart';
 import 'package:student_app/core/theme/theme_controller.dart';
-import 'package:student_app/features/auth/login_page.dart';
 import 'package:student_app/features/theme/theme_switcher_sheet.dart';
 
 /// 测试环境里不真的发 UDP（真实现会广播 3 轮、每轮等 2 秒）。
@@ -121,13 +120,12 @@ void main() {
   }
 
   group('路由聚合（F18）', () {
-    test('APP-01 的三个路由都已注册', () {
+    test('APP-01 的路由都已注册（简化版已拆登录/注册）', () {
       expect(AppRouter.routes.containsKey('/'), isTrue);
       expect(AppRouter.routes.containsKey('/server-setup'), isTrue);
-      expect(AppRouter.routes.containsKey('/login'), isTrue);
-      expect(AppRouter.routes.containsKey('/register'), isTrue);
+      expect(AppRouter.routes.containsKey('/login'), isFalse,
+          reason: '简化版无登录页（WP-F 已拆）');
       expect(AppRouter.initialRoute, '/');
-      expect(AppRouter.loginRoute, '/login');
       expect(AppRouter.discoveryRoute, '/server-setup');
     });
 
@@ -140,17 +138,14 @@ void main() {
       expect(AppRouter.routes.containsKey(AppRouter.homeRoute), isTrue);
     });
 
-    test('各包路由都已接管（聚合器能安全读取）', () {
-      // APP-02 已落地
+    test('各包路由现状（简化版拆除后的时序快照）', () {
       expect(AppRouter.routes.containsKey('/home'), isTrue);
-      // APP-03 / APP-04 / APP-05 已落地（2026-09-25 集成时按本测试自己的约定翻转）。
-      // ⚠️ 这组是**时序断言**，不是契约：契约只要求「包落地了就注册进来」。
-      //    注意路由常量名沿用 APP-01 建的占位文件（practice / recite / mistakes），
-      //    而不是各包规格里写的 english.dart / mine.dart —— 那两个文件不存在且未被聚合器
-      //    import，新建它们只会是死代码（各包交付说明的偏离项 D-APP03-01 有记录）。
-      expect(AppRouter.routes.containsKey('/practice'), isTrue);
+      // 简化版（WP-F）已拆 features/english 与 features/mine：
+      // /practice、/mistakes 不再注册；/recite 保留（WP-C 将清空重写）。
+      // ⚠️ 这组是**时序快照**，不是契约：契约只要求「包落地了就注册进来」。
+      expect(AppRouter.routes.containsKey('/practice'), isFalse);
       expect(AppRouter.routes.containsKey('/recite'), isTrue);
-      expect(AppRouter.routes.containsKey('/mistakes'), isTrue);
+      expect(AppRouter.routes.containsKey('/mistakes'), isFalse);
     });
 
     test('未知路由有兜底页（F19 不红屏）', () {
@@ -263,12 +258,12 @@ void main() {
       await tester.pumpAndSettle();
 
       // 修复前：栈被弹空 → 这里什么都找不到
+      // 简化版无登录页：连上后直接进首页外壳（WP-F 拆鉴权）。
       expect(
-        find.text('我的学号'),
-        findsOneWidget,
-        reason: '连上后必须落到登录页（无 token），不能停在空栈上黑屏',
+        find.text('扫码连接'),
+        findsNothing,
+        reason: '连上后发现页必须离场（落到首页），不能停在空栈上黑屏',
       );
-      expect(find.text('扫码连接'), findsNothing, reason: '发现页应当已经离场');
       expect(local.serverHost, '192.168.88.19', reason: '新地址要落到本地，下次启动直接用');
     });
 
@@ -289,51 +284,11 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
-        find.text('我的学号'),
-        findsOneWidget,
-        reason: '手输地址连上后必须跳登录页，不许黑屏',
+        find.text('扫码连接'),
+        findsNothing,
+        reason: '手输地址连上后必须离场（简化版直接进首页），不许黑屏',
       );
       expect(local.serverHost, '192.168.88.19');
-    });
-  });
-
-  group('P2 登录页（F14）', () {
-    testWidgets('用「我的学号」而不是「用户名」，且密码可显示', (tester) async {
-      await tester.pumpWidget(wrap(const LoginPage()));
-      await tester.pumpAndSettle();
-
-      expect(find.text('我的学号'), findsOneWidget);
-      expect(find.text('我的密码'), findsOneWidget);
-      expect(find.text('用户名'), findsNothing);
-      expect(find.byIcon(Icons.visibility_off_rounded), findsOneWidget);
-      expect(find.text('登 录'), findsOneWidget);
-
-      await tester.tap(find.byIcon(Icons.visibility_off_rounded));
-      await tester.pumpAndSettle();
-      expect(find.byIcon(Icons.visibility_rounded), findsOneWidget);
-    });
-
-    testWidgets('空输入就地提示，不弹模态框（§5.2）', (tester) async {
-      await tester.pumpWidget(wrap(const LoginPage()));
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.text('登 录'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('先写上你的学号吧'), findsOneWidget);
-      expect(find.byType(Dialog), findsNothing, reason: '不该用模态框承载错误');
-      expect(find.byType(AlertDialog), findsNothing);
-    });
-
-    testWidgets('只填学号不填密码也有提示', (tester) async {
-      await tester.pumpWidget(wrap(const LoginPage()));
-      await tester.pumpAndSettle();
-
-      await tester.enterText(find.byType(TextField).first, 'A20260001');
-      await tester.tap(find.text('登 录'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('密码还没填哦'), findsOneWidget);
     });
   });
 

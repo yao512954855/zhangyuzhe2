@@ -108,8 +108,8 @@ void main() {
       expect(AppRouter.routes.containsKey('/home/unit'), isTrue);
       expect(AppRouter.routes.containsKey('/home/grade'), isTrue);
       expect(AppRouter.routes.containsKey('/home/config'), isTrue);
-      // 临时页仍注册着（APP-01 的测试在用它），但已不是登录后的落地目标
-      expect(AppRouter.routes.containsKey('/__home_placeholder'), isTrue);
+      // 简化版（WP-F）已删除临时落地页：/home 是唯一落地目标
+      expect(AppRouter.routes.containsKey('/__home_placeholder'), isFalse);
     });
   });
 
@@ -465,7 +465,8 @@ void main() {
           reason: '一个错字都没有时，不能编一个数字出来');
     });
 
-    testWidgets('语文点错题卡**不走英语那条「先选单元」的路**', (tester) async {
+    testWidgets('语文点错题卡：简化版统一走「先选单元」的路（旧错题本页已拆）',
+        (tester) async {
       useTallScreen(tester);
       await local.setGradeSemester(grade: 3, semester: 1);
 
@@ -483,12 +484,10 @@ void main() {
       await tester.tap(find.text('语文'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('错题本（7 个字）'));
-      // 语文进的是错题本页（会去拉 §8.10），不是配置页那条 `scope=wrong`。
-      // 这里只用固定 pump：真页面首屏在拉数据，加载动画会让 pumpAndSettle 等不完。
-      for (var i = 0; i < 4; i++) {
-        await tester.pump(const Duration(milliseconds: 200));
-      }
-      expect(find.text('练哪个单元的错题？'), findsNothing, reason: '语文不该先弹单元选择');
+      // 简化版（WP-F）已拆旧错题本页：两学科统一走选单元 → 配置页 scope=wrong；
+      // 真正的错题本入口由 WP-E 落地后接线（跨包接力项 J2/J3）。
+      await tester.pumpAndSettle();
+      expect(find.text('练哪个单元的错题？'), findsOneWidget);
     });
   });
 
@@ -506,7 +505,7 @@ void main() {
   });
 
   group('底部导航（P4）', () {
-    testWidgets('三个 Tab 都在；错题本 Tab 已由 APP-05 接管（是「我的」页，不是占位）',
+    testWidgets('三个 Tab 都在；错题本/我的未注册时给「还在做」占位（简化版已拆 mine）',
         (tester) async {
       useTallScreen(tester);
       await local.setGradeSemester(grade: 3, semester: 1);
@@ -521,17 +520,14 @@ void main() {
       expect(find.text('我的'), findsOneWidget);
 
       await tester.tap(find.text('错题本').last);
-      // ⚠️ 本条原为「错题本 / 我的还没落地时给出占位」的时序断言。APP-05 落地后
-      //    按协议翻转：`MainShell._registeredPage(MistakesRoutes.mistakes)` 现在能
-      //    拿到真页面，`_ComingSoonPage` 不再出现。
-      //    这里用固定 pump 而不用 `pumpAndSettle`：真页面首屏会去拉进度，
-      //    加载期可能有持续动画，`pumpAndSettle` 会等不到静止。
+      // 简化版（WP-F）已拆 features/mine：`MistakesRoutes.routes` 为空，
+      // MainShell 按设计回落到 `_ComingSoonPage` 占位（不崩、不假装能用）；
+      // WP-E 落地错题本后按协议翻回「真页面」断言。
       for (var i = 0; i < 4; i++) {
         await tester.pump(const Duration(milliseconds: 200));
       }
-      expect(find.text('错题本还在做'), findsNothing, reason: '占位页应当已经消失');
-      expect(find.text('练错的词、漏背的字，都能在这儿重练'), findsOneWidget,
-          reason: '真「我的」页的错题本入口');
+      expect(find.text('错题本还在做'), findsOneWidget,
+          reason: '未注册 Tab 显示占位卡（WP-E 落地后翻转本断言）');
     });
   });
 }

@@ -18,11 +18,8 @@
  */
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessageBox } from 'element-plus'
 import type { MenuInstance } from 'element-plus'
 import { Expand, Fold } from '@element-plus/icons-vue'
-
-import { useUserStore } from '@/stores/user'
 
 interface MenuItem {
   path: string
@@ -44,7 +41,6 @@ interface MenuGroup {
 
 const route = useRoute()
 const router = useRouter()
-const userStore = useUserStore()
 
 /** 未填写 `meta.group` 的兜底分组名（保证新增路由不会掉出菜单） */
 const FALLBACK_GROUP = '其他'
@@ -180,20 +176,6 @@ watch(activeGroupName, (name) => {
 })
 
 const activeMenu = computed(() => route.path)
-
-async function handleLogout(): Promise<void> {
-  try {
-    await ElMessageBox.confirm('确定要退出登录吗？', '提示', {
-      type: 'warning',
-      confirmButtonText: '退出',
-      cancelButtonText: '取消',
-    })
-  } catch {
-    return // 用户点了取消
-  }
-  userStore.logout()
-  await router.replace('/login')
-}
 </script>
 
 <template>
@@ -244,10 +226,7 @@ async function handleLogout(): Promise<void> {
           </el-icon>
         </el-button>
 
-        <div class="admin-header__right">
-          <span class="admin-header__user">{{ userStore.displayName }}</span>
-          <el-button text type="primary" @click="handleLogout">退出登录</el-button>
-        </div>
+        <div class="admin-header__right" />
       </el-header>
 
       <el-main class="admin-main">

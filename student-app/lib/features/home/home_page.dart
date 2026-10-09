@@ -17,12 +17,10 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/feedback.dart';
 import '../../router/routes/home.dart';
 import '../../router/routes/mistakes.dart';
-import '../auth/auth_controller.dart';
 import '../config/practice_config_page.dart';
 import '../config/practice_launcher.dart';
 import '../config/practice_config_controller.dart';
 import '../config/practice_strategy.dart';
-import '../mine/wrong_book_page.dart';
 import '../theme/theme_switcher_sheet.dart';
 import 'choice_card.dart';
 import 'grade_semester_picker.dart';
@@ -74,7 +72,6 @@ class _HomePageState extends ConsumerState<HomePage> {
   Widget _content(HomeData data, Subject subject) {
     final profile = AgeScope.of(context);
     final extra = AppExtraColors.of(context);
-    final auth = ref.watch(authControllerProvider);
     final units = data.units.bySubject(subject);
 
     return RefreshIndicator(
@@ -85,7 +82,8 @@ class _HomePageState extends ConsumerState<HomePage> {
         padding: const EdgeInsets.all(AgeProfile.screenEdgeInset),
         children: [
           ProgressHeader(
-            displayName: auth.user?.displayName ?? '同学',
+            // 简化版无登录态：不再展示登录用户名（WP-F 拆鉴权）。
+            displayName: '同学',
             preference: ref.watch(gradePrefProvider),
             subject: subject,
             progress: data.progress,
@@ -183,20 +181,9 @@ class _HomePageState extends ConsumerState<HomePage> {
   ///   **没有 `with_error`**（契约 §8.3 未下发，见偏离 #44）→
   ///   客户端判断不出哪个单元有错题。与其猜一个，不如让学生点一下
   ///   （选中的单元确实没错题时，配置页会明说）。
-  /// - **语文**错题是**课文里的字、按课文组织**，错题本页自己就会列出
-  ///   是哪几篇 —— 不需要先选单元，多一层选择只是让学生多点一次。
+  /// - 简化版（WP-F）已拆旧错题本页：两个学科统一走「选单元 → 配置页
+  ///   `scope=wrong`」，真正的错题本入口由 WP-E 落地后接线（跨包接力项 J2/J3）。
   Future<void> _openWrongPicker(HomeData data, Subject subject) async {
-    if (subject != Subject.english) {
-      Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => WrongBookPage(
-            initialSubject: Subject.chinese,
-            now: widget.now,
-          ),
-        ),
-      );
-      return;
-    }
     final units = data.units.bySubject(subject);
     if (units.isEmpty) {
       showAppSnack(context, '这个年级还没有${subject.label}内容');

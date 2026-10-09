@@ -1,7 +1,7 @@
-/// 启动引导 —— 30-APP-01 F5（U1 / U7 / U8）。
+/// 启动引导 —— 简化版（WP-F 拆除登录/注册流程后）。
 ///
-/// 四步：① 读本地地址 → ② 探活 `/api/ping` → ③ 有 token 校验 `/api/auth/me`
-/// → ④ 进首页。**任一步失败都要给出明确的下一步**，
+/// 两步：① 读本地地址 → ② 探活 `/api/ping` → 探活成功直接进首页。
+/// **任一步失败都要给出明确的下一步**，
 /// 不允许出现白屏、卡住、或"转圈转到天荒地老"。
 ///
 /// 这里只做一次**极快的历史地址试连**（3 秒）；
@@ -16,7 +16,6 @@ import '../../core/providers.dart';
 import '../../core/router/app_router.dart';
 import '../../core/theme/age_profile.dart';
 import '../../core/widgets/feedback.dart';
-import '../auth/auth_controller.dart';
 
 /// 启动页。
 class BootstrapPage extends ConsumerStatefulWidget {
@@ -58,18 +57,9 @@ class _BootstrapPageState extends ConsumerState<BootstrapPage> {
       return;
     }
 
-    // ③ 有 token 才校验；没有就直接去登录页
-    if (serverStore.hasServer && ref.read(localStoreProvider).token != null) {
-      setState(() => _message = '正在打开…');
-      final ok = await ref.read(authControllerProvider.notifier).restore();
-      if (!mounted) {
-        return;
-      }
-      _go(ok ? AppRouter.homeRoute : AppRouter.loginRoute);
-      return;
-    }
-
-    _go(AppRouter.loginRoute);
+    // ③ 简化版无登录态：探活通过直接进首页
+    setState(() => _message = '正在打开…');
+    _go(AppRouter.homeRoute);
   }
 
   void _go(String route) {

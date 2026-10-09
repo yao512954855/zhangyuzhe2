@@ -17,7 +17,6 @@ import 'package:student_app/core/theme/age_profile.dart';
 import 'package:student_app/core/theme/app_theme.dart';
 import 'package:student_app/core/widgets/app_button.dart';
 import 'package:student_app/features/config/practice_config_page.dart';
-import 'package:student_app/features/config/practice_session.dart';
 import 'package:student_app/features/home/home_controller.dart';
 import 'package:student_app/features/home/models.dart';
 import 'package:student_app/router/routes/practice.dart';
@@ -262,55 +261,9 @@ void main() {
       expect(strategy['time_limit_ms'], 30000);
     });
 
-    testWidgets('开始练习后把组好的卷交给练习页（/practice），并带上真实 session_id', (tester) async {
-      useTallScreen(tester);
-      final adapter = JsonAdapter((options) {
-        if (options.uri.path == '/api/sessions') {
-          return okBody({
-            'session_id': 9001,
-            'unit_id': 11,
-            'unit_name': 'Unit 1 Hello!',
-            'content_type': 'english',
-            'items': [
-              for (var seq = 1; seq <= 5; seq++)
-                {'seq': seq, 'word_id': seq, 'mode': 'cn2en', 'prompt': '词$seq'},
-            ],
-            'time_limit_ms': 0,
-            'started_at': '2026-09-24T09:00:00Z',
-          });
-        }
-        return okBody(const {});
-      });
-
-      // ⚠️ 本条原为「练习页还没落地时如实告知」的时序断言（APP-03 未落地时
-      //    给的是「这次已经准备好啦 / 开发中」占位页）。APP-03 落地后按协议翻转成
-      //    「真的把卷交给练习页」——**时序断言落地即翻转**，不是契约变更。
-      PracticeSession? handed;
-      await tester.pumpWidget(
-        boot(
-          PracticeConfigPage(unit: englishUnit()),
-          adapter: adapter,
-          routes: {
-            PracticeRoutes.practice: (context) {
-              handed =
-                  ModalRoute.of(context)?.settings.arguments as PracticeSession?;
-              return const Scaffold(body: Text('练习页桩'));
-            },
-          },
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.text('开始练习'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('练习页桩'), findsOneWidget, reason: '应当跳到了 /practice');
-      expect(handed, isNotNull, reason: '跳转必须把组好的卷作为路由参数传过去');
-      expect(handed!.sessionId, 9001);
-      expect(handed!.contentType, 'english');
-      expect(handed!.items.length, 5);
-      expect(handed!.items.first.seq, 1);
-    });
+    // 注：原「开始练习后把组好的卷交给练习页（/practice）」用例随 WP-F 拆除
+    // features/english 一并移除（英语练习页已删，/practice 不再注册）；
+    // 组卷请求体契约仍由上一条用例钉住。
 
     testWidgets('服务端报错时显示中文提示（含编号），不显示英文堆栈', (tester) async {
       useTallScreen(tester);

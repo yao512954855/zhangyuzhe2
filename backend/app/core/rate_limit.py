@@ -19,7 +19,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import threading
 import time
@@ -29,8 +28,6 @@ from app.core.errors import DEFAULT_MESSAGES, ErrorCode
 from app.core.response import fail
 
 # ---- 契约 §5.4 的档位 ----
-LOGIN_LIMIT = 5
-LOGIN_PATHS = ("/api/auth/login",)
 WRITE_LIMIT = 60
 WINDOW_SECONDS = 60
 
@@ -99,17 +96,13 @@ def _find_header(scope: dict, name: bytes) -> str:
 
 
 def _identity(scope: dict) -> str:
-    """限流主体标识：优先账号（Authorization 头哈希），退化到 IP。"""
-    auth = _find_header(scope, b"authorization")
-    if auth:
-        digest = hashlib.md5(auth.encode("utf-8"), usedforsecurity=False).hexdigest()[:12]
-        return f"u:{digest}"
+    """限流主体标识：简化版无鉴权，按客户端 IP 区分。"""
     client = scope.get("client") or ("unknown", 0)
     return f"ip:{client[0]}"
 
 
 class RateLimitMiddleware:
-    """HTTP 限流中间件（纯 ASGI）。"""
+    """HTTP 限流中间件（纯 ASGI）。简化版仅对写方法按 IP 限流。"""
 
     def __init__(self, app: Callable[..., Awaitable[None]]) -> None:
         self.app = app
@@ -122,16 +115,12 @@ class RateLimitMiddleware:
         method = scope.get("method", "GET")
         path = scope.get("path", "")
 
-        # 只拦写方法与登录接口，GET 不限流
-        is_login = method == "POST" and path in LOGIN_PATHS
+        # 只拦写方法，GET 不限流
         is_write = method in ("POST", "PUT", "PATCH", "DELETE")
 
-        if is_login or is_write:
+        if is_write:
             ident = _identity(scope)
-            if is_login:
-                key, limit = f"login:{ident}", LOGIN_LIMIT
-            else:
-                key, limit = f"write:{ident}", WRITE_LIMIT
+            key, limit = f"write:{ident}", WRITE_LIMIT
 
             allowed, _ = hit(key, limit)
             if not allowed:

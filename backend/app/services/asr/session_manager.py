@@ -27,7 +27,7 @@ import time
 from collections import OrderedDict, deque
 from typing import Any, Awaitable, Callable
 
-from app.core.db import read_conn
+from app.core.db import read_conn, write_tx
 from app.core.errors import ErrorCode
 from app.core.logging import get_logger
 from app.services.asr.arbitrator import ArbitratorProvider
@@ -42,7 +42,6 @@ from app.services.asr.base import (
 )
 from app.services.asr.factory import ASRRouter, load_asr_raw
 from app.services.asr.hotwords import build_hotwords
-from app.services.asr_log_service import ASRLogService
 
 logger = get_logger(__name__)
 
@@ -984,7 +983,11 @@ class ASRSession:
         status: str,
         error_code: str | None = None,
     ) -> None:
-        """写 `asr_logs`（F16）—— `provider` 记**实际用上的**厂商（U9）。"""
+        """写 `asr_logs`（F16）—— `provider` 记**实际用上的**厂商（U9）。
+
+        WP-F 拆除了 `ASRLogService` 中间层（见 F-2 删除清单），这里改为直接落库；
+        `asr_logs` 是保留表（保留的 asr/ 子系统与 asr_daily_rollup 任务仍读写）。
+        """
         name = self.router.used_provider if provider is None else str(
             getattr(provider, "name", None) or self.router.used_provider
         )
@@ -993,18 +996,30 @@ class ASRSession:
         latency = None
         if self._task_started_at is not None:
             latency = int((time.monotonic() - self._task_started_at) * 1000)
-        ASRLogService.write(
-            provider=name,
-            model=str(model) if model else None,
-            lang=self.cfg.lang_hint if self.cfg else None,
-            task_type=self.cfg.task_type if self.cfg else None,
-            audio_ms=audio_ms,
-            latency_ms=latency,
-            status=status,
-            error_code=error_code,
-            session_id=self.cfg.session_id if self.cfg else None,
-            student_id=self.user_id,
-        )
+        try:
+            with write_tx() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO asr_logs
+                        (session_id, student_id, provider, model, lang, task_type,
+                         audio_ms, latency_ms, status, error_code)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        self.cfg.session_id if self.cfg else None,
+                        self.user_id,
+                        name,
+                        str(model) if model else None,
+                        self.cfg.lang_hint if self.cfg else None,
+                        self.cfg.task_type if self.cfg else None,
+                        audio_ms,
+                        latency,
+                        status,
+                        error_code,
+                    ),
+                )
+        except Exception as exc:  # noqa: BLE001 - 日志失败不影响识别主链路
+            logger.warning("asr_logs 写失败（已忽略）：%s", exc)
 
     def _resolve_recitation(self, session_id: Any, msg: dict[str, Any]) -> int | None:
         """解析语文背诵的 `recitation_id`（契约 §6.2 的 `start` 没有这个字段）。

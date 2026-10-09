@@ -13,7 +13,6 @@ library;
 import 'package:flutter/material.dart';
 
 import '../../features/bootstrap/not_found_page.dart';
-import '../../router/routes/auth.dart';
 import '../../router/routes/bootstrap.dart';
 import '../../router/routes/discovery.dart';
 import '../../router/routes/home.dart';
@@ -30,23 +29,16 @@ abstract final class AppRouter {
   static Map<String, WidgetBuilder> get routes => {
         ...BootstrapRoutes.routes,
         ...DiscoveryRoutes.routes,
-        ...AuthRoutes.routes,
         ...HomeRoutes.routes,
         ...PracticeRoutes.routes,
         ...ReciteRoutes.routes,
         ...MistakesRoutes.routes,
       };
 
-  static const String loginRoute = AuthRoutes.login;
-
   static const String discoveryRoute = DiscoveryRoutes.setup;
 
-  /// 登录后的落地页。
-  ///
-  /// **APP-02 一旦在 `home.dart` 里注册了 `/home`，这里自动切过去**，
-  /// APP-01 的临时落地页随之失效 —— 两边都不需要互相改文件。
-  static String get homeRoute =>
-      routes.containsKey(HomeRoutes.home) ? HomeRoutes.home : BootstrapRoutes.homePlaceholder;
+  /// 落地页（简化版：真首页常驻，临时落地页已随 WP-F 删除）。
+  static String get homeRoute => HomeRoutes.home;
 
   /// 真首页是否已经接管（调试/测试用）。
   static bool get homeIsReal => routes.containsKey(HomeRoutes.home);

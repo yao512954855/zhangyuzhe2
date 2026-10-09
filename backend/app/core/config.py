@@ -41,19 +41,10 @@ class Settings(BaseSettings):
     DB_PATH: str = "./data/bjsys.db"
     BACKUP_DIR: str = "./backups"
 
-    # ---- 鉴权 ----
-    # 无默认值 = 必填。缺失时启动直接失败，不静默生成。
-    JWT_SECRET: str
-    JWT_TTL_HOURS: int = 12
-
     # ---- 日志 ----
     LOG_LEVEL: str = "INFO"
 
-    # ---- 初始管理者 ----
-    ADMIN_INIT_USERNAME: str = "admin"
-    ADMIN_INIT_PASSWORD: str
-
-    # ---- CORS ----
+    # ---- CORS（简化版无鉴权，局域网内任意设备可访问，单家庭场景接受）----
     CORS_ORIGINS: str = "http://localhost:5173"
 
     @property
@@ -170,7 +161,7 @@ def get_settings() -> Settings:
         _fail_fast(
             f"未找到配置文件 {env_file}\n"
             f"  请先复制模板：copy .env.example .env\n"
-            f"  然后修改 JWT_SECRET 与 ADMIN_INIT_PASSWORD 后重新启动。"
+            f"  然后重新启动。"
         )
     try:
         return Settings()  # type: ignore[call-arg]

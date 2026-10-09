@@ -49,15 +49,24 @@ import json
 import sqlite3
 from typing import Any
 
-from app.core.audit import write_audit
 from app.core.db import read_conn, utc_now_iso, write_tx
 from app.core.errors import BizError, ErrorCode
 from app.core.excel import build_template, read_xlsx, write_xlsx
 from app.core.logging import get_logger
 from app.core.preview_store import pop as preview_pop
 from app.core.preview_store import put as preview_put
-from app.schemas.content import dump_accepted
 from app.services import pinyin_service
+
+
+def dump_accepted(items: list[str] | None) -> str | None:
+    """`list[str]` → 入库用的 JSON 字符串；空列表 → `None`（契约 §4.5 允许 NULL）。
+
+    原实现位于已删除的 `schemas/content.py`，此处内联最小版本（仅 import_service 使用）。
+    """
+    cleaned = [str(x).strip() for x in (items or []) if str(x).strip()]
+    if not cleaned:
+        return None
+    return json.dumps(cleaned, ensure_ascii=False)
 
 logger = get_logger(__name__)
 
@@ -752,23 +761,6 @@ class ImportService:
                 )
                 created += 1
 
-            write_audit(
-                conn,
-                user_id=operator_id,
-                action="content.import_words",
-                target_type="words",
-                target_id=None,
-                detail={
-                    "file_name": payload.get("file_name"),
-                    "created": created,
-                    "updated": updated,
-                    "skipped": skipped,
-                    "units_created": units_created,
-                    "on_duplicate": on_duplicate,
-                },
-                ip=ip,
-            )
-
         logger.info(
             "词条导入完成：新增 %s / 更新 %s / 跳过 %s / 新建单元 %s",
             created, updated, skipped, units_created,
@@ -1116,21 +1108,6 @@ class ImportService:
                         ),
                     )
                     created += 1
-
-            write_audit(
-                conn,
-                user_id=operator_id,
-                action="content.import_texts",
-                target_type="texts",
-                target_id=None,
-                detail={
-                    "file_name": payload.get("file_name"),
-                    "created": created,
-                    "updated": updated,
-                    "units_created": units_created,
-                },
-                ip=ip,
-            )
 
         logger.info("课文导入完成：新增 %s / 更新 %s / 新建单元 %s", created, updated, units_created)
         return {"created": created, "updated": updated, "units_created": units_created}

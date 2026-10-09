@@ -63,15 +63,9 @@ export const businessRoutes: RouteRecordRaw[] = Object.entries(routeModules)
 
 const routes: RouteRecordRaw[] = [
   {
-    path: '/login',
-    name: 'login',
-    component: () => import('@/views/Login.vue'),
-    meta: { title: '登录', public: true, hidden: true },
-  },
-  {
     path: '/',
     component: () => import('@/layouts/AdminLayout.vue'),
-    redirect: '/dashboard',
+    redirect: '/server/address',
     children: [
       ...businessRoutes,
       {

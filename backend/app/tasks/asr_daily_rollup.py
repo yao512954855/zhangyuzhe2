@@ -38,10 +38,20 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Any
 
-from app.core.audit import write_audit
 from app.core.db import read_conn, write_tx
 from app.core.logging import get_logger
-from app.services.stats_service import _BJ, beijing_day
+
+# 北京时间与切天位移（原 stats_service 已随 WP-F 删除，这里内联最小实现）
+_BJ = "+8 hours"
+
+
+def beijing_day(offset_days: int = 0) -> str:
+    """北京时间某天（`offset_days=0` 今天，`-1` 昨天）的 `YYYY-MM-DD`。"""
+    from datetime import timedelta
+
+    today = datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=8))).date()
+    return (today + timedelta(days=offset_days)).isoformat()
+
 
 logger = get_logger(__name__)
 
@@ -165,23 +175,6 @@ def run_rollup(*, keep_days: int = KEEP_DAYS, dry_run: bool = False) -> dict[str
             (_BJ, cutoff),
         )
         deleted = int(cur.rowcount or 0)
-
-        # ---- 3) 审计（只在真删了东西时写，避免每天一条噪音）----
-        if deleted:
-            write_audit(
-                conn,
-                user_id=None,
-                action="asr.rollup",
-                target_type="asr_logs",
-                target_id=None,
-                detail={
-                    "cutoff": cutoff,
-                    "keep_days": keep_days,
-                    "rolled_rows": sum(int(r["call_count"] or 0) for r in aggregates),
-                    "deleted_rows": deleted,
-                    "rolled_days": len(aggregates),
-                },
-            )
 
     result = {
         "cutoff": cutoff,

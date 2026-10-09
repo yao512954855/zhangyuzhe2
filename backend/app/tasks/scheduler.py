@@ -35,7 +35,6 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
-from app.core.audit import write_audit
 from app.core.config import get_settings
 from app.core.db import get_conn, read_conn, write_tx
 from app.core.logging import get_logger
@@ -184,26 +183,11 @@ async def _tick(now: datetime | None = None) -> None:
 
 
 def _audit_ip_change() -> None:
-    """IP 变化写审计（10b F4「变化时更新 last_ip_change_at 并写审计」）。
+    """简化版无审计：原 `write_audit` 落库逻辑随 WP-F 清理移除（契约无鉴权）。
 
-    ⚠️ 审计失败只告警：不能因为审计写不进去就让检测逻辑失败。
+    保留此函数签名仅为不改动调用点；函数体为空操作。
     """
-    try:
-        with write_tx() as conn:
-            write_audit(
-                conn,
-                user_id=None,
-                action="server.ip_changed",
-                target_type="server",
-                target_id=None,
-                detail={
-                    "current_ip": state.current_ip,
-                    "previous_ips": state.previous_ips,
-                    "last_ip_change_at": state.last_ip_change_at,
-                },
-            )
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("IP 变化审计写入失败（忽略）：%s", exc)
+    return None
 
 
 async def _ticker() -> None:
