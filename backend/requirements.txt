@@ -34,6 +34,11 @@ python-docx==1.2.0
 # 契约 §1 要求「版本写死到具体版本」，传递依赖一旦被上游放宽就会漂移，因此显式钉住。
 websockets==17.1
 
+# ---------- OCR 拍照批改（WP-D，契约 §1：alibabacloud_ocr_api20210707>=2.0.0）----------
+# ⚠️ 清华镜像没有此包，安装必须走官方 PyPI：
+#    backend/.venv/Scripts/pip.exe install alibabacloud_ocr_api20210707 -i https://pypi.org/simple
+alibabacloud_ocr_api20210707>=2.0.0
+
 # ---------- 测试 ----------
 pytest==9.1.1
 httpx==0.28.1          # 同时用于 BE-06 的非流式 ASR 调用（无需再引 aiohttp）

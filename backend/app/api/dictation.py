@@ -1,33 +1,35 @@
-"""听写批改路由 —— WP-A 建壳，真实现归 WP-D（契约《01-共享契约冻结》§4.1）。
-
-`POST /api/dictation/grade` 在批次2 返回 HTTP 501 + 业务码 `20005`（占位，
-见 10-后端 §WP-A「OCR 壳的 501 占位」）。批次3 WP-D 把实现填进**同一文件**，
-路由路径不得改动：
+"""听写批改路由 —— 契约《01-共享契约冻结》§4.1（WP-D 批次3 实现）。
 
     POST /api/dictation/grade   multipart: file(手写照片) + form words=["apple",…]
-        → {results:[{word,recognized,correct,confidence}], ocr_content}
+        → {results:[{word,recognized,correct,confidence,uncertain}], ocr_content}
 
-图片约束（契约 §4）：multipart/form-data，字段名 `file`，JPEG/PNG/WebP，≤10MB。
+路由路径为批次2 冻结项，**不得改动**。图片约束（契约 §4）：
+multipart/form-data，字段名 `file`，JPEG/PNG/WebP，≤10MB。
+
+图片无效 / 云端 OCR 失败由 `dictation_service` 抛 `BizError(20006/20005)`，
+经 `main.py` 全局 handler 转 HTTP 200 + 非零 code 信封（契约 §4）。
+
+注意：本路由用**同步 `def`**（非 async）——OCR SDK 调用是阻塞 IO，
+FastAPI 会把同步路由丢线程池执行，不卡事件循环。
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter, File, Form
-from fastapi.responses import JSONResponse
+from typing import Any
 
-from app.core.errors import ErrorCode
-from app.core.response import fail
+from fastapi import APIRouter, File, Form
+
+from app.core.response import ok
+from app.services import dictation_service
 
 router = APIRouter(tags=["dictation"])
 
 
 @router.post("/api/dictation/grade")
-async def grade(
+def grade(
     file: bytes = File(...),
     words: list[str] = Form(...),
-) -> JSONResponse:
-    """占位实现：批次2 一律返回 501 + `20005`（WP-D 批次3 替换本函数体）。"""
-    return JSONResponse(
-        status_code=501,
-        content=fail(ErrorCode.OCR_GRADE_FAILED, "听写批改尚未上线，请稍后再试"),
-    )
+) -> dict[str, Any]:
+    """拍照批改：手写照片 + 词表 → 逐词对错与置信度。"""
+    result = dictation_service.grade_handwriting(file, list(words))
+    return ok(result)

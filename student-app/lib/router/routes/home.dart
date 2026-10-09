@@ -1,51 +1,35 @@
-/// 首页路由 —— **WP-APP-02 所有**（APP-01 只创建了空壳）。
+/// 首页 / 听背入口路由 —— 简化版 WP-C 重写。
 ///
-/// 按 `app_router.dart` 的协议填：保留常量名、只填 [routes]、**不改聚合器**。
-/// `AppRouter.homeRoute` 靠 [home] 这个常量判断"真首页已接管"，
-/// 所以**常量名不能改** —— 改了聚合器就会继续指向 APP-01 的临时落地页。
+/// 本批次首页只剩【听背】【错题本】两个入口（30-学生端 WP-C 功能点 1）：
+/// - `home`：新首页（**常量名不能改**——`AppRouter.homeRoute`/`homeIsReal`
+///   靠它判断真首页已接管）；
+/// - `unitList`：单元列表 + 类型单选（听/背分发）。
+///
+/// 旧多用户体系路由（gradePicker / unitDetail / practiceConfig）**常量保留**：
+/// `features/config/`（本批次暂不物理删除的孤儿）与旧页面文件还在引用它们；
+/// 页面注册已清空，物理删除清单见 WP-C 批次3 报告接力项。
 library;
 
 import 'package:flutter/material.dart';
 
-import '../../features/config/practice_config_page.dart';
-import '../../features/home/grade_semester_picker.dart';
-import '../../features/home/main_shell.dart';
-import '../../features/home/models.dart';
-import '../../features/home/unit_detail_page.dart';
+import '../../features/home/home_page.dart';
+import '../../features/home/unit_list_page.dart';
 
-/// P4 首页、单元详情、年级学期、P5 练习配置。
+/// 首页与听背入口路径常量。
 abstract final class HomeRoutes {
-  /// P4 首页。**常量名不要改**。
+  /// 首页。**常量名不要改**。
   static const home = '/home';
 
-  /// 单元详情（词条列表与各自掌握状态，F14）。
+  /// 听背 · 单元列表（新链路）。
+  static const unitList = '/home/units';
+
+  /// 旧体系常量（仅存量文件引用，无注册页面）。
   static const unitDetail = '/home/unit';
-
-  /// 年级学期选择页（F2：仅首次强制）。
   static const gradePicker = '/home/grade';
-
-  /// P5 练习配置页。
   static const practiceConfig = '/home/config';
 
   static Map<String, WidgetBuilder> get routes => {
-        // 首页外壳：底部导航把「错题本 / 我的」也一并管起来（见 main_shell.dart）
-        home: (_) => const MainShell(),
-        gradePicker: (_) => const GradeSemesterPickerPage(),
-        unitDetail: (context) {
-          final args = ModalRoute.of(context)?.settings.arguments;
-          // 参数缺失时**不崩**：页面自己会给"请回首页再点一次"的指引
-          return UnitDetailPage(unit: args is UnitItem ? args : null);
-        },
-        practiceConfig: (context) {
-          final args = ModalRoute.of(context)?.settings.arguments;
-          if (args is PracticeConfigArgs) {
-            return PracticeConfigPage(unit: args.unit, initialScope: args.scope);
-          }
-          // 兼容只传 UnitItem 的调用方（如单元详情页的「设置练法」）
-          if (args is UnitItem) {
-            return PracticeConfigPage(unit: args);
-          }
-          return const PracticeConfigPage();
-        },
+        home: (_) => const HomePage(),
+        unitList: (_) => const UnitListPage(),
       };
 }

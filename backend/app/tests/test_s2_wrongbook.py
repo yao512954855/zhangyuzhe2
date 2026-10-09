@@ -180,14 +180,15 @@ def test_u9_delete_then_not_in_open_list(client: TestClient, seed: dict):
 
 
 # ===========================================================================
-# U12：dictation/grade 壳 → 20005
+# U12：dictation/grade —— WP-D 实装后改为验证坏图仍映射 20006/20005
 # ===========================================================================
 
-def test_u12_dictation_grade_shell(client: TestClient):
+def test_u12_dictation_grade_invalid_image(client: TestClient):
     r = client.post(
         "/api/dictation/grade",
         files={"file": ("photo.jpg", b"\xff\xd8\xff\xe0fake")},
         data={"words": ["apple", "banana"]},
     )
-    assert r.status_code == 501, "壳阶段 HTTP 501 占位"
-    assert r.json()["code"] == 20005, r.json()
+    # 魔数是 JPEG 但内容为假 → 解码失败走 20006；OCR 网络问题走 20005，两者都合法
+    assert r.status_code == 200, r.text
+    assert r.json()["code"] in (20006, 20005), r.json()

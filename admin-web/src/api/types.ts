@@ -27,6 +27,86 @@ export interface PageQuery {
   page_size?: number
 }
 
+// ---------------------------------------------------------------------------
+// 单元与内容（WP-B，契约《01-共享契约冻结》§3.1 / §4.1 / §7）
+// ---------------------------------------------------------------------------
+
+/** 内容类型枚举（契约 §7 item_type）—— 全局唯一取值，中文映射只放 UI 层。 */
+export type ItemType = 'word' | 'phrase' | 'sentence'
+
+/** 单元下三类内容的数量（`GET /api/units` 行内 `counts`）。 */
+export interface UnitCounts {
+  word: number
+  phrase: number
+  sentence: number
+}
+
+/** `GET /api/units` 返回的单元节点（全量树，不分页）。 */
+export interface UnitNode {
+  id: number
+  name: string
+  sort: number
+  counts: UnitCounts
+}
+
+/** `POST /api/units` / `PUT /api/units/{id}` 载荷。 */
+export interface UnitSavePayload {
+  name: string
+  sort: number
+}
+
+/** `POST /api/units` / `PUT` 的返回体（新建后 counts 全 0，后端不回该字段）。 */
+export interface UnitSaved {
+  id: number
+  name: string
+  sort: number
+}
+
+/** `GET /api/items` 行（后端 JOIN 出 `unit_name` 便于列表展示）。 */
+export interface ItemRow {
+  id: number
+  unit_id: number
+  unit_name: string
+  type: ItemType
+  en: string
+  /** 词性，选填（如 adj. / v.），空串表示未填。 */
+  pos: string
+  zh: string
+  /** 其他可接受答案，顿号「、」分隔，空串表示未填。 */
+  alt_zh: string
+  sort: number
+  created_at: string
+}
+
+/** `POST /api/items` 载荷。 */
+export interface ItemSavePayload {
+  unit_id: number
+  type: ItemType
+  en: string
+  pos?: string
+  zh: string
+  alt_zh?: string
+  sort?: number
+}
+
+/** `PUT /api/items/{id}` 载荷 —— 同字段可选，只改传入的。 */
+export type ItemUpdatePayload = Partial<ItemSavePayload>
+
+/** `GET /api/items` 查询参数（契约 §2：page 1 起，page_size 默认 20 上限 200）。 */
+export interface ItemListQuery extends PageQuery {
+  unit_id?: number
+  type?: ItemType
+  /** 服务端过滤（en / zh LIKE），前端不做本地过滤。 */
+  keyword?: string
+}
+
+/** `POST /api/items/import` 返回（契约 §4.1）。 */
+export interface ItemImportResult {
+  inserted: number
+  duplicated: number
+  failed: { row: number; reason: string }[]
+}
+
 /** 后端错误码 —— 与 `backend/app/core/errors.py` 的 `ErrorCode` 逐条对齐。 */
 export const ErrorCode = {
   PARAM_INVALID: 10001,

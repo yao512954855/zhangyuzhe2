@@ -1,322 +1,123 @@
-/// P4 首页 —— F1 / F2 / F4 / F5 / F6 / F14 / F15（UI 规范 §7.4）。
+/// 学生端首页 —— 简化版 WP-C（30-学生端工作包规格 功能点 1）。
 ///
-/// 页面自身的三条规则：
-/// 1. **没有选过年级学期 → 整页就是引导页**（F2）。
-///    不弹窗、不 push 新路由 —— 靠结构保证"强制"，学生按返回键也绕不过去。
-/// 2. 学科切换**纯本地过滤**（数据一次拉全），不闪、不转圈（§5.1 禁止闪烁）。
-/// 3. 断网时展示缓存并明说"这是上次的数据"（U10），**不白屏**。
+/// 只剩两个大按钮：**听背**（进单元列表选内容）与**错题本**。
+/// 错题本页面由 WP-E（批次4）交付，在此之前按钮置灰 + 「即将开放」提示
+/// （跨包接力项 J2：E 落地后由集成阶段接线，见 00-总纲 §4）。
 library;
 
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/net/api_exception.dart';
-import '../../core/providers.dart';
+import '../../router/routes/home.dart';
 import '../../core/theme/age_profile.dart';
 import '../../core/theme/app_theme.dart';
-import '../../core/widgets/feedback.dart';
-import '../../router/routes/home.dart';
-import '../../router/routes/mistakes.dart';
-import '../config/practice_config_page.dart';
-import '../config/practice_launcher.dart';
-import '../config/practice_config_controller.dart';
-import '../config/practice_strategy.dart';
-import '../theme/theme_switcher_sheet.dart';
-import 'choice_card.dart';
-import 'grade_semester_picker.dart';
-import 'home_controller.dart';
-import 'models.dart';
-import 'progress_header.dart';
-import 'unit_card.dart';
 
-class HomePage extends ConsumerStatefulWidget {
-  const HomePage({super.key, this.now});
-
-  /// 可注入的"当前时间"（让单元卡的"上次：今天/昨天"在单测里稳定）。
-  final DateTime? now;
-
-  @override
-  ConsumerState<HomePage> createState() => _HomePageState();
-}
-
-class _HomePageState extends ConsumerState<HomePage> {
-  /// 正在快捷开练的单元 id（防连点：一次点击会发一次组卷请求）。
-  int? _startingUnitId;
+/// 首页。
+class HomePage extends StatelessWidget {
+  const HomePage({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final preference = ref.watch(gradePrefProvider);
-
-    // F2：首次引导。整页交给选择器，选完 preference 一变就自动渲染出真首页
-    if (!preference.isSet) {
-      return GradeSemesterPickerPage(force: true, clock: widget.now);
-    }
-
-    final asyncData = ref.watch(homeControllerProvider);
-    final subject = ref.watch(homeSubjectProvider);
+    final profile = AgeScope.of(context);
+    final extra = AppExtraColors.of(context);
 
     return Scaffold(
+      appBar: AppBar(
+        title: const Text('背记系统'),
+        centerTitle: true,
+      ),
       body: SafeArea(
-        child: asyncData.when(
-          loading: () => const LoadingView(),
-          error: (error, _) => ErrorView.fromException(
-            error is ApiException ? error : ApiException.server(error),
-            onRetry: () => ref.read(homeControllerProvider.notifier).refresh(),
+        child: Padding(
+          padding: const EdgeInsets.all(AgeProfile.screenEdgeInset * 2),
+          child: Column(
+            children: [
+              const Spacer(flex: 2),
+              _HomeEntry(
+                icon: Icons.edit_note_rounded,
+                label: '听背',
+                hint: '选单元，听写或背诵',
+                onTap: () =>
+                    Navigator.of(context).pushNamed(HomeRoutes.unitList),
+              ),
+              const SizedBox(height: AgeProfile.adjacentButtonGap * 1.5),
+              _HomeEntry(
+                icon: Icons.auto_stories_rounded,
+                label: '错题本',
+                hint: '即将开放',
+                enabled: false,
+              ),
+              const Spacer(flex: 3),
+              Text(
+                '先把内容录进后台，再从这里开始练',
+                style: profile.captionStyle.copyWith(color: extra.textFaint),
+              ),
+              const SizedBox(height: AgeProfile.screenEdgeInset),
+            ],
           ),
-          data: (data) => _content(data, subject),
         ),
       ),
     );
   }
-
-  Widget _content(HomeData data, Subject subject) {
-    final profile = AgeScope.of(context);
-    final extra = AppExtraColors.of(context);
-    final units = data.units.bySubject(subject);
-
-    return RefreshIndicator(
-      onRefresh: () => ref.read(homeControllerProvider.notifier).refresh(),
-      child: ListView(
-        // 内容不足一屏时也要能下拉刷新
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.all(AgeProfile.screenEdgeInset),
-        children: [
-          ProgressHeader(
-            // 简化版无登录态：不再展示登录用户名（WP-F 拆鉴权）。
-            displayName: '同学',
-            preference: ref.watch(gradePrefProvider),
-            subject: subject,
-            progress: data.progress,
-            preferencePending: data.preferencePending,
-            offline: data.offline,
-            onTapGrade: () => Navigator.of(context).pushNamed(HomeRoutes.gradePicker),
-            onTapSettings: _openSettings,
-          ),
-          const SizedBox(height: AgeProfile.elementGap),
-
-          // F4：学科切换（卡片式，与其它选择视觉统一；不是下拉框）
-          ChoiceGroup<Subject>(
-            options: Subject.values,
-            selected: subject,
-            labelOf: (value) => value.label,
-            onSelect: (value) => ref.read(homeSubjectProvider.notifier).select(value),
-          ),
-          const SizedBox(height: AgeProfile.elementGap),
-
-          // F5：单元列表
-          if (units.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 40),
-              child: EmptyView(
-                title: '这个年级还没有${subject.label}内容',
-                hint: data.offline
-                    ? '连上服务器后再看看'
-                    : '让管理者先导入${subject.label}内容，就能开始练了',
-                icon: Icons.inbox_rounded,
-              ),
-            )
-          else
-            for (final unit in units) ...[
-              UnitCard(
-                unit: unit,
-                now: widget.now,
-                onTap: () => Navigator.of(context)
-                    .pushNamed(HomeRoutes.unitDetail, arguments: unit),
-                onStart: () => _quickStart(unit),
-              ),
-              const SizedBox(height: AgeProfile.elementGap),
-            ],
-
-          // P4 的常驻快捷入口：「只练错题（N 个）」（英语）/「错题本（N 个字）」（语文）
-          _WrongWordsCard(
-            count: subject == Subject.english ? data.wrongCount : data.wrongCharsCount,
-            subject: subject,
-            onTap: () => _openWrongPicker(data, subject),
-          ),
-          const SizedBox(height: 8),
-          Center(
-            child: Text(
-              '练完一轮记得看看远处，让眼睛歇一会儿',
-              style: profile.captionStyle.copyWith(color: extra.textFaint),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// F6：单元卡「开始练习」——**默认组合直接开练，不进配置页**。
-  ///
-  /// 默认组合 = 全部 + 顺序 + 不限时 + 中文→英文，
-  /// 正好是 [PracticeConfig] 的字段默认值（改默认值会同时改这里，是刻意的）。
-  Future<void> _quickStart(UnitItem unit) async {
-    if (_startingUnitId != null) {
-      return;
-    }
-    setState(() => _startingUnitId = unit.unitId);
-    final notifier = ref.read(practiceConfigProvider.notifier);
-    try {
-      await notifier.start(unit);
-      final session = await notifier.submit();
-      if (!mounted) {
-        return;
-      }
-      if (session == null) {
-        final message = ref.read(practiceConfigProvider).errorText ?? '这次没组出题目，换一个单元试试';
-        showAppSnack(context, message);
-        return;
-      }
-      openPracticeSession(context, session);
-    } finally {
-      if (mounted) {
-        setState(() => _startingUnitId = null);
-      }
-    }
-  }
-
-  /// 错题入口：**英语先选单元，语文直接进错题本页**。
-  ///
-  /// 两者不同不是偷懒，是数据形状决定的：
-  /// - **英语**错题是**词条、按单元组织**，而首页拿到的单元列表里
-  ///   **没有 `with_error`**（契约 §8.3 未下发，见偏离 #44）→
-  ///   客户端判断不出哪个单元有错题。与其猜一个，不如让学生点一下
-  ///   （选中的单元确实没错题时，配置页会明说）。
-  /// - 简化版（WP-F）已拆旧错题本页：两个学科统一走「选单元 → 配置页
-  ///   `scope=wrong`」，真正的错题本入口由 WP-E 落地后接线（跨包接力项 J2/J3）。
-  Future<void> _openWrongPicker(HomeData data, Subject subject) async {
-    final units = data.units.bySubject(subject);
-    if (units.isEmpty) {
-      showAppSnack(context, '这个年级还没有${subject.label}内容');
-      return;
-    }
-
-    final picked = await showModalBottomSheet<UnitItem>(
-      context: context,
-      showDragHandle: true,
-      builder: (sheetContext) {
-        final profile = AgeScope.of(sheetContext);
-        return SafeArea(
-          child: ListView(
-            shrinkWrap: true,
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            children: [
-              Text('练哪个单元的错题？', style: profile.cardTitleStyle),
-              const SizedBox(height: 12),
-              for (final unit in units)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: ChoiceCard(
-                    label: '${unit.name}（${unit.progressText}）',
-                    selected: false,
-                    expand: true,
-                    onTap: () => Navigator.of(sheetContext).pop(unit),
-                  ),
-                ),
-            ],
-          ),
-        );
-      },
-    );
-
-    if (picked == null || !mounted) {
-      return;
-    }
-    Navigator.of(context).pushNamed(
-      HomeRoutes.practiceConfig,
-      arguments: PracticeConfigArgs(unit: picked, scope: PracticeScope.wrong),
-    );
-  }
-
-  /// 设置入口：APP-05 的 P12 设置页落地后自动接管；
-  /// 在此之前退化成"换个颜色"（APP-01 已有的能力），
-  /// **不留一个点了没反应的按钮**。
-  void _openSettings() {
-    final settingsRoute = MistakesRoutes.settings;
-    if (MistakesRoutes.routes.containsKey(settingsRoute)) {
-      Navigator.of(context).pushNamed(settingsRoute);
-      return;
-    }
-    showThemeSwitcher(context);
-  }
 }
 
-/// 错题常驻卡（UI 规范 P4 明确要求「不用进二级页面」）。
-///
-/// **两个学科的文案与去向不同**，别为对称硬凑成一个：
-/// - 英语：`只练错题（N 个）` → 选单元 → 配置页 `scope=wrong` → 直接开练；
-/// - 语文：`错题本（N 个字）` → 进错题本页（按课文分组，再「重背这篇」）。
-///   语文不会写「只练错题」—— 背诵是按课文逐字走的，后端没有"只背这几个字"
-///   这种模式，写「只练错题」就是骗学生。
-class _WrongWordsCard extends StatelessWidget {
-  const _WrongWordsCard({required this.count, required this.subject, required this.onTap});
+/// 首页入口大按钮（触控高度跟分龄档位走，≥48dp 硬下限）。
+class _HomeEntry extends StatelessWidget {
+  const _HomeEntry({
+    required this.icon,
+    required this.label,
+    required this.hint,
+    this.enabled = true,
+    this.onTap,
+  });
 
-  final int count;
-  final Subject subject;
-  final VoidCallback onTap;
+  final IconData icon;
+  final String label;
+  final String hint;
+  final bool enabled;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final profile = AgeScope.of(context);
     final extra = AppExtraColors.of(context);
-    final isEnglish = subject == Subject.english;
-    final enabled = count > 0;
+    final palette = Theme.of(context).colorScheme;
 
-    final String title;
-    final String hint;
-    if (isEnglish) {
-      title = enabled ? '只练错题（$count 个）' : '只练错题';
-      hint = enabled ? '把做错过的词再练一遍' : '还没有错题，先正常练几遍吧';
-    } else {
-      title = enabled ? '错题本（$count 个字）' : '错题本';
-      hint = enabled ? '漏背过的字，点进去重背那几篇' : '还没有漏背的字，先按课文背几篇吧';
-    }
+    final bg = enabled ? palette.primary : extra.card;
+    final fg = enabled ? palette.onPrimary : extra.textFaint;
 
-    return Material(
-      color: extra.card,
-      borderRadius: BorderRadius.circular(14),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(14),
-        onTap: enabled ? onTap : null,
-        child: Container(
-          constraints: BoxConstraints(minHeight: profile.listItemHeight + 8),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: extra.divider, width: 0.5),
-          ),
-          child: Row(
-            children: [
-              Icon(
-                Icons.error_outline_rounded,
-                size: profile.caption + 8,
-                color: enabled ? extra.error : extra.textFaint,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      label: label,
+      child: Material(
+        color: bg,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: enabled ? onTap : null,
+          child: SizedBox(
+            height: profile.primaryButtonHeight * 2,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon, size: 40, color: fg),
+                const SizedBox(width: 16),
+                Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      title,
-                      style: profile.bodyStyle.copyWith(
-                        fontWeight: FontWeight.w500,
-                        color: enabled ? null : extra.textFaint,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
+                    Text(label, style: profile.pageTitleStyle.copyWith(color: fg)),
                     Text(
                       hint,
-                      style: profile.captionStyle.copyWith(color: extra.textSub),
+                      style: profile.captionStyle.copyWith(
+                        color: enabled
+                            ? fg.withValues(alpha: 0.8)
+                            : extra.textFaint,
+                      ),
                     ),
                   ],
                 ),
-              ),
-              Icon(
-                Icons.chevron_right_rounded,
-                size: profile.caption + 8,
-                color: enabled ? extra.textFaint : extra.divider,
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

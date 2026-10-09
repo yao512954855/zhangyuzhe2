@@ -14,6 +14,7 @@ import 'package:flutter/material.dart';
 
 import '../../features/bootstrap/not_found_page.dart';
 import '../../router/routes/bootstrap.dart';
+import '../../router/routes/dictation.dart';
 import '../../router/routes/discovery.dart';
 import '../../router/routes/home.dart';
 import '../../router/routes/mistakes.dart';
@@ -32,6 +33,7 @@ abstract final class AppRouter {
         ...HomeRoutes.routes,
         ...PracticeRoutes.routes,
         ...ReciteRoutes.routes,
+        ...DictationRoutes.routes, // J1 销账：WP-D 听写链路（2026-10-09 集成接线）
         ...MistakesRoutes.routes,
       };
 

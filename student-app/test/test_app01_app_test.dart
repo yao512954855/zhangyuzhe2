@@ -140,12 +140,17 @@ void main() {
 
     test('各包路由现状（简化版拆除后的时序快照）', () {
       expect(AppRouter.routes.containsKey('/home'), isTrue);
-      // 简化版（WP-F）已拆 features/english 与 features/mine：
-      // /practice、/mistakes 不再注册；/recite 保留（WP-C 将清空重写）。
+      // 简化版（WP-F）已拆 features/english 与 features/mine；
+      // 批次3（WP-C）清空重写 home/recite：旧 /recite、/home/unit、
+      // /home/grade、/home/config 不再注册，新背链路四页上线。
       // ⚠️ 这组是**时序快照**，不是契约：契约只要求「包落地了就注册进来」。
       expect(AppRouter.routes.containsKey('/practice'), isFalse);
-      expect(AppRouter.routes.containsKey('/recite'), isTrue);
+      expect(AppRouter.routes.containsKey('/recite'), isFalse);
       expect(AppRouter.routes.containsKey('/mistakes'), isFalse);
+      expect(AppRouter.routes.containsKey('/home/units'), isTrue);
+      expect(AppRouter.routes.containsKey('/recite/config'), isTrue);
+      expect(AppRouter.routes.containsKey('/recite/spell'), isTrue);
+      expect(AppRouter.routes.containsKey('/recite/settle'), isTrue);
     });
 
     test('未知路由有兜底页（F19 不红屏）', () {

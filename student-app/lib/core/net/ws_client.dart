@@ -338,6 +338,11 @@ class WsClient {
     _sendJson(options.toJson());
   }
 
+  /// 发送原始控制帧（简化版 WP-C practice 上行用：`start {session_id, mode,
+  /// item_id}` 的 `session_id` 是字符串，装不进 [WsStartOptions] 的 int）。
+  /// 纯新增方法，旧 [sendStart] 语义不变。
+  void sendRawJson(Map<String, dynamic> payload) => _sendJson(payload);
+
   /// 发送一包音频（**二进制帧**，裸 PCM 16k/单声道/16bit）。
   bool sendAudio(Uint8List chunk) {
     final channel = _channel;
