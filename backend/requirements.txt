@@ -20,11 +20,10 @@ python-dotenv==1.2.3
 PyYAML==6.0.3
 
 # ---------- 鉴权（简化版已无登录态：bcrypt 已删；PyJWT 暂保留，待后续批次复核）----------
-PyJWT==2.14.0
 
 # ---------- Excel、Word 与拼音 ----------
 openpyxl==3.1.5
-# pypinyin==0.51.0   # 简化版已删语文背诵，拼音服务暂无用；按 WP-F 规格先注释，待 WP-C 确认拼读判定不依赖后由其物理删除
+# pypinyin 已随语文模块删除（WP-F 注释、集成期确认无引用后移除）
 # `python-docx` 是 WP-2B（Word→Excel 导入转换脚本 `scripts/word2excel.py`）的直接依赖。
 # 它与本清单同目录同源，故登记在此（脚本本身不新增后端接口，只做离线转换）。
 python-docx==1.2.0
