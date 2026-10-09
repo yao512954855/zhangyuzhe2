@@ -23,6 +23,7 @@ class SettleSummary {
     required this.mode,
     required this.unitName,
     required this.typeName,
+    this.returnRoute,
   });
 
   final int correct;
@@ -33,6 +34,9 @@ class SettleSummary {
   final String mode;
   final String unitName;
   final String typeName;
+
+  /// 结算后回跳的路由名（J3：错题本重做传错题本路由；空则回单元列表）。
+  final String? returnRoute;
 }
 
 /// 总结算页。
@@ -75,10 +79,12 @@ class _SettlePageState extends State<SettlePage> {
     if (!mounted) {
       return;
     }
-    // 清栈规范（§9）：pushNamedAndRemoveUntil；只清到首页之上，
-    // 回到单元列表重新选内容。
+    // 清栈规范（§9）：pushNamedAndRemoveUntil；只清到首页之上。
+    // J3：错题本重做的场次回错题本（returnRoute 由 SpellRun 透传），
+    // 普通练习回单元列表重新选内容。
+    final target = widget.summary?.returnRoute ?? HomeRoutes.unitList;
     Navigator.of(context).pushNamedAndRemoveUntil(
-      HomeRoutes.unitList,
+      target,
       ModalRoute.withName(HomeRoutes.home),
     );
   }

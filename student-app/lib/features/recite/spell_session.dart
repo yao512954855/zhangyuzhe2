@@ -42,6 +42,7 @@ class SpellRun {
     required this.typeName,
     required this.items,
     required this.startedAt,
+    this.returnRoute,
   });
 
   /// practice 会话 id（字符串，WS 与 answer/settle 原样透传）。
@@ -54,6 +55,9 @@ class SpellRun {
   final String typeName;
   final List<SpellItem> items;
   final DateTime startedAt;
+
+  /// 结算后要回的路由名（J3：错题本重做传入指回错题本；普通练习为空回单元列表）。
+  final String? returnRoute;
 
   bool get isZh2En => mode == 'spell_zh2en';
 

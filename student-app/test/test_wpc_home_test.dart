@@ -113,17 +113,17 @@ void main() {
     return tester.widget<InkWell>(candidates.last);
   }
 
-  testWidgets('U1 首页两按钮：听背可点、错题本置灰带「即将开放」', (tester) async {
+  testWidgets('U1 首页两按钮：听背与错题本均可点（J2 已接线）', (tester) async {
     await tester.pumpWidget(boot(adapter()));
     await tester.pump();
 
     expect(find.text('听背'), findsOneWidget);
     expect(find.text('错题本'), findsOneWidget);
-    expect(find.text('即将开放'), findsOneWidget);
+    expect(find.text('错了的题都在这'), findsOneWidget);
 
-    // 置灰逻辑：错题本的 InkWell.onTap 为 null，听背的能点
-    expect(inkWellOf(tester, '错题本').onTap, isNull,
-        reason: 'WP-E 未交付，错题本入口必须置灰（接力项 J2）');
+    // J2 销账（2026-10-09 集成接线）：两入口 onTap 均非空
+    expect(inkWellOf(tester, '错题本').onTap, isNotNull,
+        reason: 'WP-E 已交付，错题本入口必须可点');
     expect(inkWellOf(tester, '听背').onTap, isNotNull);
   });
 

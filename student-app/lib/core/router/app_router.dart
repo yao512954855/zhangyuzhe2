@@ -20,6 +20,7 @@ import '../../router/routes/home.dart';
 import '../../router/routes/mistakes.dart';
 import '../../router/routes/practice.dart';
 import '../../router/routes/recite.dart';
+import '../../router/routes/wrongbook.dart';
 
 /// 全局路由表。
 abstract final class AppRouter {
@@ -34,6 +35,7 @@ abstract final class AppRouter {
         ...PracticeRoutes.routes,
         ...ReciteRoutes.routes,
         ...DictationRoutes.routes, // J1 销账：WP-D 听写链路（2026-10-09 集成接线）
+        ...WrongbookRoutes.routes, // J1 销账：WP-E 错题本（2026-10-09 集成接线）
         ...MistakesRoutes.routes,
       };
 

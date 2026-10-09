@@ -404,6 +404,14 @@ class _SpellPageState extends ConsumerState<SpellPage> {
         // 同题先错后对的（键盘重拼 / en2zh 再试一次）：以最终一次为准，
         // 不让旧失败记录把它再记进错题本。
         _results.removeWhere((r) => r.itemId == _item.id);
+        // 判对移出错题本（30-规格 WP-E 约定：判对即 DELETE，fire-and-forget，
+        // 失败不影响背题主链路——移不干净顶多重做一遍）。
+        unawaited(
+          ref
+              .read(apiClientProvider)
+              .delete<dynamic>('/api/wrongbook/${_item.id}/${run.mode}')
+              .catchError((Object _) {}),
+        );
       }
       _results.add(SpellItemResult(
         itemId: _item.id,
@@ -529,6 +537,7 @@ class _SpellPageState extends ConsumerState<SpellPage> {
           mode: run.mode,
           unitName: run.unitName,
           typeName: run.typeName,
+          returnRoute: run.returnRoute,
         ),
       );
     } finally {

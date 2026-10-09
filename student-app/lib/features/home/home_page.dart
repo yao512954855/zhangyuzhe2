@@ -8,6 +8,7 @@ library;
 import 'package:flutter/material.dart';
 
 import '../../router/routes/home.dart';
+import '../../router/routes/wrongbook.dart';
 import '../../core/theme/age_profile.dart';
 import '../../core/theme/app_theme.dart';
 
@@ -42,8 +43,11 @@ class HomePage extends StatelessWidget {
               _HomeEntry(
                 icon: Icons.auto_stories_rounded,
                 label: '错题本',
-                hint: '即将开放',
-                enabled: false,
+                hint: '错了的题都在这',
+                // J2 销账：WP-E 已交付（2026-10-09 集成接线）。
+                enabled: true,
+                onTap: () =>
+                    Navigator.of(context).pushNamed(WrongbookRoutes.wrongbook),
               ),
               const Spacer(flex: 3),
               Text(
