@@ -187,7 +187,8 @@ def test_udp_reply_contract_is_exact():
     # ⚠️ 必须是 **HTTP 端口**，不是 UDP 发现端口 —— 写错客户端会去连 9527，表现为永远连不上
     assert payload["port"] == http_port()
     assert payload["port"] != DISCOVERY_PORT
-    assert payload["need_auth"] is True
+    # 接力项 J-A3：简化版无鉴权，字段保留但值改为 False（契约 §4）
+    assert payload["need_auth"] is False
     assert payload["server_name"] == server_name()
     host = payload["host"]
     assert host is None or netinfo.parse_v4(host) is not None
@@ -241,7 +242,8 @@ def test_u2_udp_real_roundtrip(client):
     payload = json.loads(raw.decode("utf-8"))
     assert payload["magic"] == HERE_MAGIC
     assert payload["port"] == http_port()
-    assert payload["need_auth"] is True
+    # 接力项 J-A3：简化版无鉴权，字段保留但值改为 False（契约 §4）
+    assert payload["need_auth"] is False
 
 
 def test_udp_counters_are_kept_in_memory_only(client):

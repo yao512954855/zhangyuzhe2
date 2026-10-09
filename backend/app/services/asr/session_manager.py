@@ -250,17 +250,20 @@ class ASRSession:
         self._last_partial = ""
         self._consecutive_errors = 0
         self._keyboard_mode = False
-        self._recitation_id: int | None = None
         self._answer_id: int | None = None
         #: 标准答案 —— 只进服务端判定，**绝不传给云厂商**（F10）
         self._expected: str | None = None
-        #: 语音判分落库上下文（start 可选携带；缺省时英语由服务端按 word_id 自查）
-        self._word_id: int | None = None
         self._mode: str | None = None
-        self._retry_count = 0
-        self._hint_level = 0
-        self._used_hint_count = 0
         self._close_reason: str | None = None
+        # ---- 简化版 spell_zh2en 流式拼读（契约 §5：letter 逐格判定）----
+        #: 本次拼读的 item（items.id）；None = 不在拼读流程
+        self._spell_item_id: int | None = None
+        #: 目标字母序列（item.en 去空格与连字符，契约 §6.4 口径）
+        self._spell_target: str = ""
+        #: 已判过的格位游标（只前移，指向下一格）
+        self._spell_index: int = 0
+        #: letter 载荷里的 session_id（App 上行原样透传，可为练习会话字符串 id）
+        self._spell_session_id: Any = 0
         # 仲裁所需音频：**只在内存**，且只留最近若干秒（F18：不落盘）
         self._pcm_window: deque[bytes] = deque()
         self._pcm_window_bytes = 0
@@ -398,6 +401,12 @@ class ASRSession:
             )
             return
 
+        # ---- 简化版契约 §5 上行：{type:'start', mode:'spell_zh2en', item_id} ----
+        mode = msg.get("mode")
+        if mode is not None:
+            await self._on_spell_start(msg, str(mode))
+            return
+
         task_type = str(msg.get("task_type") or "")
         if task_type not in self.lang_map:
             await self._error(
@@ -415,33 +424,87 @@ class ASRSession:
         # 语种由**服务端**按 task_type 决定，不信任客户端 lang_hint（契约 §6.3）
         lang = self.lang_map[task_type]
 
-        recitation_id = msg.get("recitation_id")
-        if task_type == "recite":
-            rid = self._resolve_recitation(session_id, msg)
-            if rid is None:
-                await self._error(
-                    ErrorCode.NOT_FOUND
-                    if msg.get("recitation_id") is not None
-                    else ErrorCode.PARAM_INVALID,
-                    "背诵任务缺少有效的 recitation_id",
-                    action="abort",
-                )
-                return
-            self._recitation_id = rid
-
         # `expected` / `answer_id` 只在服务端留存（F10：绝不下发云厂商）
         self.set_expected(msg.get("expected"))
         self.set_answer_id(msg.get("answer_id"))
-        # 语音判分落库所需的会话上下文（英语词条走服务端自查 expected，§9.1
-        # 场次响应不含答案，客户端传不了 expected；mode/retry/hint 供 score 口径对齐 REST）
-        self._word_id = int(msg["word_id"]) if msg.get("word_id") is not None else None
         self._mode = str(msg["mode"]) if msg.get("mode") else None
-        self._retry_count = int(msg.get("retry_count") or 0)
-        self._hint_level = int(msg.get("hint_level") or 0)
-        self._used_hint_count = int(msg.get("used_hint_count") or 0)
 
-        cfg = ASRTaskConfig(
+        await self._start_provider(
             session_id=int(session_id),
+            task_type=task_type,
+            lang=lang,
+            msg=msg,
+        )
+
+    async def _on_spell_start(self, msg: dict[str, Any], mode: str) -> None:
+        """简化版背链路（spell_zh2en）的 start：按 item_id 查目标字母序列（契约 §5）。
+
+        - 目标 = `items.en` 去空格与连字符（与 §6.4 App 本地判格同一口径）；
+        - 同一 item 连续多轮 start（每个字母一轮 start→音频→end）**不清进度**，
+          `_spell_index` 只在换 item 时重置 —— App 断线重连也不丢作答进度（契约 §5）。
+        """
+        if mode != "spell_zh2en":
+            await self._error(
+                ErrorCode.PARAM_INVALID,
+                f"mode 取值非法：{mode!r}（本通道只支持 spell_zh2en）",
+                action="abort",
+            )
+            return
+        item_id = msg.get("item_id")
+        if item_id is None:
+            await self._error(ErrorCode.PARAM_INVALID, "缺少 item_id", action="abort")
+            return
+        item_id = int(item_id)
+
+        if self._spell_item_id == item_id and self._spell_target:
+            # 同一题继续拼：保留游标
+            pass
+        else:
+            with read_conn() as conn:
+                row = conn.execute(
+                    "SELECT en FROM items WHERE id = ?", (item_id,)
+                ).fetchone()
+            if row is None or not row["en"]:
+                await self._error(
+                    ErrorCode.CONTENT_NOT_FOUND, "内容不存在", action="abort"
+                )
+                return
+            target = "".join(
+                ch for ch in str(row["en"]) if ch.isalpha()
+            ).lower()
+            if not target:
+                await self._error(
+                    ErrorCode.PARAM_INVALID, "该条目没有可拼读的字母", action="abort"
+                )
+                return
+            self._spell_item_id = item_id
+            self._spell_target = target
+            self._spell_index = 0
+        self._mode = mode
+
+        # 契约 §5 的 start 未强制携带 session_id；letter 载荷需要它，
+        # 按 App 传值原样透传（练习会话 id 是字符串，不强转），缺省记 0
+        self._spell_session_id: Any = msg.get("session_id") or 0
+        cfg_session = self._spell_session_id if str(self._spell_session_id).isdigit() else 0
+
+        await self._start_provider(
+            session_id=cfg_session,
+            task_type="spell",          # 拼读用 zh 通道（lang_map.spell）
+            lang=self.lang_map.get("spell", "zh"),
+            msg=msg,
+        )
+
+    async def _start_provider(
+        self,
+        *,
+        session_id: int,
+        task_type: str,
+        lang: str,
+        msg: dict[str, Any],
+    ) -> None:
+        """建立一轮 ASR 任务（start / 每个字母轮共用）。"""
+        cfg = ASRTaskConfig(
+            session_id=session_id,
             task_type=task_type,              # type: ignore[arg-type]
             lang_hint=lang,                   # type: ignore[arg-type]
             hotwords=build_hotwords(
@@ -562,7 +625,47 @@ class ASRSession:
                 "duration_ms": duration_ms,
             }
         )
+
+        # 简化版 spell_zh2en：走 letter 逐格判定（契约 §5），不走 verdict
+        if self._mode == "spell_zh2en" and self._spell_target:
+            self._spell_feed(text)
+            self._log(provider, status="ok")
+            self.router.note_ok()
+            return
+
         await self._judge_and_emit(text, conf, provider)
+
+    # ================================================================== 拼读流式判定（契约 §5）
+
+    def _spell_feed(self, text: str) -> None:
+        """把本轮识别文本映射成字母，逐个判当前格并下发 `letter`（契约 §5）。
+
+        判定引擎 = `services/judge` 拼读判定的谐音映射（原样复用，
+        contract §5：「判定引擎 = 现有 services/judge.py 拼读判定原样复用」）。
+        学生一次念出多个字母（或云侧一次返回多字母）时按序逐格推进；
+        判错的格**不填**（游标不动），App 侧按 §6.4 处理连错提示。
+        """
+        from app.services.judge.homophone import get_map
+
+        letters = get_map().to_letters(text)
+        target = self._spell_target
+        while self._spell_index < len(target):
+            if not letters:
+                break
+            letter, letters = letters[0], letters[1:]
+            correct = letter == target[self._spell_index]
+            self.outbox.append(
+                {
+                    "type": "letter",
+                    "index": self._spell_index,
+                    "letter": letter,
+                    "correct": correct,
+                    "session_id": self._spell_session_id,
+                    "item_id": self._spell_item_id,
+                }
+            )
+            if correct:
+                self._spell_index += 1
 
     async def _on_cancel(self) -> None:
         provider, self.provider = self.provider, None
@@ -580,26 +683,19 @@ class ASRSession:
     ) -> None:
         assert self.cfg is not None
         task_type = self.cfg.task_type
-        expected = self._resolve_expected()
-
-        if task_type == "recite":
-            payload = await asyncio.to_thread(self._recite_feed, text)
-            if payload is None:
-                return
-            self.outbox.append(payload)
-            self._log(provider, status="ok")
-            return
+        # 标准答案只来自 start 显式携带（F10）——旧的「按 word_id 查 words 表」
+        # 回退已随 WP-F 删表拆除（简化版答案在 items 表，走 §5 letter 判定链路）
+        expected = self._expected or ""
 
         from app.services.judge import JudgeService, judge_word_or_spell
 
         try:
             # 英语模式一「双口径」：`word` 步念整词 / 逐字母拼都收（二期口径）。
             # `spell` 分支保留以兼容旧客户端（合并单轮后 App 不再发）。
-            used_spell = False
             if task_type == "spell":
                 verdict = JudgeService.judge_spell(asr_text=text, target=expected)
             elif task_type == "word":
-                verdict, used_spell = judge_word_or_spell(answer=text, expected=expected)
+                verdict = judge_word_or_spell(answer=text, expected=expected)[0]
             else:
                 verdict = JudgeService.judge_text(answer=text, expected=expected)
         except Exception as exc:  # noqa: BLE001
@@ -623,10 +719,10 @@ class ASRSession:
                             asr_confidence=verdict.asr_confidence,
                         )
                     elif task_type == "word":
-                        verdict, used_spell = judge_word_or_spell(
+                        verdict = judge_word_or_spell(
                             answer=arbitrated, expected=expected,
                             asr_confidence=verdict.asr_confidence,
-                        )
+                        )[0]
                     else:
                         verdict = JudgeService.judge_text(
                             answer=arbitrated, expected=expected,
@@ -636,16 +732,12 @@ class ASRSession:
                 except Exception:  # noqa: BLE001 - 仲裁结果判分失败则保留原判
                     pass
 
-        # 语音判分同样要落 answers + 更新掌握度（契约 §6.2 verdict.answer_id、§7.2；
-        # 之前只在 REST 提交时落库，语音作答等于没进统计）。落库失败不阻塞判分回传。
-        answer_id = (
-            self._persist_answer(text, verdict, provider, used_spell=used_spell)
-            or self._answer_id
-        )
+        # 语音判分不再落库：旧的 answers/word_mastery 落库链路已随 WP-F 删表拆除
+        # （简化版不落库逐题作答，练习留痕走 REST /api/practice/answer + settle）
         logger.info(
-            "ASR 判分 user=%s session=%s task=%s text=%r match=%s correct=%s answer_id=%s",
+            "ASR 判分 user=%s session=%s task=%s text=%r match=%s correct=%s",
             self.user.id, self.cfg.session_id, task_type, text,
-            match_type, bool(verdict.is_correct), answer_id,
+            match_type, bool(verdict.is_correct),
         )
 
         payload: dict[str, Any] = {
@@ -658,152 +750,14 @@ class ASRSession:
             "expected": verdict.expected,
             "asr_text": text,
             "normalized": verdict.normalized,
-            "answer_id": answer_id,
+            "answer_id": self._answer_id,
             "can_appeal": bool(verdict.can_appeal),
             "diff": [d.model_dump() for d in verdict.diff] if verdict.diff else None,
         }
         self.outbox.append(payload)
-        if answer_id is not None:
-            SessionRegistry.cache_verdict(answer_id, payload)
-        else:
-            SessionRegistry.cache_verdict(self._answer_id, payload)
+        SessionRegistry.cache_verdict(self._answer_id, payload)
         self._log(provider, status="ok")
         self.router.note_ok()
-
-    def _expected_text(self) -> str | None:
-        """标准答案只可能在 `start` 里给过，这里从会话态取。"""
-        return getattr(self, "_expected", None)
-
-    def _resolve_expected(self) -> str:
-        """解析本次判分的标准答案。
-
-        优先级：start 显式携带（语文背诵等客户端合法持有文本的场景）>
-        **按 `word_id` 查库**（英语词条：§9.1 场次响应不含答案，客户端传不了）。
-        都拿不到返回空串（由调用方按空答案口径处理）。
-        """
-        if self._expected:
-            return self._expected
-        if self._word_id is not None:
-            with read_conn() as conn:
-                row = conn.execute(
-                    "SELECT en FROM words WHERE id = ?", (self._word_id,)
-                ).fetchone()
-            if row is not None and row["en"]:
-                self._expected = str(row["en"]).strip()
-        return self._expected or ""
-
-    def _persist_answer(
-        self,
-        text: str,
-        verdict: Any,
-        provider: ASRProvider | None,
-        *,
-        used_spell: bool = False,
-    ) -> int | None:
-        """语音判分落库：写 `answers` + 同事务更新 `word_mastery`，返回 answer_id。
-
-        与 REST `submit_answer` 共用同一套 score/mastery 口径（判定已由 WS 侧
-        JudgeService 完成，这里只持久化）。场次已结束/越权/词条缺失等 BizError
-        **不阻塞判分回传**（answer_id 记 None），只落 warning。
-
-        `used_spell`：模式一走字母序列回退并采纳时置 True，用于回填 `letter_seq`。
-        """
-        if self.cfg is None or self.cfg.task_type == "recite" or self._word_id is None:
-            return None
-        try:
-            from app.services.session_service import SessionService
-
-            return SessionService.record_ws_answer(
-                student_id=self.user_id,
-                session_id=self.cfg.session_id,
-                word_id=self._word_id,
-                mode=self._mode or "cn2en",
-                step=2 if self.cfg.task_type == "spell" else 1,
-                used_spell=used_spell,
-                verdict=verdict,
-                asr_text=text,
-                duration_ms=self._final[2] if self._final else 0,
-                retry_count=self._retry_count,
-                hint_level=self._hint_level,
-                used_hint_count=self._used_hint_count,
-                provider=getattr(provider, "model", None),
-            )
-        except Exception as exc:  # noqa: BLE001 - 落库失败不影响判分回传
-            logger.warning(
-                "语音判分落库失败 user=%s session=%s word=%s：%s",
-                self.user.id, self.cfg.session_id, self._word_id, exc,
-            )
-            return None
-
-    def _recitation_settled(self) -> bool:
-        """该背诵是否已结算（`finish_reason` 非空）——settle 竞态降级的判定依据。"""
-        rid = self._recitation_id
-        if rid is None:
-            return False
-        try:
-            with read_conn() as conn:
-                row = conn.execute(
-                    "SELECT finish_reason FROM recitations WHERE id = ?", (int(rid),)
-                ).fetchone()
-            return row is not None and row["finish_reason"] is not None
-        except Exception:  # noqa: BLE001 - 查库失败按未结算处理，保留 error 上报
-            return False
-
-    def _recite_feed(self, text: str) -> dict[str, Any] | None:
-        """`task_type=recite`：喂给 BE-05 的 `ReciteService`（同步、要连库）。
-
-        返回给客户端的 `verdict` 形状（契约未定义语文形态，本包补齐并上报）：
-        判定字段沿用 verdict，另加 `recite` 子对象承载进度/评分。
-        """
-        from app.services.recite import ReciteService
-
-        if getattr(self, "_recite_invalid", False):
-            # 已判定背诵失效：不再重复 feed / 重复下发 error（此前每个 partial
-            # 都会撞一次「已过期」，客户端收一串 error）。
-            return None
-
-        try:
-            progress = ReciteService.feed(
-                student_id=self.user_id,
-                recitation_id=int(self._recitation_id or 0),
-                partial_text=text,
-            )
-        except Exception as exc:  # noqa: BLE001 - 背诵过期/越权等
-            # settle 竞态降级（2026-10-01 修「背诵已过期」误报）：点「结束并结算」
-            # 时 HTTP settle 先落库（finish_reason 置值）并 drop 内存引擎，
-            # WS final/partial 慢一步就会撞「已过期」。背诵已正常收尾，
-            # 再发 error(abort) 纯属竞态噪声 → 查库确认已结算则静默跳过。
-            if self._recitation_settled():
-                logger.info(
-                    "背诵 %s 已结算，忽略迟到的 feed（settle 竞态）", self._recitation_id
-                )
-                return None
-            logger.warning("背诵 feed 失败：%s", exc)
-            self._recite_invalid = True
-            self.outbox.append(
-                self._error_payload(
-                    ErrorCode.NOT_FOUND, "背诵已过期或不属于你，请重新开始", action="abort"
-                )
-            )
-            return None
-
-        finished = int(progress.get("missed_chars") or 0) == 0 and int(
-            progress.get("total_chars") or 0
-        ) > 0 and int(progress.get("pos") or 0) >= int(progress.get("total_chars") or 0)
-        payload: dict[str, Any] = {
-            "type": "verdict",
-            "task_type": "recite",
-            "is_correct": bool(finished),
-            "match_type": "exact" if finished else "wrong",
-            "expected": "",
-            "asr_text": text,
-            "normalized": None,
-            "answer_id": self._answer_id,
-            "can_appeal": True,
-            "diff": None,
-            "recite": progress,
-        }
-        return payload
 
     # ================================================================== 仲裁（F19）
 
@@ -850,23 +804,6 @@ class ASRSession:
     def _on_partial(self, text: str, ts_ms: int) -> None:
         """Provider 的中间结果回调（**同步**，只入 outbox）。"""
         if self.cfg is None or self.kicked:
-            return
-        if self.cfg.task_type == "recite" and self._recitation_id is not None:
-            # 语文：顺带推进服务端 pos，让「逐字点亮」有服务端口径
-            progress = self._recite_feed(text)
-            if progress is not None:
-                self.outbox.append(
-                    {
-                        "type": "partial",
-                        "text": text,
-                        "is_final": False,
-                        "ts_ms": ts_ms,
-                        "recite": progress.get("recite"),
-                    }
-                )
-                self._last_partial = text
-                return
-            # 背诵已失效 → 上面的 `_recite_feed` 已入 outbox 一条 error；这里不再发 partial
             return
         self.outbox.append(
             {
@@ -1020,48 +957,6 @@ class ASRSession:
                 )
         except Exception as exc:  # noqa: BLE001 - 日志失败不影响识别主链路
             logger.warning("asr_logs 写失败（已忽略）：%s", exc)
-
-    def _resolve_recitation(self, session_id: Any, msg: dict[str, Any]) -> int | None:
-        """解析语文背诵的 `recitation_id`（契约 §6.2 的 `start` 没有这个字段）。
-
-        优先级：`start.recitation_id` → `start.text_id` / `word_id` 在**该场次**里
-        找一篇「未结算」的背诵。**两者都没有** → 返回 None，由调用方报参数错。
-
-        依据：BE-05 的 `POST /api/recitations` 会先建好背诵记录并返回 `recitation_id`，
-        App 拿着它开 WS 是最自然的流程；但契约 `start` 消息里没有这个字段 → 已上报。
-        """
-        rid = msg.get("recitation_id")
-        if rid is not None:
-            try:
-                rid_int = int(rid)
-            except (TypeError, ValueError):
-                return None
-            with read_conn() as conn:
-                row = conn.execute(
-                    "SELECT id FROM recitations WHERE id = ? AND student_id = ?",
-                    (rid_int, self.user_id),
-                ).fetchone()
-            return rid_int if row is not None else None
-
-        text_id = msg.get("text_id", msg.get("word_id"))
-        if text_id is None or session_id is None:
-            return None
-        try:
-            try:
-                with read_conn() as conn:
-                    row = conn.execute(
-                        """
-                        SELECT id FROM recitations
-                         WHERE student_id = ? AND text_id = ? AND finished_at IS NULL
-                         ORDER BY id DESC LIMIT 1
-                        """,
-                        (self.user_id, int(text_id)),
-                    ).fetchone()
-            except Exception:  # noqa: BLE001 - 老库没有 recitations 表时不必炸
-                return None
-        except (TypeError, ValueError):
-            return None
-        return int(row["id"]) if row is not None else None
 
     def _now_ms(self) -> int:
         if self._task_started_at is None:

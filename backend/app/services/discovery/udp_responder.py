@@ -137,7 +137,7 @@ class UDPResponder:
             "host": host,
             "port": self._http_port_provider(),
             "server_name": self._name_provider(),
-            "need_auth": True,
+            "need_auth": False,  # 简化版无鉴权（契约 §4；字段保留，App 侧契约不变）
         }
 
     def build_reply(self, data: bytes, source_ip: str) -> bytes | None:

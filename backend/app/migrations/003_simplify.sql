@@ -1,15 +1,13 @@
 -- ============================================================================
--- 003_simplify.sql —— 简化版清理（WP-F 批次1，仅「删旧」半段）
+-- 003_simplify.sql —— 简化版数据模型（全量：WP-F 删旧半段 + WP-A 建新半段）
 --
--- 本文件由 WP-F 创建，**只写 DROP 段**：把旧「多用户背诵系统」的全部业务表删除，
--- 把仓库变成「单用户免登录英语单词工具」的干净地基。
+-- 两半段同处一个文件：
+--   - 「删旧」半段（下方 DROP 段 + asr_logs 去外键重建段）由 WP-F（批次1）写入
+--   - 「建新」半段（文件末尾的四张新表 CREATE）由 WP-A（批次2）补全，
+--     DDL 与《01-共享契约冻结》§3.1 逐字一致，不得改动
 --
--- ⚠️ 本文件**不写** 001-契约 §3.1 的四张新表（book_units / items / wrong_book /
---    practice_logs）—— 那是 WP-A（批次2）的职责，会在本文件**之后追加** CREATE 段。
---    两半段同处一个文件：WP-F 写 DROP，WP-A 补 CREATE，互不覆盖。
---
--- 幂等：全部 DROP TABLE/VIEW IF EXISTS，可重复执行。
--- 删除顺序：先删视图与子表（被引用方），再删父表，避免外键约束挡住 DROP。
+-- 幂等：DROP 全部 IF EXISTS；四张新表建前同样先 DROP IF EXISTS（契约 §3.1
+-- 「幂等：全部 DROP TABLE IF EXISTS + CREATE」——手工重放本文件不会撞表）。
 --
 -- 保留表（不删）：
 --   - settings          ：系统配置（含 ASR 配置键），契约 §3.2 明确保留
@@ -78,3 +76,58 @@ DROP TABLE IF EXISTS texts;
 DROP TABLE IF EXISTS units;
 DROP TABLE IF EXISTS users;
 DROP TABLE IF EXISTS classes;
+
+
+-- ============================================================================
+-- 「建新」半段（WP-A 批次2）—— 契约《01-共享契约冻结》§3.1，DDL 逐字冻结
+-- ============================================================================
+
+-- 先删四张新表（幂等重放用；先子后父，避免外键挡 DROP）
+DROP TABLE IF EXISTS practice_logs;
+DROP TABLE IF EXISTS wrong_book;
+DROP TABLE IF EXISTS items;
+DROP TABLE IF EXISTS book_units;
+
+PRAGMA foreign_keys = ON;
+
+CREATE TABLE book_units (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT    NOT NULL,                     -- 如 Starter Unit 1
+    sort        INTEGER NOT NULL DEFAULT 0,           -- 升序
+    created_at  TEXT    NOT NULL
+);
+
+CREATE TABLE items (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    unit_id     INTEGER NOT NULL REFERENCES book_units(id) ON DELETE CASCADE,
+    type        TEXT    NOT NULL CHECK (type IN ('word','phrase','sentence')),
+    en          TEXT    NOT NULL,                     -- 英文（唯一性按 §3.3 软约束）
+    pos         TEXT    NOT NULL DEFAULT '',          -- 词性，选填，如 adj. / v.
+    zh          TEXT    NOT NULL,                     -- 中文释义
+    alt_zh      TEXT    NOT NULL DEFAULT '',          -- 其他可接受答案，顿号「、」分隔
+    sort        INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT    NOT NULL
+);
+CREATE INDEX idx_items_unit ON items(unit_id, type, sort);
+
+CREATE TABLE wrong_book (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id        INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    mode           TEXT    NOT NULL CHECK (mode IN ('listen','spell_zh2en','spell_en2zh')),
+    wrong_count    INTEGER NOT NULL DEFAULT 1,
+    last_wrong_at  TEXT    NOT NULL,
+    resolved_at    TEXT                                  -- 非空 = 已移出错题本
+);
+CREATE INDEX idx_wrong_open ON wrong_book(item_id, mode) WHERE resolved_at IS NULL;
+
+CREATE TABLE practice_logs (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    unit_id      INTEGER NOT NULL,
+    type         TEXT    NOT NULL CHECK (type IN ('word','phrase','sentence')),
+    mode         TEXT    NOT NULL CHECK (mode IN ('listen','spell_zh2en','spell_en2zh')),
+    total        INTEGER NOT NULL,                    -- 本次总题数
+    correct      INTEGER NOT NULL,                    -- 正确个数
+    wrong        INTEGER NOT NULL,                    -- 错误个数
+    duration_ms  INTEGER NOT NULL,
+    created_at   TEXT    NOT NULL
+);

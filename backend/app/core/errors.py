@@ -24,11 +24,11 @@ class ErrorCode:
     TOO_MANY_REQUESTS = 10005
     INTERNAL_ERROR = 10006
 
-    # ---- 20000 段：账号与班级 ----
-    USERNAME_EXISTS = 20001
-    BAD_CREDENTIALS = 20002
-    ACCOUNT_DISABLED = 20003
-    CLASS_NOT_FOUND = 20004
+    # ---- 20000 段：简化版业务（S2 契约 §4，WP-A 定义）----
+    CONTENT_DUPLICATE = 20003       # 内容重复：items.en 在同 unit+type 下重复
+    NO_PRACTICE_CONTENT = 20004     # 无可练内容：单元下该 type 无条目
+    OCR_GRADE_FAILED = 20005        # OCR 批改失败：云端 OCR 报错/超时
+    IMAGE_INVALID = 20006           # 图片无效：无法解码 / 超过 10MB / 格式不支持
 
     # ---- 30000 段：内容 ----
     UNIT_NOT_FOUND = 30001
@@ -70,10 +70,10 @@ DEFAULT_MESSAGES: dict[int, str] = {
     ErrorCode.NOT_FOUND: "请求的内容不存在",
     ErrorCode.TOO_MANY_REQUESTS: "操作太频繁了，请稍后再试",
     ErrorCode.INTERNAL_ERROR: "服务出了点问题，请稍后再试",
-    ErrorCode.USERNAME_EXISTS: "该学号已被注册，请直接登录",
-    ErrorCode.BAD_CREDENTIALS: "学号或密码不正确",
-    ErrorCode.ACCOUNT_DISABLED: "账号已被停用，请联系管理者",
-    ErrorCode.CLASS_NOT_FOUND: "班级不存在",
+    ErrorCode.CONTENT_DUPLICATE: "这个内容已经存在，不能重复添加",
+    ErrorCode.NO_PRACTICE_CONTENT: "这个单元没有可练的内容，请先添加",
+    ErrorCode.OCR_GRADE_FAILED: "批改暂时失败，请稍后再试",
+    ErrorCode.IMAGE_INVALID: "照片看不清或格式不支持，请重新拍摄",
     ErrorCode.UNIT_NOT_FOUND: "单元不存在",
     ErrorCode.CONTENT_NOT_FOUND: "内容不存在",
     ErrorCode.CONTENT_HAS_RECORDS: "该内容已有练习记录，不能删除，只能停用",

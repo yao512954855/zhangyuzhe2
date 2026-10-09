@@ -6,9 +6,10 @@
 
 三件这里必须做的事（放到 service 层反而绕）：
 
-1. **握手校验 JWT**：失败 → `close(code=4001)`。
-   注意必须先 `accept()` 再 `close(4001)`：不 accept 直接 close，Starlette 只能回 HTTP 403，
-   客户端拿不到 4001 这个码（U1 断言的正是这个码）。
+1. **连接登记与踢旧**：简化版无鉴权（契约 §4：全部接口不校验登录态），
+   握手不做 JWT 校验（WP-F 已拆除）；同账号新连接仍会踢掉旧连接。
+   注意必须先 `accept()` 再 `close(...)`：不 accept 直接 close，
+   Starlette 只能回 HTTP 403，客户端拿不到关闭码。
 2. **一个后台 pump 任务**：Provider 的回调是同步的（契约 §7.4），
    只往 `session.outbox` 里 append；pump 负责顺序发出。
 3. **用「后台 reader 任务 + 队列」而不是 `asyncio.wait_for(ws.receive())`**：
