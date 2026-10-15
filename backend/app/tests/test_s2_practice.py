@@ -23,6 +23,9 @@ os.environ["DB_PATH"] = str(_DB_FILE)
 os.environ["BACKUP_DIR"] = str(_TMP_DIR / "backups")
 os.environ["LOG_LEVEL"] = "WARNING"
 os.environ["ASR_CONFIG_PATH"] = str(_ASR_YAML)
+# 云端路径验收：部署锁钉死 cloud（本地模型就位后 hybrid 会优先 local，契约 §2）
+os.environ["CAP_ASR"] = "cloud"
+os.environ["CAP_TTS"] = "cloud"
 
 from fastapi.testclient import TestClient  # noqa: E402
 
@@ -248,7 +251,11 @@ def run(coro: Any) -> Any:
 
 
 def test_ws_letter_flow_judges_cells(client: TestClient, unit_with_items: int):
-    """start(mode=spell_zh2en, item_id) → 音频 → end → 逐格 letter 消息。"""
+    """start(mode=spell_zh2en, item_id) → 音频 → end → 逐格 letter 消息。
+
+    end 时 MockProvider.close 补发一条 utterance（模拟本地引擎语句级语义，
+    契约 §5 修订 v1.0.3），判格由 utterance 通道完成。
+    """
     _write_asr_yaml()
     reset_config_cache()
     from app.api import asr_ws as asr_ws_api
@@ -303,6 +310,94 @@ def test_ws_letter_wrong_cell_does_not_advance(client: TestClient):
     assert session._spell_index == 3
 
 
+def test_ws_letter_flow_utterance_without_end(client: TestClient, unit_with_items: int):
+    """契约 §5 修订 v1.0.3：utterance（Vosk 语句边界）即判格，**不等 end**。
+
+    2026-10-13 真机根因：App「看中文背英文」没有 end 入口，原实现判格
+    只在 `_on_end` 触发 → 字母格永远不亮、页面像卡死。现在学生念一个
+    字母停一下，服务端立刻逐格判定下发 letter。
+    """
+    _write_asr_yaml()
+    reset_config_cache()
+    from app.api import asr_ws as asr_ws_api
+    asr_ws_api.reset_gate()
+
+    r = client.get("/api/items", params={"keyword": "cat"})
+    cat_id = r.json()["data"]["items"][0]["id"]
+
+    session, send = _make_session()
+
+    async def flow() -> None:
+        await session.handle_text(json.dumps(
+            {"type": "start", "mode": "spell_zh2en", "item_id": cat_id,
+             "session_id": "practice-sess-1"}
+        ))
+        await session.flush()
+        # 念字母 → 每个语句边界一次 utterance（**全程没有 end**）
+        session._on_utterance("see", 100)
+        session._on_utterance("aye", 200)
+        session._on_utterance("tee", 300)
+        await session.flush()
+
+    run(flow())
+    letters = [m for m in send.sent if m["type"] == "letter"]
+    assert [(m["index"], m["letter"], m["correct"]) for m in letters] == [
+        (0, "c", True), (1, "a", True), (2, "t", True)
+    ]
+    assert letters[0]["session_id"] == "practice-sess-1"
+    assert letters[0]["item_id"] == cat_id
+
+
+def test_ws_utterance_message_relayed_to_app(client: TestClient, unit_with_items: int):
+    """契约 §5 修订 v1.0.4：utterance 文本本身也透传 App。
+
+    zh2en 页面「实时显示听到的字母」用：utterance 与随后的 letter 判格
+    **同源同序**，学生看到的内容就是实际参与判格的文本。
+    """
+    _write_asr_yaml()
+    reset_config_cache()
+    from app.api import asr_ws as asr_ws_api
+    asr_ws_api.reset_gate()
+
+    r = client.get("/api/items", params={"keyword": "cat"})
+    cat_id = r.json()["data"]["items"][0]["id"]
+
+    session, send = _make_session()
+
+    async def flow() -> None:
+        await session.handle_text(json.dumps(
+            {"type": "start", "mode": "spell_zh2en", "item_id": cat_id,
+             "session_id": "practice-sess-1"}
+        ))
+        await session.flush()
+        session._on_utterance("see", 100)
+        await session.flush()
+
+    run(flow())
+    utts = [m for m in send.sent if m["type"] == "utterance"]
+    assert len(utts) == 1, send.sent
+    assert utts[0]["text"] == "see"
+    assert utts[0]["item_id"] == cat_id
+    # 同序性：utterance 必须排在其驱动的 letter 之前（App 先显示后亮格）
+    ordered = [m["type"] for m in send.sent if m["type"] in ("utterance", "letter")]
+    assert ordered[0] == "utterance"
+    assert ordered.index("utterance") < ordered.index("letter")
+
+
+def test_ws_utterance_ignored_outside_spell_zh2en(client: TestClient):
+    """utterance 只驱动 zh2en 判格；其他模式忽略（final 仍走 end 收口），
+    不破坏 en2zh / 听写 / 背诵既有链路。"""
+    session, send = _make_session()
+    session._mode = "spell_en2zh"
+    session._spell_target = ""
+
+    session._on_utterance("你好", 0)
+    run(session.flush())
+    assert not [m for m in send.sent if m["type"] == "letter"]
+    # v1.0.4：非 zh2en 模式也不下发 utterance 消息（页面无「听到」区）
+    assert not [m for m in send.sent if m["type"] == "utterance"]
+
+
 def test_ws_spell_start_unknown_item(client: TestClient):
     """item 不存在 → CONTENT_NOT_FOUND(30002) error 帧。"""
     from app.api import asr_ws as asr_ws_api
@@ -318,3 +413,65 @@ def test_ws_spell_start_unknown_item(client: TestClient):
     run(flow())
     errs = [m for m in send.sent if m["type"] == "error"]
     assert errs and errs[-1]["code"] == 30002
+
+
+def test_ws_spell_en2zh_start_transcribes_only(client: TestClient, unit_with_items: int):
+    """spell_en2zh：start 被接受 → final 转写原样下发；不发 letter、不发 verdict。
+
+    网关只做转写（契约 §5 en2zh 语音转写链路）；判定由 App 拿转写文本走
+    /api/practice/answer（compare_service）。
+    """
+    _write_asr_yaml()
+    reset_config_cache()
+    from app.api import asr_ws as asr_ws_api
+    asr_ws_api.reset_gate()
+
+    r = client.get("/api/items", params={"keyword": "cat"})
+    cat_id = r.json()["data"]["items"][0]["id"]
+
+    # 开真场次：WS 网关对 session_id 只透传，answer 判定要求场次真实存在
+    sid = client.post(
+        "/api/practice/start",
+        json={"unit_id": unit_with_items, "type": "word", "mode": "spell_en2zh"},
+    ).json()["data"]["session_id"]
+
+    session, send = _make_session()
+
+    async def flow() -> None:
+        await session.handle_text(json.dumps(
+            {"type": "start", "mode": "spell_en2zh", "item_id": cat_id,
+             "session_id": sid}
+        ))
+        await session.flush()
+        await session.handle_text(json.dumps({"type": "end"}))
+        await session.flush()
+
+    run(flow())
+    types = [m["type"] for m in send.sent]
+    assert "error" not in types, send.sent
+    finals = [m for m in send.sent if m["type"] == "final"]
+    assert finals and finals[-1]["text"], send.sent
+    assert not [m for m in send.sent if m["type"] == "letter"], "en2zh 不得走逐格判定"
+    assert not [m for m in send.sent if m["type"] == "verdict"], "en2zh 网关不判分"
+    # 判定仍走 HTTP answer（compare_service）：「猫」命中
+    r = client.post(
+        "/api/practice/answer",
+        json={"session_id": sid, "item_id": cat_id,
+              "mode": "spell_en2zh", "answer": "猫", "elapsed_ms": 900},
+    )
+    assert r.json()["data"]["correct"] is True
+
+
+def test_ws_spell_start_rejects_unknown_mode(client: TestClient):
+    """mode 非法 → PARAM_INVALID(10001) error 帧（白名单外一律拒）。"""
+    session, send = _make_session()
+
+    async def flow() -> None:
+        await session.handle_text(json.dumps(
+            {"type": "start", "mode": "spell_bogus", "item_id": 1}
+        ))
+        await session.flush()
+
+    run(flow())
+    errs = [m for m in send.sent if m["type"] == "error"]
+    assert errs and errs[-1]["code"] == 10001

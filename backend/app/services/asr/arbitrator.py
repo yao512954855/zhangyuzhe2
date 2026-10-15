@@ -163,7 +163,7 @@ class ArbitratorProvider:
         """真正的 HTTP 调用。**测试与烟测通过 monkeypatch 本方法注入假响应。**"""
         import httpx
 
-        async with httpx.AsyncClient(timeout=self.timeout_s) as client:
+        async with httpx.AsyncClient(timeout=self.timeout_s, trust_env=False) as client:
             resp = await client.post(self.endpoint, json=payload, headers=headers)
         if resp.status_code >= 400:
             raise ASRError(

@@ -35,14 +35,12 @@
 - C 盘满会让 flutter test 假卡死：先 `df -h`，`TMP/TEMP` 指到 D 盘，删可再生 `build/test_cache`，用未改动用例区分环境vs代码
 - UDP 9527 全局互斥 → 任何真起 uvicorn 的测试不能并行
 
-## 当前状态（2026-10-01 更新）
-一期 38/40 验收；§八 #1–#112 全裁（#103/#105/#106 待姚工裁决、#107 建议项）→ 下轮从 **#113** 起。
-#110/#111 内容管理按学科拆两页（SubjectContent）；#112 内容变更记录（recent 接口+diff+回滚）。
-10-01 学生端真机修复闭环：①结算页「回到首页」卡死 = _routeAnimating 卡 forward → 改 _entered+1.5s 兜底；②键盘态「还是用麦克风」无效 = onCancel 错接 useKeyboard → 改 retryVoice。46 tests passed + adb 真机复验双通过。
-管理端同步修复：PageHeader #extra 假插槽（作业布置/大屏按钮消失）、ServerQRCard auto-load 假关闭（服务地址空白）、作业弹窗单元按学科过滤、返回按钮挪左（#before 插槽）、菜单 order 撞号（22→23）。
-提交（单仓根目录）：`3f9adab`(后端) `14cb41d`(管理端) `b753396`(学生端) `c28264a`(docs/qa) `06a8b0b`(memory)，未 push（无远端）。工作区干净。
-09-29 磁盘清理：净释放 ~19G（C 盘 1.6G→12G）；Windows.edb 20.4G 与 uv cache 2.1G 待姚工手动清。
-⚠️ adb.exe 是 Windows 程序，install 等传文件参数必须用 `D:/` 风格路径，不认 MSYS 的 `/d/`。
+## 当前状态（2026-10-13 更新）
+一期 38/40 验收；S2 简化版真机验收闭环（10-01/10-11 双轮修复）。**本地化（localize-dev）三引擎全接线**：TTS=piper+melo（melo 必须 lexicon+dict_dir、data_dir 只认 espeak-ng-data）、OCR=rapidocr、ASR=Vosk字母+**SenseVoice small int8**（契约 01 v1.0.2：zipformer bilingual 预研 FAIL 换型）。模式三态 local/hybrid/cloud，管理端「能力设置」页切换，CAP_TTS/OCR/ASR env 锁定优先。
+⚠️ 高频坑：①numpy 线性插值降采样无抗混叠会毁识别→按真实率喂 accept_waveform；②glob("*encoder") 尾锚匹配不到 onnx；③测试假设本地引擎不存在的旧用例必须加 `CAP_ASR/CAP_TTS=cloud` 部署锁（否则 hybrid 走真本地引擎全崩）；④类方法要 patch 类不是模块；⑤qa/audio 旧翻录夹具不可信（云端 fun-asr 也翻车，pen 内容错乱）。
+后端 pytest 全绿 325；`scripts/smoke_local_asr.py` = hybrid 端到端冒烟（TTS/字母/中文转写/判分）PASS。
+⚠️ 本地化改动未 commit；backend/models/ 不入库（.gitignore 已排）。
+⚠️ adb.exe 是 Windows 程序，install 等传文件参数必须用 `D:/` 风格路径，不认 MSYS 的 `/d/`。adb 在 `D:/2install/androidstudiotool/sdk/platform-tools/`。
 
 ## 待办
 - 🔴 语文链路真实运行 0 次（流式云 ASR 从未真调用）→ 真机跑一次语文背诵才算闭合 C1/C9

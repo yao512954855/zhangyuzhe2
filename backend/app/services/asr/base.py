@@ -192,6 +192,10 @@ class ASRError(Exception):
 
 PartialCallback = Callable[[str, int], None]              # (text, ts_ms)
 FinalCallback = Callable[[str, float | None, int], None]  # (text, confidence, duration_ms)
+#: 语句级「已确定」结果回调（非最终 final，但不再是抖动中的 partial）——
+#: 目前只有 LocalProvider 的 Vosk 拼读通道在用：念完一个字母停一下即触发一次，
+#: 让「看中文背英文」逐格判定不等 end（契约 §5 修订 v1.0.3，见 local_provider.py）。
+UtteranceCallback = Callable[[str, int], None]            # (text, ts_ms)
 
 
 class ASRProvider(ABC):
@@ -211,6 +215,7 @@ class ASRProvider(ABC):
         self.cfg: ASRTaskConfig | None = None
         self._partial_cb: PartialCallback | None = None
         self._final_cb: FinalCallback | None = None
+        self._utterance_cb: UtteranceCallback | None = None
         self._aborted = False
         self._closed = False
         self._final_emitted = False
@@ -223,6 +228,10 @@ class ASRProvider(ABC):
 
     def on_final(self, cb: FinalCallback) -> None:
         self._final_cb = cb
+
+    def on_utterance(self, cb: UtteranceCallback) -> None:
+        """注册语句级结果回调（可选；不注册的 Provider 完全不发，零影响）。"""
+        self._utterance_cb = cb
 
     # ---- 子类实现（契约签名） ----
 
@@ -260,6 +269,22 @@ class ASRProvider(ABC):
         if self.cfg is not None and not self.cfg.enable_intermediate:
             return
         self._partial_cb(text, ts_ms if ts_ms is not None else self.audio_ms)
+
+    def _emit_utterance(self, text: str, ts_ms: int | None = None) -> None:
+        """回调一条「已确定」的语句级结果（Vosk 端点边界 / close 残余）。
+
+        与 `_emit_partial` 的区别：不是抖动中的中间态，是识别器自己判定
+        「这句话说完了」的确定输出；与 `_emit_final` 的区别：**不幂等**——
+        一次任务内可以有多个 utterance（拼读时一个字母一句）。
+        空文本与 abort 后不触发；`enable_intermediate=False` **不拦**它
+        （它不是中间结果，关中间结果不该把判格链路一起关掉）。
+        """
+        if self._aborted or self._utterance_cb is None:
+            return
+        text = (text or "").strip()
+        if not text:
+            return
+        self._utterance_cb(text, ts_ms if ts_ms is not None else self.audio_ms)
 
     def _emit_final(self, text: str, confidence: float | None = None,
                     duration_ms: int | None = None) -> None:

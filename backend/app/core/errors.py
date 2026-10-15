@@ -47,6 +47,8 @@ class ErrorCode:
     ASR_TIMEOUT = 50002
     ASR_EMPTY = 50003  # 不计错
     ASR_BAD_AUDIO = 50004
+    TTS_SYNTH_FAILED = 50005  # 云端播报合成失败（契约 v1.2 听写兜底）
+    LOCAL_ENGINE_UNAVAILABLE = 50006  # 本地引擎未部署/未就绪（localize-dev/01 §4）
 
     # ---- 60000 段：服务发现 ----
     DISCOVERY_FAILED = 60001
@@ -83,6 +85,8 @@ DEFAULT_MESSAGES: dict[int, str] = {
     ErrorCode.IMPORT_VALIDATION_FAILED: "导入内容校验未通过",
     ErrorCode.FILE_TOO_LARGE: "文件太大了，请拆分后再上传",
     ErrorCode.ASR_UNAVAILABLE: "语音服务暂时不可用",
+    ErrorCode.LOCAL_ENGINE_UNAVAILABLE: "本地语音引擎未就绪",
+    ErrorCode.TTS_SYNTH_FAILED: "播报声音暂时生成不了，请稍后再试",
     ErrorCode.ASR_TIMEOUT: "语音识别超时",
     ErrorCode.ASR_EMPTY: "没有听到声音",
     ErrorCode.ASR_BAD_AUDIO: "录音格式不正确",

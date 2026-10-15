@@ -12,7 +12,7 @@ import httpx
 import websockets
 
 sys.path.insert(0, ".")
-from app.core.security import create_access_token  # noqa: E402
+# 鉴权已占位化（core/deps.py 恒放行），无需真 token
 
 WAV = "../qa/audio/apple__whole.wav"
 BASE = "http://127.0.0.1:8810"
@@ -33,22 +33,20 @@ def load_pcm_16k() -> bytes:
 
 
 async def main() -> None:
-    token, _ = create_access_token(user_id=STUDENT_ID, role="student")
-    headers = {"Authorization": f"Bearer {token}"}
+    token = "placeholder"  # WS/HTTP 鉴权均已占位
 
     # 1) 建真实练习场次（§9.1）
     async with httpx.AsyncClient(timeout=15, base_url=BASE) as client:
         r = await client.post(
             "/api/sessions",
-            json={"unit_id": 1, "content_type": "english", "strategy": {}},
-            headers=headers,
+            json={"unit_id": 6, "content_type": "english", "strategy": {}},
         )
         body = r.json()
         assert body.get("code") == 0, f"建场次失败：{body}"
         data = body["data"]
         session_id = data["session_id"]
-        # 本脚本固定用 apple 的真人录音 → 优先挑 apple 那道题（word_id=2）
-        item = next((i for i in data["items"] if i.get("word_id") == 2), data["items"][0])
+        # 本脚本固定用 apple 的真人录音 → 优先挑 apple 那道题（word_id=9）
+        item = next((i for i in data["items"] if i.get("word_id") == 9), data["items"][0])
         print(f"场次 {session_id} 建立，第 1 题 word_id={item['word_id']} mode={item['mode']}")
 
     pcm = load_pcm_16k()

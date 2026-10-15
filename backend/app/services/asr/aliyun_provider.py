@@ -65,6 +65,9 @@ class AliyunProvider(ASRProvider):
         self.http_format: str = str(cfg.get("http_format") or "wav")
         self.sample_rate: int = int(cfg.get("sample_rate") or 16000)
         self._timeout_ms: int = int(self.config.get("connect_timeout_ms") or 3000)
+        # 批量提交（攒整段音频 → HTTP）的**总超时**：不能复用 connect_timeout_ms——
+        # 音频可能长达几十秒，3 秒超时必炸（2026-10-11 真机排障）。
+        self._batch_timeout_ms: int = int(self.config.get("batch_timeout_ms") or 30000)
 
         self._streaming = False
         self._pcm = bytearray()      # 非流式：内存暂存整段音频（不落盘）
@@ -184,9 +187,11 @@ class AliyunProvider(ASRProvider):
             "Content-Type": "application/json",
             "X-DashScope-SSE": "disable",
         }
-        timeout = max(1.0, self._timeout_ms / 1000.0)
+        timeout = max(1.0, self._batch_timeout_ms / 1000.0)
         try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
+            # trust_env=False：局域网应用不读系统代理（HTTP_PROXY 等）——
+            # 代理对 dashscope 域名的隧道会失败（OCR 502 实测），直连才通。
+            async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
                 resp = await client.post(self.http_endpoint, json=payload, headers=headers)
         except httpx.TimeoutException as exc:
             raise ASRError(

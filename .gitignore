@@ -94,3 +94,6 @@ Thumbs.db
 Desktop.ini
 .DS_Store
 release/
+
+# 本地化模型文件（localize-dev，300MB+ 不入库）
+backend/models/

@@ -225,7 +225,7 @@ class ASRSession:
         self._hotwords_enabled = bool(hw.get("enabled"))
         self._hotword_sources = list(hw.get("sources") or [])
 
-        self.router = router if router is not None else ASRRouter(self.raw)
+        self.router = router if router is not None else ASRRouter(self._ordered_raw())
         self.arbitrator = (
             arbitrator if arbitrator is not None else ArbitratorProvider(self.raw)
         )
@@ -246,6 +246,7 @@ class ASRSession:
 
         self._task_started_at: float | None = None
         self._got_audio: bool = False   # 只为「首帧到达」日志，无业务语义
+        self._orphan_frames: int = 0    # 未 start 期间丢弃的帧数（限流日志用）
         self._final: tuple[str, float | None, int] | None = None
         self._last_partial = ""
         self._consecutive_errors = 0
@@ -273,6 +274,34 @@ class ASRSession:
         )
 
     # ================================================================== 属性
+
+    def _ordered_raw(self) -> dict[str, Any]:
+        """按能力模式覆盖 ASR 主备顺序（localize-dev/01 §1.3）。
+
+        - cloud  ：原样用 asr.yaml 的 provider/backup_provider（现状行为）
+        - hybrid ：[local, <asr.yaml 原主厂商>]（本地优先，失败回落云端；
+                   云端 = asr.yaml 配置的主厂商，生产即 aliyun，测试环境是 mock）
+        - local  ：[local]（无备）
+
+        复制 dict 覆盖，**不改 load_asr_raw() 的原始返回**；模式在会话建立时
+        读取一次，进行中的会话不切换（契约 §1.3 规则 2）。
+        local provider 尚未注册/模型缺失时，ASRFactory.create 会抛 —— 这正是
+        预期：ASRRouter 的建连失败语义会落到下一顺位（hybrid→原主厂商）。
+        """
+        from app.core.capability import resolve_mode
+
+        asr_mode = resolve_mode("asr")
+        if asr_mode == "cloud":
+            return dict(self.raw)
+        ordered = dict(self.raw)
+        original_primary = str(ordered.get("provider") or "aliyun").strip().lower()
+        if asr_mode == "hybrid":
+            ordered["provider"] = "local"
+            # 回落顺位 = asr.yaml 原主厂商（local 不可能同时是原主厂商——尚未注册）
+            ordered["backup_provider"] = original_primary
+        else:  # local
+            ordered["provider"], ordered["backup_provider"] = "local", ""
+        return ordered
 
     @property
     def keyboard_mode(self) -> bool:
@@ -333,18 +362,48 @@ class ASRSession:
         """处理一个二进制音频帧。"""
         self.last_activity = time.monotonic()
         if self.provider is None:
-            logger.warning(
-                "ASR 音频帧在 start 之前到达 user=%s bytes=%s（App 未发 start 或 start 被拒）",
-                self.user.id, len(data),
-            )
-            await self._error(ErrorCode.PARAM_INVALID, "尚未 start 就发送音频", action="abort")
+            # 未 start（或上一轮已 end）时 App 的常驻录音器仍会推帧 ——
+            # **静默丢弃**，每轮只在前几帧记一次日志。
+            # ⛔ 不能每帧回 error：App 端会连续收到上百条 abort，界面被刷成「没听清」。
+            self._orphan_frames += 1
+            if self._orphan_frames <= 2:
+                logger.warning(
+                    "ASR 音频帧在 start 之前丢弃 user=%s bytes=%s（累计 %s 帧）",
+                    self.user.id, len(data), self._orphan_frames,
+                )
             return
         if self._keyboard_mode:
             return
         if not self._got_audio:
             # 只记首帧：证明「App 的麦克风数据确实流到了服务端」
             self._got_audio = True
+            self._dbg_bytes = 0
+            self._dbg_frames = 0
+            self._dbg_dump = bytearray()          # 临时诊断：dump 前 30s 上行音频
             logger.info("ASR 首帧音频到达 user=%s bytes=%s", self.user.id, len(data))
+        # 临时诊断（真机排查音频上行）：每 20 帧打一次帧流统计
+        self._dbg_frames = getattr(self, "_dbg_frames", 0) + 1
+        self._dbg_bytes = getattr(self, "_dbg_bytes", 0) + len(data)
+        dump = getattr(self, "_dbg_dump", None)
+        if dump is not None and len(dump) < 960000:
+            dump.extend(data)
+            if len(dump) >= 960000:
+                try:
+                    import wave as _wave
+                    buf = bytes(dump)
+                    with _wave.open("D:/helloagent/zhanglaoshi_zhangyuze/qa/_app_uplink.wav", "wb") as f:
+                        f.setnchannels(1); f.setsampwidth(2); f.setframerate(16000)
+                        f.writeframes(buf)
+                    logger.info("ASR 上行音频已 dump（30s）user=%s", self.user.id)
+                except Exception:  # noqa: BLE001
+                    pass
+                self._dbg_dump = None
+        if self._dbg_frames % 20 == 0:
+            logger.info(
+                "ASR 帧流 user=%s 帧=%s 累计=%sB ≈%sms",
+                self.user.id, self._dbg_frames, self._dbg_bytes,
+                self._dbg_bytes * 1000 // 32000,
+            )
         self._remember_audio(data)
         try:
             await self.provider.push_audio(data)
@@ -442,11 +501,13 @@ class ASRSession:
         - 目标 = `items.en` 去空格与连字符（与 §6.4 App 本地判格同一口径）；
         - 同一 item 连续多轮 start（每个字母一轮 start→音频→end）**不清进度**，
           `_spell_index` 只在换 item 时重置 —— App 断线重连也不丢作答进度（契约 §5）。
+        - `spell_en2zh`：网关只做**转写**（final 下发后收口），判定由 App 拿转写文本
+          走 `POST /api/practice/answer`（compare_service，契约 §4.1 / §6.1）。
         """
-        if mode != "spell_zh2en":
+        if mode not in ("spell_zh2en", "spell_en2zh"):
             await self._error(
                 ErrorCode.PARAM_INVALID,
-                f"mode 取值非法：{mode!r}（本通道只支持 spell_zh2en）",
+                f"mode 取值非法：{mode!r}（本通道只支持 spell_zh2en / spell_en2zh）",
                 action="abort",
             )
             return
@@ -456,30 +517,38 @@ class ASRSession:
             return
         item_id = int(item_id)
 
-        if self._spell_item_id == item_id and self._spell_target:
-            # 同一题继续拼：保留游标
-            pass
+        if mode == "spell_zh2en":
+            if self._spell_item_id == item_id and self._spell_target:
+                # 同一题继续拼：保留游标
+                pass
+            else:
+                with read_conn() as conn:
+                    row = conn.execute(
+                        "SELECT en FROM items WHERE id = ?", (item_id,)
+                    ).fetchone()
+                if row is None or not row["en"]:
+                    await self._error(
+                        ErrorCode.CONTENT_NOT_FOUND, "内容不存在", action="abort"
+                    )
+                    return
+                target = "".join(
+                    ch for ch in str(row["en"]) if ch.isalpha()
+                ).lower()
+                if not target:
+                    await self._error(
+                        ErrorCode.PARAM_INVALID, "该条目没有可拼读的字母", action="abort"
+                    )
+                    return
+                self._spell_item_id = item_id
+                self._spell_target = target
+                self._spell_index = 0
         else:
-            with read_conn() as conn:
-                row = conn.execute(
-                    "SELECT en FROM items WHERE id = ?", (item_id,)
-                ).fetchone()
-            if row is None or not row["en"]:
-                await self._error(
-                    ErrorCode.CONTENT_NOT_FOUND, "内容不存在", action="abort"
-                )
-                return
-            target = "".join(
-                ch for ch in str(row["en"]) if ch.isalpha()
-            ).lower()
-            if not target:
-                await self._error(
-                    ErrorCode.PARAM_INVALID, "该条目没有可拼读的字母", action="abort"
-                )
-                return
-            self._spell_item_id = item_id
-            self._spell_target = target
-            self._spell_index = 0
+            # en2zh：不需要字母目标；换 item 时清掉 zh2en 残留的拼读游标，
+            # 防止后续同一连接再进 zh2en 时复用错 target（防御性，正常不会发生）。
+            if self._spell_item_id != item_id:
+                self._spell_item_id = item_id
+                self._spell_target = None
+                self._spell_index = 0
         self._mode = mode
 
         # 契约 §5 的 start 未强制携带 session_id；letter 载荷需要它，
@@ -487,10 +556,19 @@ class ASRSession:
         self._spell_session_id: Any = msg.get("session_id") or 0
         cfg_session = self._spell_session_id if str(self._spell_session_id).isdigit() else 0
 
+        # 通道选择（2026-10-13 修订 v1.0.3）：
+        # - zh2en（逐字母判格）：**Vosk 语句边界实时判格** —— 念完一个字母
+        #   停一下即触发一次判定并下发 letter，不等 App 发 end（App 此模式
+        #   没有 end 入口，2026-10-13 真机「字母格永远不亮」根因）；
+        #   end / close 仅作兜底（残余音频在 close 时经 utterance 通道判格）。
+        # - en2zh（看英文说中文意思）：从「开始说」到「我说完了」中间可能隔几十秒，
+        #   走批量会把整段攒着最后撞超时（真机实测 103s 音频 3s 超时必炸）→
+        #   **复用 recite 的流式 WS 通道**（lang 同为 zh），实时 partial + end 后收 final。
+        task_type = "spell" if mode == "spell_zh2en" else "recite"
         await self._start_provider(
             session_id=cfg_session,
-            task_type="spell",          # 拼读用 zh 通道（lang_map.spell）
-            lang=self.lang_map.get("spell", "zh"),
+            task_type=task_type,
+            lang=self.lang_map.get(task_type, "zh"),
             msg=msg,
         )
 
@@ -519,6 +597,7 @@ class ASRSession:
         self._final = None
         self._last_partial = ""
         self._got_audio = False
+        self._orphan_frames = 0     # 新一轮开始，孤儿帧计数归零
         self._task_started_at = time.monotonic()
         self._pcm_window.clear()
         self._pcm_window_bytes = 0
@@ -539,6 +618,7 @@ class ASRSession:
         self.provider = provider
         provider.on_partial(self._on_partial)     # 同步回调 → 仅入 outbox
         provider.on_final(self._on_final)
+        provider.on_utterance(self._on_utterance)  # 语句级结果（Vosk 拼读实时判格）
 
         # 排障关键：start 成功要留痕（用户反馈「一直收音」时，看这行 +
         # 下面的错误日志就能判断 App 到底发了什么）
@@ -626,9 +706,17 @@ class ASRSession:
             }
         )
 
-        # 简化版 spell_zh2en：走 letter 逐格判定（契约 §5），不走 verdict
+        # 简化版 spell_zh2en：判格已由 utterance 通道实时完成（Vosk 每句
+        # 结束即判，见 _on_utterance）；此处**不再重复判** —— 同一文本再跑
+        # 一遍 _spell_feed 会对着已推进的游标错位重判（契约 §5 修订 v1.0.3）。
         if self._mode == "spell_zh2en" and self._spell_target:
-            self._spell_feed(text)
+            self._log(provider, status="ok")
+            self.router.note_ok()
+            return
+
+        # 简化版 spell_en2zh：`final` 已下发（上方），网关不判分 ——
+        # App 拿转写文本走 /api/practice/answer（compare_service，契约 §6.1）
+        if self._mode == "spell_en2zh":
             self._log(provider, status="ok")
             self.router.note_ok()
             return
@@ -638,11 +726,12 @@ class ASRSession:
     # ================================================================== 拼读流式判定（契约 §5）
 
     def _spell_feed(self, text: str) -> None:
-        """把本轮识别文本映射成字母，逐个判当前格并下发 `letter`（契约 §5）。
+        """把一句识别文本映射成字母，逐个判当前格并下发 `letter`（契约 §5）。
 
         判定引擎 = `services/judge` 拼读判定的谐音映射（原样复用，
         contract §5：「判定引擎 = 现有 services/judge.py 拼读判定原样复用」）。
-        学生一次念出多个字母（或云侧一次返回多字母）时按序逐格推进；
+        由 utterance 通道驱动（Vosk 每句结束一次；close 的残余也走此通道）：
+        学生一次念出多个字母（或一口气念完整词）时按序逐格推进；
         判错的格**不填**（游标不动），App 侧按 §6.4 处理连错提示。
         """
         from app.services.judge.homophone import get_map
@@ -805,6 +894,9 @@ class ASRSession:
         """Provider 的中间结果回调（**同步**，只入 outbox）。"""
         if self.cfg is None or self.kicked:
             return
+        # 临时诊断：partial 变化才打
+        if text != self._last_partial:
+            logger.info("ASR partial user=%s text=%r", self.user.id, text)
         self.outbox.append(
             {
                 "type": "partial",
@@ -817,6 +909,36 @@ class ASRSession:
 
     def _on_final(self, text: str, confidence: float | None, duration_ms: int) -> None:
         self._final = (text, confidence, duration_ms)
+
+    def _on_utterance(self, text: str, ts_ms: int) -> None:
+        """Provider 的语句级结果回调（同步，仅入 outbox）。
+
+        Vosk 拼读通道专用：念完一个字母停一下即触发一次。zh2en 模式立刻
+        逐格判定并下发 `letter`（契约 §5 修订 v1.0.3）—— 这是「看中文背
+        英文」页面字母格亮起的**唯一实时路径**（App 此模式无 end 入口）。
+        其他模式（recite/word/en2zh 等）忽略：它们的 final 仍在 end 时收口。
+
+        同时把识别文本本身透传 App（修订 v1.0.4）：utterance 与随后的
+        `letter` 判格**同源同序**，页面「实时显示听到的字母」展示的就是
+        实际参与判格的文本，不会出现「显示的」和「判分的」不一致。
+        """
+        if self.cfg is None or self.kicked:
+            return
+        if not (self._mode == "spell_zh2en" and self._spell_target):
+            return
+        logger.info(
+            "ASR utterance user=%s text=%r spell_index=%s/%s",
+            self.user.id, text, self._spell_index, len(self._spell_target),
+        )
+        self.outbox.append(
+            {
+                "type": "utterance",
+                "text": text,
+                "item_id": self._spell_item_id,
+                "ts_ms": ts_ms,
+            }
+        )
+        self._spell_feed(text)
 
     # ================================================================== 错误与日志
 

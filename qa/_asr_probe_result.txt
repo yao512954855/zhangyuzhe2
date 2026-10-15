@@ -1,0 +1,152 @@
+LOG (VoskAPI:ReadDataFiles():model.cc:213) Decoding params beam=10 max-active=3000 lattice-beam=2
+LOG (VoskAPI:ReadDataFiles():model.cc:216) Silence phones 1:2:3:4:5:6:7:8:9:10
+LOG (VoskAPI:RemoveOrphanNodes():nnet-nnet.cc:948) Removed 0 orphan nodes.
+LOG (VoskAPI:RemoveOrphanComponents():nnet-nnet.cc:847) Removing 0 orphan components.
+LOG (VoskAPI:ReadDataFiles():model.cc:248) Loading i-vector extractor from D:\helloagent\zhanglaoshi_zhangyuze\backend\models\asr\vosk-model-small-en-us-0.15/ivector/final.ie
+LOG (VoskAPI:ComputeDerivedVars():ivector-extractor.cc:183) Computing derived variables for iVector extractor
+LOG (VoskAPI:ComputeDerivedVars():ivector-extractor.cc:204) Done.
+LOG (VoskAPI:ReadDataFiles():model.cc:282) Loading HCL and G from D:\helloagent\zhanglaoshi_zhangyuze\backend\models\asr\vosk-model-small-en-us-0.15/graph/HCLr.fst D:\helloagent\zhanglaoshi_zhangyuze\backend\models\asr\vosk-model-small-en-us-0.15/graph/Gr.fst
+LOG (VoskAPI:ReadDataFiles():model.cc:308) Loading winfo D:\helloagent\zhanglaoshi_zhangyuze\backend\models\asr\vosk-model-small-en-us-0.15/graph/phones/word_boundary.int
+LOG (VoskAPI:UpdateGrammarFst():recognizer.cc:287) ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"]
+LOG (VoskAPI:Estimate():language_model.cc:142) Estimating language model with ngram-order=2, discount=0.5
+LOG (VoskAPI:OutputToFst():language_model.cc:209) Created language model with 27 states and 52 arcs.
+LOG (VoskAPI:UpdateGrammarFst():recognizer.cc:287) ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"]
+LOG (VoskAPI:Estimate():language_model.cc:142) Estimating language model with ngram-order=2, discount=0.5
+LOG (VoskAPI:OutputToFst():language_model.cc:209) Created language model with 27 states and 52 arcs.
+LOG (VoskAPI:UpdateGrammarFst():recognizer.cc:287) ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"]
+LOG (VoskAPI:Estimate():language_model.cc:142) Estimating language model with ngram-order=2, discount=0.5
+LOG (VoskAPI:OutputToFst():language_model.cc:209) Created language model with 27 states and 52 arcs.
+LOG (VoskAPI:UpdateGrammarFst():recognizer.cc:287) ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"]
+LOG (VoskAPI:Estimate():language_model.cc:142) Estimating language model with ngram-order=2, discount=0.5
+LOG (VoskAPI:OutputToFst():language_model.cc:209) Created language model with 27 states and 52 arcs.
+LOG (VoskAPI:UpdateGrammarFst():recognizer.cc:287) ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"]
+LOG (VoskAPI:Estimate():language_model.cc:142) Estimating language model with ngram-order=2, discount=0.5
+LOG (VoskAPI:OutputToFst():language_model.cc:209) Created language model with 27 states and 52 arcs.
+LOG (VoskAPI:UpdateGrammarFst():recognizer.cc:287) ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"]
+LOG (VoskAPI:Estimate():language_model.cc:142) Estimating language model with ngram-order=2, discount=0.5
+LOG (VoskAPI:OutputToFst():language_model.cc:209) Created language model with 27 states and 52 arcs.
+LOG (VoskAPI:UpdateGrammarFst():recognizer.cc:287) ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"]
+LOG (VoskAPI:Estimate():language_model.cc:142) Estimating language model with ngram-order=2, discount=0.5
+LOG (VoskAPI:OutputToFst():language_model.cc:209) Created language model with 27 states and 52 arcs.
+LOG (VoskAPI:UpdateGrammarFst():recognizer.cc:287) ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"]
+LOG (VoskAPI:Estimate():language_model.cc:142) Estimating language model with ngram-order=2, discount=0.5
+LOG (VoskAPI:OutputToFst():language_model.cc:209) Created language model with 27 states and 52 arcs.
+LOG (VoskAPI:UpdateGrammarFst():recognizer.cc:287) ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"]
+LOG (VoskAPI:Estimate():language_model.cc:142) Estimating language model with ngram-order=2, discount=0.5
+LOG (VoskAPI:OutputToFst():language_model.cc:209) Created language model with 27 states and 52 arcs.
+LOG (VoskAPI:UpdateGrammarFst():recognizer.cc:287) ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"]
+LOG (VoskAPI:Estimate():language_model.cc:142) Estimating language model with ngram-order=2, discount=0.5
+LOG (VoskAPI:OutputToFst():language_model.cc:209) Created language model with 27 states and 52 arcs.
+LOG (VoskAPI:UpdateGrammarFst():recognizer.cc:287) ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"]
+LOG (VoskAPI:Estimate():language_model.cc:142) Estimating language model with ngram-order=2, discount=0.5
+LOG (VoskAPI:OutputToFst():language_model.cc:209) Created language model with 27 states and 52 arcs.
+LOG (VoskAPI:UpdateGrammarFst():recognizer.cc:287) ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"]
+LOG (VoskAPI:Estimate():language_model.cc:142) Estimating language model with ngram-order=2, discount=0.5
+LOG (VoskAPI:OutputToFst():language_model.cc:209) Created language model with 27 states and 52 arcs.
+LOG (VoskAPI:UpdateGrammarFst():recognizer.cc:287) ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"]
+LOG (VoskAPI:Estimate():language_model.cc:142) Estimating language model with ngram-order=2, discount=0.5
+LOG (VoskAPI:OutputToFst():language_model.cc:209) Created language model with 27 states and 52 arcs.
+LOG (VoskAPI:UpdateGrammarFst():recognizer.cc:287) ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"]
+LOG (VoskAPI:Estimate():language_model.cc:142) Estimating language model with ngram-order=2, discount=0.5
+LOG (VoskAPI:OutputToFst():language_model.cc:209) Created language model with 27 states and 52 arcs.
+LOG (VoskAPI:UpdateGrammarFst():recognizer.cc:287) ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"]
+LOG (VoskAPI:Estimate():language_model.cc:142) Estimating language model with ngram-order=2, discount=0.5
+LOG (VoskAPI:OutputToFst():language_model.cc:209) Created language model with 27 states and 52 arcs.
+LOG (VoskAPI:UpdateGrammarFst():recognizer.cc:287) ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"]
+LOG (VoskAPI:Estimate():language_model.cc:142) Estimating language model with ngram-order=2, discount=0.5
+LOG (VoskAPI:OutputToFst():language_model.cc:209) Created language model with 27 states and 52 arcs.
+LOG (VoskAPI:UpdateGrammarFst():recognizer.cc:287) ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"]
+LOG (VoskAPI:Estimate():language_model.cc:142) Estimating language model with ngram-order=2, discount=0.5
+LOG (VoskAPI:OutputToFst():language_model.cc:209) Created language model with 27 states and 52 arcs.
+LOG (VoskAPI:UpdateGrammarFst():recognizer.cc:287) ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"]
+LOG (VoskAPI:Estimate():language_model.cc:142) Estimating language model with ngram-order=2, discount=0.5
+LOG (VoskAPI:OutputToFst():language_model.cc:209) Created language model with 27 states and 52 arcs.
+LOG (VoskAPI:UpdateGrammarFst():recognizer.cc:287) ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"]
+LOG (VoskAPI:Estimate():language_model.cc:142) Estimating language model with ngram-order=2, discount=0.5
+LOG (VoskAPI:OutputToFst():language_model.cc:209) Created language model with 27 states and 52 arcs.
+LOG (VoskAPI:UpdateGrammarFst():recognizer.cc:287) ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"]
+LOG (VoskAPI:Estimate():language_model.cc:142) Estimating language model with ngram-order=2, discount=0.5
+LOG (VoskAPI:OutputToFst():language_model.cc:209) Created language model with 27 states and 52 arcs.
+LOG (VoskAPI:UpdateGrammarFst():recognizer.cc:287) ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"]
+LOG (VoskAPI:Estimate():language_model.cc:142) Estimating language model with ngram-order=2, discount=0.5
+LOG (VoskAPI:OutputToFst():language_model.cc:209) Created language model with 27 states and 52 arcs.
+LOG (VoskAPI:UpdateGrammarFst():recognizer.cc:287) ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"]
+LOG (VoskAPI:Estimate():language_model.cc:142) Estimating language model with ngram-order=2, discount=0.5
+LOG (VoskAPI:OutputToFst():language_model.cc:209) Created language model with 27 states and 52 arcs.
+==============================================================================
+ASR 本地化预研探针
+  音频目录 : D:\helloagent\zhanglaoshi_zhangyuze\qa\audio
+  模型目录 : D:\helloagent\zhanglaoshi_zhangyuze\backend\models\asr
+==============================================================================
+[模型] vosk   = D:\helloagent\zhanglaoshi_zhangyuze\backend\models\asr\vosk-model-small-en-us-0.15
+[模型] sherpa = D:\helloagent\zhanglaoshi_zhangyuze\backend\models\asr\sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20
+
+
+--- SPELL（Vosk + 26 字母 grammar），门线均值 ≥ 0.9 ---
+file                                       target            hit  hyp
+apple__spell.wav                           apple           1.000  a p p l e
+bag__spell.wav                             bag             1.000  b a g
+beautiful__spell.wav                       beautiful       1.000  b e a u a t i f u l
+bed__spell.wav                             bed             1.000  b e d
+breakfast__spell.wav                       breakfast       1.000  b r e a k f a s t
+bus__spell.wav                             bus             1.000  b u s
+cat__spell.wav                             cat             1.000  c a t
+class__spell.wav                           class           1.000  c l a s s
+classroom__spell.wav                       classroom       0.889  e l a s s r o o m
+dictionary__spell.wav                      dictionary      1.000  d i c t i o n a r y
+dog__spell.wav                             dog             1.000  d o g
+happy__spell.wav                           happy           1.000  h a p p y
+little__spell.wav                          little          0.667  y i p t l e
+pen__spell.wav                             pen             1.000  p e n
+pencil__spell.wav                          pencil          0.833  p n c i l
+pig__spell.wav                             pig             1.000  p i g
+red__spell.wav                             red             0.333  o a d
+restaurant__spell.wav                      restaurant      0.900  y e s t a u r a n t
+school__spell.wav                          school          0.833  s c h o l
+student__spell.wav                         student         1.000  s t u d e n t
+teacher__spell.wav                         teacher         1.000  t e a c h e r
+water__spell.wav                           water           0.600  y o a t r
+均值 = 0.9116  →  SPELL_GATE: PASS
+
+--- WHOLE（sherpa streaming，原生率 8000Hz），门线比例 ≥ 0.8 ---
+file                                          sim  ok  target / hyp
+a classroom__whole.wav                      0.000 False  a classroom / 
+apple__whole.wav                            0.000 False  apple / 
+bag__whole.wav                              0.000 False  bag / 
+beautiful__whole.wav                        0.556 False  beautiful / BEAUT
+bed__whole.wav                              0.000 False  bed / 
+breakfast__whole.wav                        0.000 False  breakfast / 
+bus__whole.wav                              0.000 False  bus / 
+cat__whole.wav                              0.000 False  cat / 
+class__whole.wav                            0.000 False  class / 
+classroom__whole.wav                        0.000 False  classroom / 
+dictionary__whole.wav                       0.000 False  dictionary / 感谢
+dog__whole.wav                              0.000 False  dog / 
+happy__whole.wav                            0.000 False  happy / 
+little__whole.wav                           0.000 False  little / 
+Our classroom is big.__whole.wav            0.059 False  Our classroom is big. / I C
+pen__whole.wav                              0.000 False  pen / 奶奶奶奶奶的片里面你一门曼酒救我的后面
+pencil__whole.wav                           0.000 False  pencil / 
+pig__whole.wav                              0.000 False  pig / 
+red__whole.wav                              0.000 False  red / 
+restaurant__whole.wav                       0.000 False  restaurant / 
+school__whole.wav                           0.000 False  school / 
+student__whole.wav                          0.000 False  student / 歌
+teacher__whole.wav                          0.000 False  teacher / 
+This is my pencil.__whole.wav               0.000 False  This is my pencil. / 马上二点
+water__whole.wav                            0.000 False  water / 
+≥0.8 比例 = 0.000  →  WHOLE_GATE: FAIL
+
+--- ZH 中文通路自检 ---
+   {'phrase': '苹果', 'hyp': '', 'hit': False}
+   {'phrase': '香蕉', 'hyp': '', 'hit': False}
+   {'phrase': '早上好', 'hyp': '', 'hit': False}
+ZH_GATE: FAIL —— 本地 TTS 合成中文 → 引擎 B 转写命中
+
+==============================================================================
+SPELL_GATE: PASS  (mean=0.9116, 门线 0.9)
+WHOLE_GATE: FAIL  (ratio=0.000, 门线 0.8)
+ZH_GATE   : FAIL
+
+双硬门（SPELL + WHOLE）: FAIL → 停下上报，不准接线
+==============================================================================

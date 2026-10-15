@@ -41,3 +41,13 @@ alibabacloud_ocr_api20210707>=2.0.0
 # ---------- 测试 ----------
 pytest==9.1.1
 httpx==0.28.1          # 同时用于 BE-06 的非流式 ASR 调用（无需再引 aiohttp）
+
+# ---------- AI 能力本地化（docs/localize-dev，批次 B/C/E；2026-10-12 实测锁定）----------
+# ⚠️ 清华镜像没有 sherpa-onnx，必须走官方 PyPI：
+#    .venv/Scripts/pip.exe install sherpa-onnx -i https://pypi.org/simple
+# ⚠️ WorkBuddy 会话注入大小写两组 HTTP(S)_PROXY 慢代理，安装/下载必须
+#    env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy（四清）。
+sherpa-onnx==1.13.8        # 本地 TTS（跑 piper/melo 模型）+ 本地 ASR（streaming zipformer）
+vosk==0.3.45               # 本地 ASR 字母拼读（grammar 锁 26 字母）
+rapidocr-onnxruntime==1.2.3  # 本地 OCR（PP-OCRv4 mobile onnx）
+onnxruntime==1.31.0        # 上面三包共享底座，显式钉住防漂移

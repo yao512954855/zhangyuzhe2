@@ -61,6 +61,13 @@ class _SpellPageState extends ConsumerState<SpellPage> {
 
   // ---- en2zh 答题态 ----
   String _transcript = '';
+
+  /// zh2en：已定版「听到」的字母序列（utterance 累积）。
+  ///
+  /// 与字母格同源同序：服务端每下发一条 utterance，随后即是对它的逐格
+  /// `letter` 判定（契约 §5 v1.0.4）—— 这里展示的就是实际参与判格的文本。
+  /// 实时 partial 未定版，单独显示在末尾（见 [_heardDisplay]）。
+  String _heard = '';
   bool _capturing = false;
 
   /// 本题阶段：en2zh 判错后的「再试一次」态。
@@ -78,24 +85,54 @@ class _SpellPageState extends ConsumerState<SpellPage> {
 
   StreamSubscription<LetterEvent>? _letterSub;
   StreamSubscription<TranscriptEvent>? _transcriptSub;
+  StreamSubscription<UtteranceEvent>? _utteranceSub;
   StreamSubscription<WsState>? _stateSub;
+  StreamSubscription<AsrErrorEvent>? _errorSub;
+  StreamSubscription<double>? _levelSub;
+
+  /// 麦克风实时音量（0~1）：录音动效用；录音结束后归零。
+  double _micLevel = 0;
+
+  /// 服务端报错（start 被拒 / 没听到声音）：展示给用户并恢复重试按钮。
+  String? _asrError;
 
   SpellRun? _run;
 
   SpellItem get _item => _run!.items[_idx];
+
+  /// zh2en「听到」区展示文本：已定版累积 + 实时 partial（未定版）。
+  ///
+  /// 例：念完 A（定版）正在念 P → "A P"。空白时返回空串（不显示该区）。
+  String get _heardDisplay {
+    final live = _transcript.trim().toUpperCase();
+    final parts = <String>[
+      if (_heard.isNotEmpty) _heard,
+      if (live.isNotEmpty) live,
+    ];
+    return parts.join(' ');
+  }
 
   @override
   void initState() {
     super.initState();
     final session = widget.session ??
         PracticeWsSession(
-          wsClient: ref.read(wsClientProvider),
+          // ⛔ 不能用 wsClientProvider：它是 autoDispose，页面只 read 不 watch，
+          // riverpod 随时回收 → client.dispose() 关掉消息/状态流，页面变聋
+          // （2026-10-11 真机「没听清/连接断开」根因：服务端 final 全对，
+          // 页面永远收不到）。会话与页面同生命周期，自建自有客户端。
+          wsClient: WsClient(
+            serverStore: ref.read(serverStoreProvider),
+            localStore: ref.read(localStoreProvider),
+          ),
           micRecorder: ref.read(pcmRecorderProvider),
         );
     _session = session;
     _letterSub = session.letters.listen(_onLetter);
     _transcriptSub = session.transcripts.listen(_onTranscript);
+    _utteranceSub = session.utterances.listen(_onUtterance);
     _stateSub = session.states.listen(_onWsState);
+    _errorSub = session.errors.listen(_onAsrError);
   }
 
   @override
@@ -114,7 +151,10 @@ class _SpellPageState extends ConsumerState<SpellPage> {
   void dispose() {
     _letterSub?.cancel();
     _transcriptSub?.cancel();
+    _utteranceSub?.cancel();
     _stateSub?.cancel();
+    _errorSub?.cancel();
+    _levelSub?.cancel();
     // 会话不是 provider 管的（页面生命周期对象），由页面负责关。
     unawaited(_session?.close());
     super.dispose();
@@ -167,12 +207,35 @@ class _SpellPageState extends ConsumerState<SpellPage> {
           waiter.complete();
         }
       }
-      if (!_answeredThisRound) {
+      // ⚠️ 仅 en2zh 自动判：zh2en 已由 utterance 逐格判完（v1.0.4），
+      // final 只在 close（退出页面）时来，把字母序列 "a p" 送去中文比对
+      // 会误判成错题。
+      if (!_answeredThisRound && _runOrNull()?.isZh2En == false) {
         _answeredThisRound = true;
         setState(() => _capturing = false);
         unawaited(_judgeTranscript());
       }
     }
+  }
+
+  void _onUtterance(UtteranceEvent event) {
+    if (!mounted || _settled) {
+      return;
+    }
+    // 换题后迟到的旧题消息直接丢（utterance 与 letter 同源同序，不会漏判）。
+    if (event.itemId != _item.id) {
+      return;
+    }
+    final text = event.text.trim();
+    if (text.isEmpty) {
+      return;
+    }
+    setState(() {
+      // 这句已定版：收进「听到」累积，并清掉实时 partial ——
+      // 否则旧 partial（如 "a"）会和新定版文本重复显示成 "A A"。
+      _heard = (_heard.isEmpty ? text : '$_heard $text').toUpperCase();
+      _transcript = '';
+    });
   }
 
   void _onWsState(WsState state) {
@@ -189,6 +252,20 @@ class _SpellPageState extends ConsumerState<SpellPage> {
     });
   }
 
+  void _onAsrError(AsrErrorEvent event) {
+    if (!mounted || _settled) {
+      return;
+    }
+    // 服务端拒了这一轮（start 非法 / 没听到声音）：停推流、退出「正在听」、
+    // 把按钮还给用户。不弹出退栈，学生可直接重试（2026-10-11 真机死页教训）。
+    unawaited(_session?.stopCapture());
+    setState(() {
+      _capturing = false;
+      _busy = false;
+      _asrError = event.message;
+    });
+  }
+
   // ---------------------------------------------------------------- 作答推进
 
   void _resetItemState() {
@@ -201,6 +278,7 @@ class _SpellPageState extends ConsumerState<SpellPage> {
     _falseStreak = 0;
     _keyboardOn = false;
     _transcript = '';
+    _heard = '';
     _lastWrong = false;
     _capturing = false;
     _answeredThisRound = false;
@@ -236,6 +314,7 @@ class _SpellPageState extends ConsumerState<SpellPage> {
         if (ok) {
           _micBlocked = false;
           _disconnected = false;
+          _asrError = null;
           _capturing = true;
           _lastWrong = false;
           _answeredThisRound = false;
@@ -244,6 +323,14 @@ class _SpellPageState extends ConsumerState<SpellPage> {
           _capturing = false;
         }
       });
+      if (ok) {
+        // 录音动效：订阅麦克风电平（broadcast 流，页面生命周期内只订一次）
+        _levelSub ??= session.micLevels.listen((v) {
+          if (mounted) {
+            setState(() => _micLevel = v);
+          }
+        });
+      }
     } finally {
       if (mounted) {
         setState(() => _busy = false);
@@ -608,6 +695,14 @@ class _SpellPageState extends ConsumerState<SpellPage> {
                     text: '连接断开了，先暂停一下；进度没丢，点「继续」接着来',
                   ),
                 ),
+              if (_asrError != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: InlineNotice(
+                    kind: NoticeKind.error,
+                    text: _asrError!,
+                  ),
+                ),
               _buildControls(run),
             ],
           ),
@@ -641,6 +736,39 @@ class _SpellPageState extends ConsumerState<SpellPage> {
           ),
         ),
         const SizedBox(height: AgeProfile.elementGap),
+        // 「听到」区（v1.0.4）：实时 partial（浅色进行态）+ utterance 定版
+        // （主色加粗）拼成。与字母格同源同序 —— 念 A，这里先出 A；服务端
+        // 判对后第 1 格才亮。学生随时能看到「App 确实听到了」。
+        if (_heardDisplay.isNotEmpty) ...[
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: extra.card,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: extra.divider, width: 0.5),
+            ),
+            child: Column(
+              children: [
+                Text(
+                  '听到',
+                  style: profile.captionStyle.copyWith(color: extra.textFaint),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _heardDisplay,
+                  style: profile.cardTitleStyle.copyWith(
+                    color: Theme.of(context).colorScheme.primary,
+                    letterSpacing: 6,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: AgeProfile.elementGap),
+        ],
         _LetterGrid(
           cells: _filled,
         ),
@@ -706,12 +834,20 @@ class _SpellPageState extends ConsumerState<SpellPage> {
             borderRadius: BorderRadius.circular(12),
             border: Border.all(color: extra.divider, width: 0.5),
           ),
-          child: Text(
-            _transcript.isEmpty
-                ? (_capturing ? '正在听你说…' : '点下面的按钮，说出它的中文意思')
-                : _transcript,
-            style: profile.bodyStyle,
-            textAlign: TextAlign.center,
+          child: Column(
+            children: [
+              if (_capturing) ...[
+                _MicWave(level: _micLevel),
+                const SizedBox(height: 8),
+              ],
+              Text(
+                _transcript.isEmpty
+                    ? (_capturing ? '正在听你说…' : '点下面的按钮，说出它的中文意思')
+                    : _transcript,
+                style: profile.bodyStyle,
+                textAlign: TextAlign.center,
+              ),
+            ],
           ),
         ),
         if (_lastWrong) ...[
@@ -733,7 +869,7 @@ class _SpellPageState extends ConsumerState<SpellPage> {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (!started || _disconnected)
+          if (!started || _disconnected || _asrError != null)
             AppButton(
               label: started ? '继续' : '开始拼读',
               icon: Icons.mic_rounded,
@@ -750,13 +886,21 @@ class _SpellPageState extends ConsumerState<SpellPage> {
           else
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Text(
-                '对着麦克风，一个字母一个字母念出来',
-                style: Theme.of(context)
-                    .textTheme
-                    .bodyMedium
-                    ?.copyWith(color: AppExtraColors.of(context).textFaint),
-                textAlign: TextAlign.center,
+              child: Column(
+                children: [
+                  _MicWave(level: _micLevel),
+                  const SizedBox(height: 6),
+                  Text(
+                    _micLevel < 0.04
+                        ? '对着麦克风，一个字母一个字母念出来'
+                        : '听到了，继续念…',
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodyMedium
+                        ?.copyWith(color: AppExtraColors.of(context).textFaint),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
               ),
             ),
           const SizedBox(height: 12),
@@ -883,6 +1027,51 @@ class _Keyboard extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// 录音中的音量动效：5 根跳动竖条（level 驱动，静音时平伏微动）。
+///
+/// 电平来自 `PcmRecorder.levelStream`（约 150ms 一帧），静音段 rms≈0 →
+/// 条子落回最低高度并保持呼吸感，学生一眼能看出「App 正在听」。
+class _MicWave extends StatelessWidget {
+  const _MicWave({required this.level});
+
+  /// 0~1，来自麦克风采样的归一化 rms。
+  final double level;
+
+  @override
+  Widget build(BuildContext context) {
+    // 静音底高 6px；有声时按电平抬起（最高 ~34px），中间条最活跃。
+    const shape = <double>[0.55, 0.8, 1.0, 0.8, 0.55];
+    final lift = 6.0 + level.clamp(0.0, 1.0) * 28.0;
+    final active = level > 0.04;
+    final color = active
+        ? Theme.of(context).colorScheme.primary
+        : AppExtraColors.of(context).textFaint;
+    return SizedBox(
+      height: 40,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: <Widget>[
+          for (var i = 0; i < shape.length; i++)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 3),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 120),
+                curve: Curves.easeOut,
+                width: 5,
+                height: (lift * shape[i] + (active ? 0 : 2 * (1 - shape[i])))
+                    .clamp(4.0, 40.0),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: active ? 0.85 : 0.4),
+                  borderRadius: BorderRadius.circular(3),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

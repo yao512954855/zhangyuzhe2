@@ -29,16 +29,18 @@ from app.core.config import BASE_DIR
 from app.core.logging import get_logger
 from app.services.asr.aliyun_provider import AliyunProvider
 from app.services.asr.base import ASRError, ASRProvider, ASRTaskConfig
+from app.services.asr.local_provider import LocalProvider
 from app.services.asr.mock_provider import MockProvider
 from app.services.asr.volcengine_provider import VolcengineProvider
 
 logger = get_logger(__name__)
 
-#: 支持的厂商 → Provider 类
+#: 支持的厂商 → Provider 类（local：契约修订 v1.0.2，2026-10-13 姚工裁决接线）
 PROVIDERS: dict[str, type[ASRProvider]] = {
     "aliyun": AliyunProvider,
     "volcengine": VolcengineProvider,
     "mock": MockProvider,
+    "local": LocalProvider,
 }
 
 #: 连续失败多少次后粘性切换到备厂商（F5）

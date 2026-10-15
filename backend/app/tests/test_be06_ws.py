@@ -36,6 +36,9 @@ os.environ["DB_PATH"] = str(_DB_FILE)
 os.environ["BACKUP_DIR"] = str(_TMP_DIR / "backups")
 os.environ["LOG_LEVEL"] = "WARNING"
 os.environ["ASR_CONFIG_PATH"] = str(_ASR_YAML)
+# 本批用例是云端路径验收（mock 厂商流）。本地模型就位后 hybrid 会优先 local，
+# 必须按契约 §2 用部署锁把 ASR 钉死在 cloud（每次调用现读 env，模块级设置即生效）。
+os.environ["CAP_ASR"] = "cloud"
 
 from fastapi.testclient import TestClient  # noqa: E402
 from starlette.websockets import WebSocketDisconnect  # noqa: E402
@@ -658,15 +661,18 @@ class TestProtocolDetails:
         assert fs.last("error")["code"] == ErrorCode.PARAM_INVALID
 
     def test_audio_before_start_rejected(self, client: TestClient) -> None:
+        """start 前的音频帧：**静默丢弃**（2026-10-11 起），不再回 error——
+        App 常驻录音器 end 后仍推帧，每帧回 error 会把 App 刷成「没听清」死页。"""
         uid, _ = _make_student(client)
         fs = FakeSession(uid)
 
         async def flow() -> None:
             await fs.session.handle_bytes(CHUNK)
+            await fs.session.handle_bytes(CHUNK)
             await fs.session.flush()
 
         run(flow())
-        assert fs.last("error")["code"] == ErrorCode.PARAM_INVALID
+        assert fs.last("error") is None, "未 start 的帧必须静默丢弃，不得回 error"
 
     def test_invalid_task_type_rejected(self, client: TestClient) -> None:
         uid, _ = _make_student(client)

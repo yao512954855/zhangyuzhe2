@@ -95,6 +95,34 @@ class PcmRecorder {
   StreamSubscription<Uint8List>? _sub;
   bool _recording = false;
 
+  // 麦克风音量电平（0~1）——常驻 broadcast，页面订阅一次即可，
+  // 录音期间每帧（150ms）发一次；不 close（App 生命周期内常驻）。
+  final StreamController<double> _levelCtl =
+      StreamController<double>.broadcast();
+
+  /// 录音中的音量电平流（未录音时无事件）。供答题页做「正在听」动效。
+  Stream<double> get levelStream => _levelCtl.stream;
+
+  /// 16bit 小端 PCM 块 → 归一化音量（rms×20 截到 0~1；rms 0.05≈1600 → 满格）。
+  static double _normalizedRms(Uint8List data) {
+    final n = data.length ~/ 2;
+    if (n == 0) {
+      return 0;
+    }
+    final bytes = ByteData.view(
+      data.buffer, data.offsetInBytes, n * 2);
+    var sum = 0.0;
+    for (var i = 0; i < n; i++) {
+      final s = bytes.getInt16(i * 2, Endian.little) / 32768.0;
+      sum += s * s;
+    }
+    final rms = sum / n;
+    if (rms <= 0) {
+      return 0;
+    }
+    return (rms * 20).clamp(0.0, 1.0);
+  }
+
   bool get isRecording => _recording;
 
   /// 申请麦克风权限。
@@ -145,11 +173,14 @@ class PcmRecorder {
         encoder: AudioEncoder.pcm16bits,
         sampleRate: PcmSpec.sampleRate,
         numChannels: PcmSpec.channels,
-        // 以下三项**保持关闭**：ASR 预研尚未测过这组开关对识别率的影响，
-        // 未实测前不开，避免与预研结论对不上（需求 §6 判分口径依赖预研）。
-        autoGain: false,
-        echoCancel: false,
-        noiseSuppress: false,
+        // ✅ 三项全开（2026-10-13 真机实锤修订）：关闭时手机底噪 rms≈100、
+        // 人声 rms 仅 180~780（qa 录音为 1840），本地 Vosk 直接识别不出
+        // （下行帧正常但 partial 恒空）。云端引擎对噪声鲁棒无此问题，
+        // 本地小模型必须靠系统 AGC/NS 提升信噪比。echoCancel 同时防
+        // 听写 TTS 外放被麦克风回收。
+        autoGain: true,
+        echoCancel: true,
+        noiseSuppress: true,
       ),
     );
     _recording = true;
@@ -160,6 +191,10 @@ class PcmRecorder {
     _out = controller;
     _sub = stream.listen(
       (data) {
+        // 音量电平（每帧一次）→ 动效；broadcast 无监听时开销可忽略
+        if (_levelCtl.hasListener) {
+          _levelCtl.add(_normalizedRms(data));
+        }
         for (final chunk in chunker.add(data)) {
           controller.add(chunk);
         }

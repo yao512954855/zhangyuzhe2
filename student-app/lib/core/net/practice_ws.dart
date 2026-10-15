@@ -63,6 +63,49 @@ class TranscriptEvent {
   final bool isFinal;
 }
 
+/// 服务端 `utterance` 下行（契约 §5 修订 v1.0.4）：Vosk 语句级定版结果。
+///
+/// zh2en 拼读专用：念完一个字母停一下，服务端把「听到的这句」原样透传，
+/// 紧随其后的 `letter` 消息即对它的逐格判定 —— 两者同源同序，页面展示的
+/// 文本就是实际参与判格的文本。
+@immutable
+class UtteranceEvent {
+  const UtteranceEvent({required this.text, required this.itemId});
+
+  factory UtteranceEvent.fromJson(Map<String, dynamic> json) => UtteranceEvent(
+        text: json['text']?.toString() ?? '',
+        itemId: (json['item_id'] as num?)?.toInt() ?? 0,
+      );
+
+  final String text;
+  final int itemId;
+}
+
+/// 服务端 `error` 下行：start 被拒 / 没听到声音等（§5）。
+///
+/// 页面收到后必须退出「正在听」态并把按钮还给用户 —— 否则就是死页面
+/// （2026-10-11 真机踩坑：start 被拒后 App 一直推音频，界面无任何反馈）。
+@immutable
+class AsrErrorEvent {
+  const AsrErrorEvent({
+    required this.code,
+    required this.message,
+    this.action,
+  });
+
+  factory AsrErrorEvent.fromJson(Map<String, dynamic> json) => AsrErrorEvent(
+        code: (json['code'] as num?)?.toInt() ?? 0,
+        message: json['message']?.toString() ?? '语音识别出了点问题',
+        action: json['action']?.toString(),
+      );
+
+  final int code;
+  final String message;
+
+  /// `abort` / `retry` / `keyboard`（§5）：abort 必须停推流。
+  final String? action;
+}
+
 /// 一次拼读/说中文的 WS 会话。
 ///
 /// 页面生命周期对象：一个答题页建一个，退出时 [close]。
@@ -102,18 +145,30 @@ class PracticeWsSession {
 
   final _letters = StreamController<LetterEvent>.broadcast();
   final _transcripts = StreamController<TranscriptEvent>.broadcast();
+  final _utterances = StreamController<UtteranceEvent>.broadcast();
+  final _errors = StreamController<AsrErrorEvent>.broadcast();
 
   /// 拼读判定事件（zh2en 填格用）。
   Stream<LetterEvent> get letters => _letters.stream;
 
-  /// 转写事件（en2zh 展示用）。
+  /// 转写事件（en2zh 展示 / zh2en 实时 partial 展示用）。
   Stream<TranscriptEvent> get transcripts => _transcripts.stream;
+
+  /// 语句级定版结果（zh2en「听到」展示用；与 letters 同源同序）。
+  Stream<UtteranceEvent> get utterances => _utterances.stream;
+
+  /// 服务端报错事件（start 被拒 / 空结果等），页面据此退出录音态。
+  Stream<AsrErrorEvent> get errors => _errors.stream;
 
   Stream<WsState> get states => _stateStream ?? _ws.states;
 
   WsState get state => _ws.state;
 
   bool get isCapturing => _recorder.isRecording;
+
+  /// 麦克风音量电平（0~1，录音期间每帧约 150ms 一个事件）。
+  /// 供答题页做「正在听你说」动效；未录音时无事件。
+  Stream<double> get micLevels => _recorder.levelStream;
 
   /// 本会话是否已收到过服务端下行（测试/调试用）。
   bool gotServerMessage = false;
@@ -180,6 +235,13 @@ class PracticeWsSession {
   /// 结束当前一轮（服务端收到 `end` 后收口本轮判定）。
   void endRound() => _ws.sendEnd();
 
+  /// 服务端报错（尤其 abort）后停录音推流；连接保留，页面可重试。
+  Future<void> stopCapture() async {
+    await _audioSub?.cancel();
+    _audioSub = null;
+    await _recorder.stop();
+  }
+
   void _onMessage(Map<String, dynamic> msg) {
     gotServerMessage = true;
     final type = msg['type']?.toString() ?? '';
@@ -188,6 +250,15 @@ class PracticeWsSession {
         final event = LetterEvent.fromJson(msg);
         if (!_letters.isClosed) {
           _letters.add(event);
+        }
+      case 'utterance':
+        final event = UtteranceEvent.fromJson(msg);
+        if (event.text.isNotEmpty && !_utterances.isClosed) {
+          _utterances.add(event);
+        }
+      case 'error':
+        if (!_errors.isClosed) {
+          _errors.add(AsrErrorEvent.fromJson(msg));
         }
       case 'partial':
       case 'final':
@@ -222,5 +293,7 @@ class PracticeWsSession {
     await _ws.close();
     await _letters.close();
     await _transcripts.close();
+    await _utterances.close();
+    await _errors.close();
   }
 }

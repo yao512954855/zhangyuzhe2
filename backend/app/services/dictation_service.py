@@ -28,7 +28,15 @@ import json
 import os
 from typing import Any
 
+from app.core.capability import resolve_mode  # 模式路由（契约 01 §1.2）
 from app.core.errors import BizError, ErrorCode
+from app.core.logging import get_logger
+# ⚠️ 模块级导入：ocr_local 导入即向能力框架登记 ocr 引擎（rapidocr 本体在
+#    LocalOcrClient 内部才懒加载，模块级导入是轻量的）。放函数内会导致
+#    /api/capabilities 在首次 OCR 请求前一直显示「未登记」。
+from app.services.ocr_local import LocalOcrClient  # noqa: E402
+
+logger = get_logger(__name__)
 
 # ---- 常量（契约 §4 / §6.3 冻结语义）----
 _MAX_IMAGE_BYTES = 10 * 1024 * 1024  # 10MB
@@ -135,8 +143,11 @@ class _OcrClient:
 _client: _OcrClient | None = None
 
 
-def _get_client() -> _OcrClient:
-    """懒加载单例（测试可直接改 `dictation_service._client` 注入 fake）。"""
+def _build_cloud_client() -> _OcrClient:
+    """懒加载云端 OCR 单例（原 `_get_client` 逻辑；cloud 模式与 hybrid 回落走它）。
+
+    实现与单例语义原样保留：缺 AK → BizError(20005)；超时读 OCR_TIMEOUT_S。
+    """
     global _client
     if _client is None:
         env = _read_ocr_env()
@@ -150,6 +161,58 @@ def _get_client() -> _OcrClient:
             timeout_s = _DEFAULT_TIMEOUT_S
         _client = _OcrClient(ak_id, ak_secret, timeout_s)
     return _client
+
+
+class _HybridOcrClient:
+    """hybrid 路由（契约 §1.2）：本地优先；本地异常或有效块数 == 0 → 回落云端。
+
+    有效块数判定复用 `_parse_blocks`（解析层），不进 ocr_local。
+    """
+
+    def __init__(self, local: "LocalOcrClient", cloud: _OcrClient) -> None:
+        self._local = local
+        self._cloud = cloud
+
+    def recognize(self, image_bytes: bytes) -> dict[str, Any]:
+        try:
+            raw = self._local.recognize(image_bytes)
+        except Exception as exc:  # noqa: BLE001 - 本地异常 → 回落云端
+            logger.warning(
+                "OCR hybrid：本地异常，回落云端 engine=cloud：%s: %s",
+                type(exc).__name__, exc,
+            )
+            return self._cloud.recognize(image_bytes)
+
+        # 有效块数 == 0 → 视为本地失败，回落云端（契约 §1.2）
+        try:
+            valid_blocks = _parse_blocks(raw)
+        except BizError:
+            valid_blocks = []
+        if len(valid_blocks) == 0:
+            logger.warning("OCR hybrid：本地识别 0 有效块，回落云端 engine=cloud")
+            return self._cloud.recognize(image_bytes)
+        return raw
+
+
+def _get_client():
+    """模式路由（契约 01 §1.2）：返回本次批改使用的 OCR 客户端。
+
+    - local  ：LocalOcrClient（失败 → 20005，绝不碰云端）
+    - cloud  ：现状云端 `_OcrClient` 单例
+    - hybrid ：本地优先，本地异常/0 块回落云端 `_OcrClient`
+
+    解析 / 对齐 / 判分层（`_parse_blocks` 以下）一行未改。
+    """
+    mode = resolve_mode("ocr")
+    if mode == "local":
+        logger.info("OCR 模式=local 选用引擎=local")
+        return LocalOcrClient()
+    if mode == "cloud":
+        logger.info("OCR 模式=cloud 选用引擎=cloud")
+        return _build_cloud_client()
+    # hybrid
+    logger.info("OCR 模式=hybrid 选用引擎=hybrid(local→cloud)")
+    return _HybridOcrClient(LocalOcrClient(), _build_cloud_client())
 
 
 # ------------------------------------------------------------------ 解析

@@ -22,11 +22,16 @@ mock:
 
 | behavior | start_session | 音频期 | close() |
 |---|---|---|---|
-| `normal` | 成功 | 按脚本产 `partial` | 产 `final` |
+| `normal` | 成功 | 按脚本产 `partial` | 产 `utterance`（模拟本地引擎语句级语义）+ `final` |
 | `empty` | 成功 | 无 | `final=""`（随后由网关报 50003，**不计错**） |
 | `timeout` | 成功 | 无 | 抛 `50002` / `action=keyboard` |
 | `error` | 成功 | 无 | 抛 `50001` |
 | `connect_fail` | 抛 `50001`（模拟建连失败 → 触发主备切换） | — | — |
+
+> `close()` 多产的那条 `utterance` 是为覆盖「简化版 spell_zh2en 判格由
+> utterance 通道驱动」（契约 §5 修订 v1.0.3）：App 此模式没有 end 入口，
+> 真机上由 LocalProvider 的 Vosk 语句边界逐句触发，Mock 在 close 时一次性
+> 补上，保证 WS 层用例不依赖真模型。
 """
 
 from __future__ import annotations
@@ -119,6 +124,12 @@ class MockProvider(ASRProvider):
 
         # 把脚本里剩余的部分作为「最终累计文本」下发
         text = self._final_text or (self._script[-1] if self._script else "")
+        # 模拟本地引擎（Vosk）的语句级语义：close 时把最终文本也作为一条
+        # utterance 下发 —— 简化版 zh2en 的逐格判定由 utterance 通道驱动
+        # （契约 §5 修订 v1.0.3）。云端厂商无此语义；不注册 utterance 回调
+        # 或非 spell_zh2en 模式时天然无副作用。
+        if self._behavior == "normal" and text:
+            self._emit_utterance(text)
         self._emit_final(text, self._confidence, self.audio_ms)
 
     # ------------------------------------------------------------------ 内部

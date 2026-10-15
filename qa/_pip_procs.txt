@@ -1,0 +1,13 @@
+﻿
+
+ProcessId : 22604
+Name      : pip.exe
+
+ProcessId : 23320
+Name      : python.exe
+
+ProcessId : 14896
+Name      : python.exe
+
+
+

@@ -88,6 +88,16 @@ class FakeSession {
     messages.add({'type': isFinal ? 'final' : 'partial', 'text': text});
   }
 
+  /// 服务端 utterance 下行（§5 v1.0.4）：语句级定版结果，
+  /// 与随后的 letter 判格同源同序。
+  void sayUtterance({required int itemId, required String text}) {
+    messages.add({
+      'type': 'utterance',
+      'text': text,
+      'item_id': itemId,
+    });
+  }
+
   Future<void> dispose() async {
     await messages.close();
     await states.close();
@@ -541,5 +551,126 @@ void main() {
     expect(find.textContaining('连接断开了'), findsOneWidget);
     expect(find.text('A'), findsOneWidget, reason: '断线不清作答进度（§5）');
     expect(find.text('继续'), findsOneWidget, reason: '重连后可从「继续」接着来');
+  });
+
+  testWidgets('U13 服务端 error（start 被拒）：报错可见、进度不清、可继续', (tester) async {
+    final fake = FakeSession(serverStore, local);
+    await pumpSpell(
+      tester,
+      run: zh2enRun(items: [appleItem()]),
+      fake: fake,
+    );
+    addTearDown(fake.dispose);
+
+    // 先拼出 1 格
+    fake.sayLetter(itemId: 101, index: 0, letter: 'A', correct: true);
+    await pumpLetter(tester);
+    expect(find.text('A'), findsOneWidget);
+
+    // 服务端 abort（2026-10-11 真机：mode 被拒后界面无反馈成死页）
+    fake.messages.add({
+      'type': 'error',
+      'code': 10001,
+      'message': '语音没识别出来',
+      'action': 'abort',
+    });
+    await pumpLetter(tester);
+    expect(find.textContaining('语音没识别出来'), findsOneWidget,
+        reason: '报错必须可见，不能无声卡死');
+    expect(find.text('A'), findsOneWidget, reason: '报错不清作答进度');
+    expect(find.text('继续'), findsOneWidget, reason: '报错后按钮要还给用户');
+  });
+
+  testWidgets('U14 实时 partial 上屏：边念边显示听到的字母', (tester) async {
+    final fake = FakeSession(serverStore, local);
+    await pumpSpell(
+      tester,
+      run: zh2enRun(items: [appleItem()]),
+      fake: fake,
+    );
+    addTearDown(fake.dispose);
+
+    await tester.tap(find.text('开始拼读'));
+    await tester.pumpAndSettle();
+
+    // 还没发音：无「听到」区
+    expect(find.text('听到'), findsNothing);
+
+    // 正在念 A：partial 实时上屏（未定版也显示，避免「卡死感」）
+    fake.sayTranscript('a', isFinal: false);
+    await pumpLetter(tester);
+    expect(find.text('听到'), findsOneWidget);
+    expect(find.text('A'), findsOneWidget, reason: 'partial 应实时转为大写显示');
+
+    // 停顿 → utterance 定版：旧 partial 收进「听到」累积，不重复显示
+    fake.sayUtterance(itemId: 101, text: 'a');
+    fake.sayLetter(itemId: 101, index: 0, letter: 'A', correct: true);
+    await pumpLetter(tester);
+    expect(find.text('A'), findsNWidgets(2),
+        reason: '听到区 1 个 + 判对后字母格 1 个');
+  });
+
+  testWidgets('U15 utterance 定版累积 + 多字母一句 + 换题重置 + 迟到消息丢弃', (tester) async {
+    final fake = FakeSession(serverStore, local);
+    await pumpSpell(
+      tester,
+      run: zh2enRun(),
+      fake: fake,
+    );
+    addTearDown(fake.dispose);
+
+    await tester.tap(find.text('开始拼读'));
+    await tester.pumpAndSettle();
+
+    // 第 1 个字母定版
+    fake.sayUtterance(itemId: 101, text: 'a');
+    fake.sayLetter(itemId: 101, index: 0, letter: 'A', correct: true);
+    await pumpLetter(tester);
+    expect(find.text('A'), findsNWidgets(2),
+        reason: '听到区 1 个 + 判对后字母格 1 个');
+
+    // 一口气念 "p p"：一句两个字母，utterance 整句定版 + 两格判对
+    fake.sayUtterance(itemId: 101, text: 'p p');
+    fake.sayLetter(itemId: 101, index: 1, letter: 'P', correct: true);
+    fake.sayLetter(itemId: 101, index: 2, letter: 'P', correct: true);
+    await pumpLetter(tester);
+    expect(find.text('A P P'), findsOneWidget,
+        reason: 'utterance 整句定版累积进「听到」');
+    expect(find.text('P'), findsNWidgets(2), reason: '字母格第 1/2 格亮 P');
+
+    // 剩余字母判对 → 填满自动下一题，「听到」区随新题重置
+    fake.sayLetter(itemId: 101, index: 3, letter: 'L', correct: true);
+    fake.sayLetter(itemId: 101, index: 4, letter: 'E', correct: true);
+    await pumpLetter(tester);
+    await tester.pumpAndSettle();
+    expect(find.text('香蕉'), findsOneWidget, reason: '填满自动下一题');
+    expect(find.text('A'), findsNothing, reason: '换题重置「听到」区');
+
+    // 换题后迟到的旧题 utterance 必须丢弃（不串题显示）
+    fake.sayUtterance(itemId: 101, text: 'z');
+    await pumpLetter(tester);
+    expect(find.text('Z'), findsNothing,
+        reason: 'item_id 不匹配（当前题 102）的迟到消息不显示');
+  });
+
+  testWidgets('U16 判错的字母：听到区照实显示，字母格不填', (tester) async {
+    final fake = FakeSession(serverStore, local);
+    await pumpSpell(
+      tester,
+      run: zh2enRun(items: [appleItem()]),
+      fake: fake,
+    );
+    addTearDown(fake.dispose);
+
+    await tester.tap(find.text('开始拼读'));
+    await tester.pumpAndSettle();
+
+    // 念错（服务端判第 0 格错）：听到区如实显示听到的 X，格子不填
+    fake.sayUtterance(itemId: 101, text: 'x');
+    fake.sayLetter(itemId: 101, index: 0, letter: 'x', correct: false);
+    await pumpLetter(tester);
+    expect(find.text('X'), findsOneWidget, reason: '听到区如实展示，不隐瞒判错');
+    expect(find.textContaining('拼了几次都没对上'), findsNothing,
+        reason: '单次判错不出键盘入口（§6.4：同格 3 次才出）');
   });
 }
