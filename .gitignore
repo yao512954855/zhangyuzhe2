@@ -97,3 +97,7 @@ release/
 
 # 本地化模型文件（localize-dev，300MB+ 不入库）
 backend/models/
+
+# 构建产物与探测临时产物（不入库）
+admin-web/dist-deploy/
+backend/qa/
