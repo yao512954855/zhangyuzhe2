@@ -111,3 +111,4 @@ _restart_log.txt
 .workbuddy/ui.xml
 # 管理端构建产物（web11 部署包，可再生成）
 admin-web/dist-web11/
+apk-out/
