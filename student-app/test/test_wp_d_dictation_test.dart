@@ -1,14 +1,16 @@
 /// WP-D 学生端听写链路 —— 页面可被直接驱动（入口接线是接力项 J1，归 WP-C）。
 ///
-/// 覆盖（10-后端规格 WP-D 验收 + 30-学生端规格 D-2）：
-/// - U4：播报页 10s 间隔、可重听（不计进度）、可暂停/继续；
+/// 覆盖（10-后端规格 WP-D 验收 + 30-学生端规格 D-2 + 契约 v1.3 APP-13 适配）：
+/// - U4：播报页倒计时推进（v1.3：dictation_countdown_s，默认 3）、
+///       可重听（不计进度）、可暂停/继续；
 /// - U5：播完进入拍照页（无静默卡死）；
 /// - U6：拍照页按钮态与错误提示（业务失败中文文案）；
 /// - U7：结果页错题入本（mode=listen）；
-/// - U8：3 秒自动跳回、计时器 dispose 无泄漏；
-/// - 设置页：报中文/报英文单选 + 间隔 5~30 步进 1（默认 10）。
+/// - U8→F17-3：结果页**手动退出**（v1.3 移除自动跳回）；
+/// - 设置页：报中文/报英文单选 + 间隔只读展示服务端值（v1.3：管理端可调）。
 ///
 /// TTS / 相机全部注入 fake，无平台通道依赖。
+/// v1.3 的 U17-1~U17-3 见 test_app13_dictation_test.dart。
 library;
 
 import 'package:flutter/material.dart';
@@ -78,9 +80,12 @@ DictationSettings _settings({
     DictationSettings(readChinese: true, intervalSeconds: interval);
 
 /// 页面依赖 AppExtraColors / AgeScope，测试统一套 day 主题 + 低年级档。
-Widget _wrap(Widget home) => MaterialApp(
-      theme: AppTheme.build(palette: AppPalettes.day),
-      home: AgeScope(profile: AgeProfile.of(AgeBand.junior), child: home),
+Widget _wrap(Widget home) => ProviderScope(
+      // 设置页/播报页会尝试拉服务端设置：测试环境无后端 → 走失败回退（U17-1 口径）
+      child: MaterialApp(
+        theme: AppTheme.build(palette: AppPalettes.day),
+        home: AgeScope(profile: AgeProfile.of(AgeBand.junior), child: home),
+      ),
     );
 
 /// 把结果页推到栈上，返回探针页 key（跳回后用它断言）。
@@ -142,23 +147,19 @@ void main() {
   });
 
   group('设置页', () {
-    testWidgets('报中文/报英文单选 + 间隔默认 10s 可步进；空题禁用开始', (tester) async {
+    testWidgets('报中文/报英文单选 + 间隔只读展示（服务端值，测试环境拉取失败显示 --）；空题禁用开始', (tester) async {
       await tester.pumpWidget(
         _wrap(const DictationSettingsPage(items: [], unitName: 'Unit 1')),
       );
+      // _loadRemoteCountdown 的 Future 异常兜底要跑完
+      await tester.pumpAndSettle();
       expect(find.text('报中文'), findsOneWidget);
       expect(find.text('报英文'), findsOneWidget);
-      expect(find.text('10 秒'), findsOneWidget);
+      // v1.3：间隔不可本地调（步进器已删），只读展示服务端值；拉取失败显示 --
+      expect(find.text('隔多久报下一个'), findsOneWidget);
+      expect(find.text('--'), findsOneWidget);
+      expect(find.byIcon(Icons.add_circle_outline_rounded), findsNothing);
       expect(find.text('开始听写（共 0 题）'), findsOneWidget);
-
-      await tester.tap(find.byIcon(Icons.add_circle_outline_rounded));
-      await tester.pump();
-      expect(find.text('11 秒'), findsOneWidget);
-      await tester.tap(find.byIcon(Icons.remove_circle_outline_rounded));
-      await tester.pump();
-      await tester.tap(find.byIcon(Icons.remove_circle_outline_rounded));
-      await tester.pump();
-      expect(find.text('9 秒'), findsOneWidget);
     });
 
     testWidgets('点开始 → 进入播报页，按当前设置播第一题', (tester) async {
@@ -221,8 +222,8 @@ void main() {
       await tester.pump();
       expect(tts.spoken.length, greaterThan(spokenAtPause));
 
-      // 等 10s 间隔 → 进第 2 题
-      await tester.pump(const Duration(seconds: 10));
+      // v1.3 F17-2：倒计时 3s（默认回退值）到点 → 进第 2 题
+      await tester.pump(const Duration(seconds: 3));
       expect(find.text('第 2 / 3 题'), findsOneWidget);
       expect(tts.spoken.last, '香蕉');
     });
@@ -242,6 +243,7 @@ void main() {
       await tester.pump();
       expect(tts.spoken.first, 'apple');
       expect(tts.languages.last, 'en-US');
+      // 倒计时 3s 到点进第 2 题（v1.3 F17-2；pump 5s 覆盖窗口）
       await tester.pump(const Duration(seconds: 5));
       expect(find.text('第 2 / 3 题'), findsOneWidget);
     });
@@ -258,6 +260,7 @@ void main() {
         ),
       );
       await tester.pump();
+      // v1.3 F17-2：倒计时 3s 推进，三题走完 → 拍照页
       await tester.pump(const Duration(seconds: 5)); // → 第 2 题
       await tester.pump(const Duration(seconds: 5)); // → 第 3 题
       await tester.pump(const Duration(seconds: 5)); // 播完 → 拍照页
@@ -367,7 +370,6 @@ void main() {
             (_) => DictationResultPage(
               report: report,
               items: _items,
-              autoJumpAfter: const Duration(seconds: 3),
               wrongAdder: (itemId, mode) async {
                 added.add('$itemId:$mode');
               },
@@ -385,14 +387,13 @@ void main() {
       expect(added, ['2:listen'], reason: '只有 banana 错，mode=listen');
     });
 
-    testWidgets('U8：停够时长自动跳回栈底，dispose 无挂起 Timer', (tester) async {
+    testWidgets('U8→F17-3：结果页手动退出——等待期间无自动跳转，点「完成」才回栈底', (tester) async {
       await tester.pumpWidget(
         _wrap(
           _hostPage(
             (_) => DictationResultPage(
               report: report,
               items: _items,
-              autoJumpAfter: const Duration(milliseconds: 200),
               wrongAdder: (_, _) async {},
             ),
             probeKey: 'unit-list-probe',
@@ -400,13 +401,23 @@ void main() {
         ),
       );
       await tester.pump(); // push
-      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump(); // postFrame → auto-add
+      await tester.pump();
+
+      expect(find.byType(DictationResultPage), findsOneWidget);
+      expect(find.text('完成'), findsOneWidget);
+
+      // v1.3 F17-3：移除自动跳回 —— 等再久也不跳
+      await tester.pump(const Duration(seconds: 5));
+      expect(find.byType(DictationResultPage), findsOneWidget,
+          reason: '结果页常驻，学生可以慢慢看（无自动退出）');
+
+      // 点「完成」才退出（returnRoute 未配置 → 退回栈底探针页）
+      await tester.tap(find.text('完成'));
+      await tester.pump();
+      await tester.pump();
       expect(find.byKey(const Key('unit-list-probe')), findsOneWidget,
-          reason: '未到时不跳');
-      await tester.pump(const Duration(milliseconds: 200));
-      expect(find.byKey(const Key('unit-list-probe')), findsOneWidget,
-          reason: '到时自动跳回栈底（单元列表桩位）');
-      // 无挂起 Timer：这句能执行完就说明没有泄漏（有 pending timer 会抛异常）
+          reason: '「完成」手动退出回单元列表');
       await tester.pumpAndSettle();
     });
   });

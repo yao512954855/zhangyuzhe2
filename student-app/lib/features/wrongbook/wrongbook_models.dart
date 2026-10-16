@@ -9,7 +9,7 @@ library;
 
 import 'package:flutter/foundation.dart';
 
-/// `GET /api/wrongbook` 的一条未解决记录。
+/// `GET /api/wrongbook` 的一条未解决记录（契约 v1.3：含 mastered_at）。
 @immutable
 class WrongItem {
   const WrongItem({
@@ -23,6 +23,7 @@ class WrongItem {
     required this.unitId,
     required this.unitName,
     required this.type,
+    this.masteredAt = '',
   });
 
   factory WrongItem.fromJson(Map<String, dynamic> json) {
@@ -37,11 +38,17 @@ class WrongItem {
       unitId: _toInt(json['unit_id']),
       unitName: json['unit_name']?.toString() ?? '',
       type: json['type']?.toString() ?? '',
+      masteredAt: json['mastered_at']?.toString() ?? '',
     );
   }
 
   /// 同一条内容可能同时挂在多个 mode 下，列表身份 = `(item_id, mode)`。
   String get key => '$itemId|$mode';
+
+  /// 非空 = 已掌握（判对保留显示，契约 v1.3 §3.4 三态）。
+  final String masteredAt;
+
+  bool get isMastered => masteredAt.isNotEmpty;
 
   final int itemId;
   final String en;
@@ -78,6 +85,13 @@ const modeLabels = <String, String>{
   'listen': '听写',
   'spell_zh2en': '看中文背英文',
   'spell_en2zh': '看英文背中文',
+};
+
+/// status 过滤取值与文案（契约 §4.1：unmastered 默认 | mastered | all）。
+const statusLabels = <String, String>{
+  'unmastered': '未掌握',
+  'mastered': '已掌握',
+  'all': '全部',
 };
 
 /// 重做组的展示顺序：听写 → 看中文背英文 → 看英文背中文。

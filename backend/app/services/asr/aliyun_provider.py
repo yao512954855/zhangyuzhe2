@@ -56,7 +56,9 @@ class AliyunProvider(ASRProvider):
     def __init__(self, config: dict[str, Any] | None = None) -> None:
         super().__init__(config)
         cfg = self.config.get("aliyun") or self.config
-        self.api_key: str = str(cfg.get("api_key") or "")
+        # asr.yaml 的 key 只作种子；生效值每次请求时经 key_store 动态解析
+        # （管理端 settings.cloud_api_key 非空时实时覆盖，无需重启）
+        self._yaml_api_key: str = str(cfg.get("api_key") or "")
         self.streaming_model: str = str(cfg.get("streaming_model") or "")
         self.batch_model: str = str(cfg.get("batch_model") or "")
         self.verify_model: str = str(cfg.get("verify_model") or "")
@@ -88,6 +90,13 @@ class AliyunProvider(ASRProvider):
     @property
     def _selected_model(self) -> str:
         return self.streaming_model if self._streaming else self.batch_model
+
+    @property
+    def api_key(self) -> str:
+        """当前生效的百炼 key（动态解析：settings.cloud_api_key → asr.yaml 种子）。"""
+        from app.services.asr.key_store import resolve
+
+        return resolve(self._yaml_api_key)
 
     def select_model(self, task_type: str) -> str:
         """按题型挑模型：**背诵走流式，其余走非流式**。

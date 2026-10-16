@@ -1,7 +1,8 @@
-"""WP-A 验收 —— 练习链路（U6 start→settle / U10 compare_service / WS letter）。
+"""WP-A 验收 —— 练习链路（U6 start→settle / U10 compare_service / WS verdict）。
 
-对应《10-后端工作包规格》WP-A 验收用例 U6 / U10，外加契约 §5 letter
-流式判定的行为测试（spell_zh2en，用 MockProvider 不起真服务）。
+对应《10-后端工作包规格》WP-A 验收用例 U6 / U10，外加契约 §5 v1.3
+WS verdict 整词判定行为测试（spell_zh2en，用 MockProvider 不起真服务，
+验收用例 U13-1 ~ U13-6）。
 """
 
 from __future__ import annotations
@@ -34,9 +35,14 @@ from app.core.config import get_settings, reset_config_cache  # noqa: E402
 from app.core.db import read_conn  # noqa: E402
 from app.main import app  # noqa: E402
 from app.services import compare_service  # noqa: E402
+from app.services.asr.base import BYTES_PER_MS  # noqa: E402
 from app.services.asr.session_manager import ASRSession  # noqa: E402
 from app.core.deps import CurrentUser  # noqa: E402
 from app.services.settings_service import SettingsService  # noqa: E402
+
+# 幅度 2000 的直流块（≈6% 满量程）：模拟「真实说话电平」——语音活跃度门控
+# （session_manager._spell_verdict）会把全零/极低电平音频当「没有听到声音」拦截。
+CHUNK = b"\xd0\x07" * (150 * BYTES_PER_MS // 2)      # 150ms @16k/16bit/mono
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -157,15 +163,16 @@ def test_u6_start_answer_settle_writes_log(client: TestClient, unit_with_items: 
         else:
             assert payload["correct"] is False
 
-    # settle → practice_logs 落一行，correct+wrong=total
+    # settle → practice_logs 落一行，correct+wrong=total（v1.3：unit_ids/types JSON 数组）
     r = client.post("/api/practice/settle", json={"session_id": sid, "duration_ms": 12345})
     assert r.json()["code"] == 0 and r.json()["data"] == {}
     with read_conn() as conn:
         rows = conn.execute("SELECT * FROM practice_logs ORDER BY id DESC LIMIT 1").fetchall()
     assert len(rows) == 1
     row = dict(rows[0])
-    assert row["unit_id"] == unit_with_items
-    assert row["type"] == "word" and row["mode"] == "spell_en2zh"
+    assert json.loads(row["unit_ids"]) == [unit_with_items]
+    assert json.loads(row["types"]) == ["word"]
+    assert row["mode"] == "spell_en2zh"
     assert row["total"] == 3 and row["correct"] == 2 and row["wrong"] == 1
     assert row["correct"] + row["wrong"] == row["total"]
     assert row["duration_ms"] == 12345
@@ -184,7 +191,8 @@ def test_u6_start_empty_unit_returns_20004(client: TestClient):
 
 
 def test_u6_answer_spell_zh2en_fallback(client: TestClient, unit_with_items: int):
-    """spell_zh2en 兜底：字母序列归一后比对（本地判格在 App，服务端只兜底）。"""
+    """spell_zh2en 上报留痕（v1.3 §4.1：判定已在服务端 WS verdict 完成，
+    App 收 verdict 后走本接口上报，`correct` 必填）。"""
     r = client.post(
         "/api/practice/start",
         json={"unit_id": unit_with_items, "type": "word", "mode": "spell_zh2en"},
@@ -194,13 +202,13 @@ def test_u6_answer_spell_zh2en_fallback(client: TestClient, unit_with_items: int
     ok_resp = client.post(
         "/api/practice/answer",
         json={"session_id": sid, "item_id": cat["id"], "mode": "spell_zh2en",
-              "answer": "C A T", "elapsed_ms": 800},
+              "answer": "C A T", "elapsed_ms": 800, "correct": True},
     )
     assert ok_resp.json()["data"]["correct"] is True
     bad_resp = client.post(
         "/api/practice/answer",
         json={"session_id": sid, "item_id": cat["id"], "mode": "spell_zh2en",
-              "answer": "cap", "elapsed_ms": 800},
+              "answer": "cap", "elapsed_ms": 800, "correct": False},
     )
     assert bad_resp.json()["data"]["correct"] is False
     # answer 里的 listen 模式没有在线判定口径 → 10001
@@ -213,16 +221,17 @@ def test_u6_answer_spell_zh2en_fallback(client: TestClient, unit_with_items: int
 
 
 # ===========================================================================
-# 契约 §5：WS letter 逐格判定（spell_zh2en）
+# 契约 §5 v1.3：WS verdict 整词判定（spell_zh2en，U13-1 ~ U13-6）
 # ===========================================================================
 
-def _write_asr_yaml() -> None:
+def _write_asr_yaml(spell_final: str = "see aye tee", rehear: str = "") -> None:
     body = {
         "provider": "mock",
-        "lang_map": {"word": "en", "spell": "zh", "zh_answer": "zh"},
+        "lang_map": {"word": "en", "spell": "zh", "zh_answer": "zh", "recite": "zh"},
         "mock": {
             "final_text": "see",
-            "by_task": {"spell": {"final_text": "see aye tee"}},
+            "by_task": {"spell": {"final_text": spell_final,
+                                  "rehear_text": rehear}},
         },
         "hotwords": {"enabled": False},
         "arbitrator": {"enabled": False},
@@ -250,11 +259,12 @@ def run(coro: Any) -> Any:
     return asyncio.run(coro)
 
 
-def test_ws_letter_flow_judges_cells(client: TestClient, unit_with_items: int):
-    """start(mode=spell_zh2en, item_id) → 音频 → end → 逐格 letter 消息。
+def test_ws_verdict_u13_1_correct_flow(client: TestClient, unit_with_items: int):
+    """U13-1：start → 推音频（mock "see aye tee"）→ end → 恰好一条
+    verdict{correct:true, text:"cat", session_id, item_id}，全程无任何 letter。
 
-    end 时 MockProvider.close 补发一条 utterance（模拟本地引擎语句级语义，
-    契约 §5 修订 v1.0.3），判格由 utterance 通道完成。
+    v1.3 §5：松开（end）后服务端整词判定（谐音映射还原字母序列，与
+    item.en 完全一致 = 对），letter 逐格判定已废除。
     """
     _write_asr_yaml()
     reset_config_cache()
@@ -267,55 +277,83 @@ def test_ws_letter_flow_judges_cells(client: TestClient, unit_with_items: int):
     session, send = _make_session()
 
     async def flow() -> None:
-        # 一轮念「see aye tee」→ 谐音表 → 'cat'，三格全对
         await session.handle_text(json.dumps(
             {"type": "start", "mode": "spell_zh2en", "item_id": cat_id,
              "session_id": "practice-sess-1"}
         ))
         await session.flush()
+        await session.handle_bytes(CHUNK)
+        await session.handle_bytes(CHUNK)
         await session.handle_text(json.dumps({"type": "end"}))
         await session.flush()
 
     run(flow())
-    letters = [m for m in send.sent if m["type"] == "letter"]
-    assert letters, send.sent
-    assert [(m["index"], m["letter"], m["correct"]) for m in letters] == [
-        (0, "c", True), (1, "a", True), (2, "t", True)
-    ]
-    assert letters[0]["session_id"] == "practice-sess-1", "session_id 原样透传"
-    assert letters[0]["item_id"] == cat_id
+    assert not [m for m in send.sent if m["type"] == "letter"], "letter 已废除"
+    verdicts = [m for m in send.sent if m["type"] == "verdict"]
+    assert len(verdicts) == 1, send.sent
+    v = verdicts[0]
+    assert set(v.keys()) == {"type", "correct", "text", "session_id", "item_id"}, \
+        "verdict 载荷冻结于契约 §5"
+    assert v["correct"] is True
+    assert v["text"] == "cat"
+    assert v["session_id"] == "practice-sess-1", "session_id 原样透传"
+    assert v["item_id"] == cat_id
+    # 回显顺序：utterance（按住中透传）→ final → verdict（终态）
+    types = [m["type"] for m in send.sent]
+    assert types.index("utterance") < types.index("final") < types.index("verdict")
 
 
-def test_ws_letter_wrong_cell_does_not_advance(client: TestClient):
-    """判错的格不填：correct=False 且游标不动（App 侧按 §6.4 处理连错）。"""
+def test_ws_verdict_u13_2_wrong_then_suppressed(client: TestClient, unit_with_items: int):
+    """U13-2：转写错（"bee aye tee" → "bat" ≠ "cat"）→ verdict{correct:false}；
+    之后再推音频 → 无 partial/utterance/verdict（F13-3 判错抑制生效）。"""
+    _write_asr_yaml(spell_final="bee aye tee")
+    reset_config_cache()
+    from app.api import asr_ws as asr_ws_api
+    asr_ws_api.reset_gate()
+
+    r = client.get("/api/items", params={"keyword": "cat"})
+    cat_id = r.json()["data"]["items"][0]["id"]
+
     session, send = _make_session()
-    session._spell_item_id = 7
-    session._spell_target = "cat"
-    session._spell_index = 0
-    session._mode = "spell_zh2en"
 
-    session._spell_feed("bee")           # 念错 → b ≠ c（'bee' 谐音表即字母 B 的读音）
-    run(session.flush())
-    assert [(m["index"], m["letter"], m["correct"]) for m in send.sent] == [
-        (0, "b", False)
-    ]
-    assert session._spell_index == 0, "判错游标不得前移"
+    async def flow() -> None:
+        await session.handle_text(json.dumps(
+            {"type": "start", "mode": "spell_zh2en", "item_id": cat_id,
+             "session_id": "practice-sess-1"}
+        ))
+        await session.flush()
+        await session.handle_bytes(CHUNK)
+        await session.handle_text(json.dumps({"type": "end"}))
+        await session.flush()
 
-    session._spell_feed("see")           # 重念 c → 填第 0 格
-    session._spell_feed("aye tee")       # 补完第 1、2 格
-    run(session.flush())
-    assert [(m["index"], m["letter"], m["correct"]) for m in send.sent[1:]] == [
-        (0, "c", True), (1, "a", True), (2, "t", True)
-    ]
-    assert session._spell_index == 3
+    run(flow())
+    verdicts = [m for m in send.sent if m["type"] == "verdict"]
+    assert len(verdicts) == 1, send.sent
+    assert verdicts[0]["correct"] is False
+    assert verdicts[0]["text"] == "bat"
+    assert session._spell_muted is True
+
+    # 判错后再推音频：全丢（无 partial/utterance/verdict），直到下一次 start
+    mark = len(send.sent)
+
+    async def more_audio() -> None:
+        for _ in range(3):
+            await session.handle_bytes(CHUNK)
+        await session.flush()
+
+    run(more_audio())
+    tail = send.sent[mark:]
+    assert not [m for m in tail if m["type"] in ("partial", "utterance", "verdict")], tail
 
 
-def test_ws_letter_flow_utterance_without_end(client: TestClient, unit_with_items: int):
-    """契约 §5 修订 v1.0.3：utterance（Vosk 语句边界）即判格，**不等 end**。
+def test_ws_utterance_relay_u13_3_no_verdict_before_end(
+    client: TestClient, unit_with_items: int
+):
+    """U13-3：按住中 utterance 照常透传（text 非空）但不产生 letter/verdict。
 
-    2026-10-13 真机根因：App「看中文背英文」没有 end 入口，原实现判格
-    只在 `_on_end` 触发 → 字母格永远不亮、页面像卡死。现在学生念一个
-    字母停一下，服务端立刻逐格判定下发 letter。
+    v1.3 §5（决策 #11）：utterance 只透传回显、识别字母实时上屏；
+    判定收敛到松开（end）后的整词 verdict —— 改写自旧「utterance 即判格」
+    用例（契约修订 v1.0.3 语义已废）。
     """
     _write_asr_yaml()
     reset_config_cache()
@@ -333,27 +371,23 @@ def test_ws_letter_flow_utterance_without_end(client: TestClient, unit_with_item
              "session_id": "practice-sess-1"}
         ))
         await session.flush()
-        # 念字母 → 每个语句边界一次 utterance（**全程没有 end**）
+        # 按住中：每个语句边界一次 utterance（**全程没有 end**）
         session._on_utterance("see", 100)
         session._on_utterance("aye", 200)
         session._on_utterance("tee", 300)
         await session.flush()
 
     run(flow())
-    letters = [m for m in send.sent if m["type"] == "letter"]
-    assert [(m["index"], m["letter"], m["correct"]) for m in letters] == [
-        (0, "c", True), (1, "a", True), (2, "t", True)
-    ]
-    assert letters[0]["session_id"] == "practice-sess-1"
-    assert letters[0]["item_id"] == cat_id
+    utts = [m for m in send.sent if m["type"] == "utterance"]
+    assert [m["text"] for m in utts] == ["see", "aye", "tee"], send.sent
+    assert all(m["text"] for m in utts)
+    assert utts[0]["item_id"] == cat_id
+    assert not [m for m in send.sent if m["type"] == "letter"], "letter 已废除"
+    assert not [m for m in send.sent if m["type"] == "verdict"], "未松开不得判定"
 
 
-def test_ws_utterance_message_relayed_to_app(client: TestClient, unit_with_items: int):
-    """契约 §5 修订 v1.0.4：utterance 文本本身也透传 App。
-
-    zh2en 页面「实时显示听到的字母」用：utterance 与随后的 letter 判格
-    **同源同序**，学生看到的内容就是实际参与判格的文本。
-    """
+def test_ws_verdict_u13_4_close_without_end(client: TestClient, unit_with_items: int):
+    """U13-4：不发 end 直接 close（按住中断线）→ 无 verdict。"""
     _write_asr_yaml()
     reset_config_cache()
     from app.api import asr_ws as asr_ws_api
@@ -370,22 +404,156 @@ def test_ws_utterance_message_relayed_to_app(client: TestClient, unit_with_items
              "session_id": "practice-sess-1"}
         ))
         await session.flush()
-        session._on_utterance("see", 100)
+        await session.handle_bytes(CHUNK)
+        await session.close()          # 未松开就断开
+
+    run(flow())
+    assert not [m for m in send.sent if m["type"] == "verdict"], send.sent
+    assert not [m for m in send.sent if m["type"] == "letter"]
+    assert not [m for m in send.sent if m["type"] == "final"], "close 不产 final"
+
+
+def _rehear_flow(client: TestClient, unit_with_items: int, spell_final: str,
+                 rehear: str):
+    """重听式判分公共流程：推 2 块响度音频 → end → 返回 (send, cat_id)。"""
+    _write_asr_yaml(spell_final=spell_final, rehear=rehear)
+    reset_config_cache()
+    from app.api import asr_ws as asr_ws_api
+    asr_ws_api.reset_gate()
+
+    r = client.get("/api/items", params={"keyword": "cat"})
+    cat_id = r.json()["data"]["items"][0]["id"]
+    session, send = _make_session()
+
+    async def flow() -> None:
+        await session.handle_text(json.dumps(
+            {"type": "start", "mode": "spell_zh2en", "item_id": cat_id,
+             "session_id": "practice-sess-1"}
+        ))
+        await session.flush()
+        await session.handle_bytes(CHUNK)
+        await session.handle_bytes(CHUNK)
+        await session.handle_text(json.dumps({"type": "end"}))
         await session.flush()
 
     run(flow())
+    return send, cat_id
+
+
+def test_ws_verdict_u13_7_rehear_beats_stream(client: TestClient,
+                                              unit_with_items: int):
+    """U13-7a 重听式判分（2026-10-16）：流式猜错 'a p x'、重听对 'c a t'
+    → 判对，verdict.text 按重听文本（= target）。"""
+    send, cat_id = _rehear_flow(client, unit_with_items,
+                                spell_final="a p x", rehear="c a t")
+    verdicts = [m for m in send.sent if m["type"] == "verdict"]
+    assert len(verdicts) == 1, send.sent
+    assert verdicts[0]["correct"] is True
+    assert verdicts[0]["text"] == "cat"
+    assert verdicts[0]["item_id"] == cat_id
+
+
+def test_ws_verdict_u13_8_stream_backstop(client: TestClient,
+                                          unit_with_items: int):
+    """U13-7b 两边择优的另一半：重听错 'a p x'、流式对 'c a t'
+    → 仍判对，verdict.text 回退流式文本。"""
+    send, _ = _rehear_flow(client, unit_with_items,
+                           spell_final="c a t", rehear="a p x")
+    verdicts = [m for m in send.sent if m["type"] == "verdict"]
+    assert len(verdicts) == 1, send.sent
+    assert verdicts[0]["correct"] is True
+    assert verdicts[0]["text"] == "cat"
+
+
+def test_ws_verdict_u13_9_both_wrong_prefers_rehear(client: TestClient,
+                                                    unit_with_items: int):
+    """U13-7c 两遍皆错才判错：verdict.text 按重听文本上屏（整体更可靠）。"""
+    send, _ = _rehear_flow(client, unit_with_items,
+                           spell_final="a p x", rehear="a p z")
+    verdicts = [m for m in send.sent if m["type"] == "verdict"]
+    assert len(verdicts) == 1, send.sent
+    assert verdicts[0]["correct"] is False
+    assert verdicts[0]["text"] == "apz"
+
+
+def test_ws_verdict_u13_5_terminal_no_rejudge(client: TestClient, unit_with_items: int):
+    """U13-5：verdict 是本轮终态；final 照常下发但**只判一次** ——
+    verdict 后再推音频 / 再发 end 都不得触发第二次判定或第二条 verdict。"""
+    _write_asr_yaml()
+    reset_config_cache()
+    from app.api import asr_ws as asr_ws_api
+    asr_ws_api.reset_gate()
+
+    r = client.get("/api/items", params={"keyword": "cat"})
+    cat_id = r.json()["data"]["items"][0]["id"]
+
+    session, send = _make_session()
+
+    async def flow() -> None:
+        await session.handle_text(json.dumps(
+            {"type": "start", "mode": "spell_zh2en", "item_id": cat_id,
+             "session_id": "practice-sess-1"}
+        ))
+        await session.flush()
+        await session.handle_bytes(CHUNK)
+        await session.handle_text(json.dumps({"type": "end"}))
+        await session.flush()
+        # 异常客户端时序：verdict 后仍推帧 + 再发 end
+        await session.handle_bytes(CHUNK)
+        await session.handle_text(json.dumps({"type": "end"}))
+        await session.flush()
+
+    run(flow())
+    finals = [m for m in send.sent if m["type"] == "final"]
+    verdicts = [m for m in send.sent if m["type"] == "verdict"]
+    assert len(finals) == 1, send.sent
+    assert len(verdicts) == 1, "verdict 只允许一条（不得二次判定）"
+
+
+def test_ws_verdict_u13_6_second_start_lifts_suppression(
+    client: TestClient, unit_with_items: int
+):
+    """U13-6：判错抑制后，二次 start（「再来一次」/ 下一题）→ 抑制解除，
+    链路正常（新一轮照常出 utterance/final/verdict）。"""
+    _write_asr_yaml(spell_final="bee aye tee")     # 对 cat 判错
+    reset_config_cache()
+    from app.api import asr_ws as asr_ws_api
+    asr_ws_api.reset_gate()
+
+    r = client.get("/api/items", params={"keyword": "cat"})
+    cat_id = r.json()["data"]["items"][0]["id"]
+
+    session, send = _make_session()
+    start_msg = json.dumps(
+        {"type": "start", "mode": "spell_zh2en", "item_id": cat_id,
+         "session_id": "practice-sess-1"}
+    )
+    end_msg = json.dumps({"type": "end"})
+
+    async def one_round() -> None:
+        await session.handle_text(start_msg)
+        await session.flush()
+        await session.handle_bytes(CHUNK)
+        await session.handle_text(end_msg)
+        await session.flush()
+
+    async def flow() -> None:
+        await one_round()                          # 第一轮：判错 → 抑制
+        assert session._spell_muted is True
+        await one_round()                          # 第二轮：抑制解除
+
+    run(flow())
+    verdicts = [m for m in send.sent if m["type"] == "verdict"]
+    assert len(verdicts) == 2, send.sent
+    assert all(v["correct"] is False for v in verdicts)
+    assert session._spell_muted is True            # 第二轮仍判错 → 抑制再次生效
+    # 抑制解除的直接证据：第二轮照常透传 utterance（抑制期会被丢弃）
     utts = [m for m in send.sent if m["type"] == "utterance"]
-    assert len(utts) == 1, send.sent
-    assert utts[0]["text"] == "see"
-    assert utts[0]["item_id"] == cat_id
-    # 同序性：utterance 必须排在其驱动的 letter 之前（App 先显示后亮格）
-    ordered = [m["type"] for m in send.sent if m["type"] in ("utterance", "letter")]
-    assert ordered[0] == "utterance"
-    assert ordered.index("utterance") < ordered.index("letter")
+    assert len(utts) == 2, send.sent
 
 
 def test_ws_utterance_ignored_outside_spell_zh2en(client: TestClient):
-    """utterance 只驱动 zh2en 判格；其他模式忽略（final 仍走 end 收口），
+    """utterance 只在 zh2en 模式透传；其他模式忽略（final 仍走 end 收口），
     不破坏 en2zh / 听写 / 背诵既有链路。"""
     session, send = _make_session()
     session._mode = "spell_en2zh"
@@ -394,8 +562,8 @@ def test_ws_utterance_ignored_outside_spell_zh2en(client: TestClient):
     session._on_utterance("你好", 0)
     run(session.flush())
     assert not [m for m in send.sent if m["type"] == "letter"]
-    # v1.0.4：非 zh2en 模式也不下发 utterance 消息（页面无「听到」区）
     assert not [m for m in send.sent if m["type"] == "utterance"]
+    assert not [m for m in send.sent if m["type"] == "verdict"]
 
 
 def test_ws_spell_start_unknown_item(client: TestClient):

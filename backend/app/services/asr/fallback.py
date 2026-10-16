@@ -70,7 +70,8 @@ class FallbackProvider:
             section.get("model") or "qwen3.5-omni-plus"
         )
         aliyun = raw.get("aliyun") or {}
-        self.api_key: str = str(
+        # asr.yaml 的 key 只作种子；生效值每次请求时经 key_store 动态解析
+        self._yaml_api_key: str = str(
             section.get("api_key") or aliyun.get("api_key") or ""
         )
         self.endpoint: str = str(
@@ -98,6 +99,13 @@ class FallbackProvider:
             )
 
     # ------------------------------------------------------------------ 门控
+
+    @property
+    def api_key(self) -> str:
+        """当前生效的百炼 key（动态解析：settings.cloud_api_key → asr.yaml 种子）。"""
+        from app.services.asr.key_store import resolve
+
+        return resolve(self._yaml_api_key)
 
     def should_trigger(
         self,

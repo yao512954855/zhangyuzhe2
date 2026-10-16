@@ -2,7 +2,8 @@
 
 覆盖：
   A. POST /api/tts               → 本地 melo 合成（hybrid=local 优先）
-  B. WS spell_zh2en（Vosk 字母） → qa 真人 apple 拼读录音 → letter 帧 + verdict
+  B. WS spell_zh2en（Vosk 字母） → qa 真人 apple 拼读录音 → utterance 回显 + verdict
+     （契约 v1.3 §5：letter 帧已废除，按住中 utterance 只透传回显，松开 end 后整词判定）
   C. WS spell_en2zh（SenseVoice）→ 本地 melo 合成「苹果。」→ final 转写中文
   D. POST /api/practice/answer   → 转写文本判分 correct=true
 
@@ -61,7 +62,7 @@ def melo_zh_pcm(text: str) -> np.ndarray:
 
 async def ws_flow(mode: str, item_id: int, pcm: bytes, expect: dict) -> dict:
     session_id = f"smoke-{mode}-{item_id}"
-    out: dict = {"letters": [], "finals": [], "verdicts": [], "errors": []}
+    out: dict = {"utterances": [], "finals": [], "verdicts": [], "errors": []}
     async with websockets.connect(f"{WS_BASE}/ws/asr?token=smoke") as ws:
         await ws.send(json.dumps({"type": "start", "mode": mode,
                                   "item_id": item_id, "session_id": session_id}))
@@ -79,8 +80,9 @@ async def ws_flow(mode: str, item_id: int, pcm: bytes, expect: dict) -> dict:
                 continue
             d = json.loads(msg)
             t = d.get("type")
-            if t == "letter":
-                out["letters"].append((d["index"], d["letter"], d["correct"]))
+            if t == "utterance":
+                # v1.3：utterance 只回显（识别字母实时上屏），判分以 end 后 verdict 为准
+                out["utterances"].append(d.get("text", ""))
             elif t == "final":
                 out["finals"].append(d.get("text", ""))
             elif t == "verdict":
@@ -115,16 +117,26 @@ async def main() -> int:
         sr, pcm = wav_pcm(SPELL_WAV)
         pcm16 = resample_aa(pcm, sr, 16000).tobytes()
         res = await ws_flow("spell_zh2en", apple["id"], pcm16, expect={})
-        print(f"[B] spell_zh2en letters={res['letters']} verdicts={len(res['verdicts'])} "
-              f"errors={res['errors'][:1]}")
-        ok &= bool(res["letters"]) and not res["errors"]
+        v = res["verdicts"][0] if res["verdicts"] else {}
+        print(f"[B] spell_zh2en utterances={res['utterances']} "
+              f"verdict={v} errors={res['errors'][:1]}")
+        # v1.3 §5：letter 帧废除 → verdict={correct,text,session_id,item_id}；
+        # 成功标准 = utterance 有回显 + 恰好 1 个 verdict 且整词判对
+        ok &= (bool(res["utterances"]) and len(res["verdicts"]) == 1
+               and v.get("correct") is True and not res["errors"])
 
         # C. SenseVoice 中文转写（melo 合成「苹果。」）
+        # 转写偶发夹杂英文音节（如「苹ing果。」—— melo→SenseVoice 往返抖动），
+        # 冒烟验证的是链路通，按中文归一化后再匹配
         zh_pcm = melo_zh_pcm("苹果。").tobytes()
         res = await ws_flow("spell_en2zh", apple["id"], zh_pcm, expect={})
         print(f"[C] spell_en2zh finals={res['finals']} errors={res['errors'][:1]}")
-        ok &= any("苹果" in f for f in res["finals"]) and not res["errors"]
-        zh_text = next((f for f in res["finals"] if "苹果" in f), "苹果")
+        zh_text = next(
+            ("".join(ch for ch in f if "\u4e00" <= ch <= "\u9fff")
+             for f in res["finals"] if "苹果" in f),
+            "",
+        )
+        ok &= bool(zh_text) and not res["errors"]
 
         # D. 判分
         r = await client.post("/api/practice/answer", json={

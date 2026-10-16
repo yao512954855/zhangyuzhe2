@@ -256,14 +256,17 @@ class ASRSession:
         self._expected: str | None = None
         self._mode: str | None = None
         self._close_reason: str | None = None
-        # ---- 简化版 spell_zh2en 流式拼读（契约 §5：letter 逐格判定）----
+        # ---- 简化版 spell_zh2en 整词判定（契约 §5 v1.3：verdict 替代 letter）----
         #: 本次拼读的 item（items.id）；None = 不在拼读流程
         self._spell_item_id: int | None = None
-        #: 目标字母序列（item.en 去空格与连字符，契约 §6.4 口径）
+        #: 目标字母序列（item.en 去空格/连字符等非字母，小写；契约 §5 判定口径）
         self._spell_target: str = ""
-        #: 已判过的格位游标（只前移，指向下一格）
-        self._spell_index: int = 0
-        #: letter 载荷里的 session_id（App 上行原样透传，可为练习会话字符串 id）
+        #: 本轮（一次按下→松开）累计的语句级转写 —— verdict 的完整转写来源
+        #: （本地引擎逐句 utterance；云端无 utterance 语义时回退 final 整段）
+        self._spell_texts: list[str] = []
+        #: 判错抑制（F13-3）：verdict(correct=false) 下发后丢弃后续音频帧，直到下一次 start
+        self._spell_muted: bool = False
+        #: verdict 载荷里的 session_id（App 上行原样透传，可为练习会话字符串 id）
         self._spell_session_id: Any = 0
         # 仲裁所需音频：**只在内存**，且只留最近若干秒（F18：不落盘）
         self._pcm_window: deque[bytes] = deque()
@@ -373,6 +376,10 @@ class ASRSession:
                 )
             return
         if self._keyboard_mode:
+            return
+        if self._spell_muted:
+            # F13-3：verdict(correct=false) 已下发，本轮后续音频帧全丢
+            # （不产生 partial/utterance/verdict），直到下一次 start。
             return
         if not self._got_audio:
             # 只记首帧：证明「App 的麦克风数据确实流到了服务端」
@@ -496,12 +503,13 @@ class ASRSession:
         )
 
     async def _on_spell_start(self, msg: dict[str, Any], mode: str) -> None:
-        """简化版背链路（spell_zh2en）的 start：按 item_id 查目标字母序列（契约 §5）。
+        """简化版背链路（spell_zh2en / spell_en2zh）的 start（契约 §5 v1.3）。
 
-        - 目标 = `items.en` 去空格与连字符（与 §6.4 App 本地判格同一口径）；
-        - 同一 item 连续多轮 start（每个字母一轮 start→音频→end）**不清进度**，
-          `_spell_index` 只在换 item 时重置 —— App 断线重连也不丢作答进度（契约 §5）。
-        - `spell_en2zh`：网关只做**转写**（final 下发后收口），判定由 App 拿转写文本
+        - v1.3 交互为**按住说话**：每次 start（按下）= 一轮新的收音与判定，
+          上一轮的 utterance 累积与判错抑制一并清零（「再来一次」= 重新 start）。
+        - zh2en：按 item_id 查 `items.en` 作为判定目标（去非字母、小写）；
+          按住中 utterance 只透传回显，松开（end）后整词判定下发 verdict。
+        - en2zh：网关只做**转写**（final 下发后收口），判定由 App 拿转写文本
           走 `POST /api/practice/answer`（compare_service，契约 §4.1 / §6.1）。
         """
         if mode not in ("spell_zh2en", "spell_en2zh"):
@@ -517,50 +525,46 @@ class ASRSession:
             return
         item_id = int(item_id)
 
+        # 每次都是新的一轮：清上一轮的判错抑制与转写累积（U13-6）
+        self._spell_muted = False
+        self._spell_texts = []
+
         if mode == "spell_zh2en":
-            if self._spell_item_id == item_id and self._spell_target:
-                # 同一题继续拼：保留游标
-                pass
-            else:
-                with read_conn() as conn:
-                    row = conn.execute(
-                        "SELECT en FROM items WHERE id = ?", (item_id,)
-                    ).fetchone()
-                if row is None or not row["en"]:
-                    await self._error(
-                        ErrorCode.CONTENT_NOT_FOUND, "内容不存在", action="abort"
-                    )
-                    return
-                target = "".join(
-                    ch for ch in str(row["en"]) if ch.isalpha()
-                ).lower()
-                if not target:
-                    await self._error(
-                        ErrorCode.PARAM_INVALID, "该条目没有可拼读的字母", action="abort"
-                    )
-                    return
-                self._spell_item_id = item_id
-                self._spell_target = target
-                self._spell_index = 0
+            with read_conn() as conn:
+                row = conn.execute(
+                    "SELECT en FROM items WHERE id = ?", (item_id,)
+                ).fetchone()
+            if row is None or not row["en"]:
+                await self._error(
+                    ErrorCode.CONTENT_NOT_FOUND, "内容不存在", action="abort"
+                )
+                return
+            target = "".join(
+                ch for ch in str(row["en"]) if ch.isalpha()
+            ).lower()
+            if not target:
+                await self._error(
+                    ErrorCode.PARAM_INVALID, "该条目没有可拼读的字母", action="abort"
+                )
+                return
+            self._spell_item_id = item_id
+            self._spell_target = target
         else:
-            # en2zh：不需要字母目标；换 item 时清掉 zh2en 残留的拼读游标，
+            # en2zh：不需要字母目标；清掉 zh2en 残留的判定目标，
             # 防止后续同一连接再进 zh2en 时复用错 target（防御性，正常不会发生）。
-            if self._spell_item_id != item_id:
-                self._spell_item_id = item_id
-                self._spell_target = None
-                self._spell_index = 0
+            self._spell_item_id = item_id
+            self._spell_target = ""
         self._mode = mode
 
-        # 契约 §5 的 start 未强制携带 session_id；letter 载荷需要它，
+        # 契约 §5 的 start 未强制携带 session_id；verdict 载荷需要它，
         # 按 App 传值原样透传（练习会话 id 是字符串，不强转），缺省记 0
         self._spell_session_id: Any = msg.get("session_id") or 0
         cfg_session = self._spell_session_id if str(self._spell_session_id).isdigit() else 0
 
-        # 通道选择（2026-10-13 修订 v1.0.3）：
-        # - zh2en（逐字母判格）：**Vosk 语句边界实时判格** —— 念完一个字母
-        #   停一下即触发一次判定并下发 letter，不等 App 发 end（App 此模式
-        #   没有 end 入口，2026-10-13 真机「字母格永远不亮」根因）；
-        #   end / close 仅作兜底（残余音频在 close 时经 utterance 通道判格）。
+        # 通道选择（v1.3）：
+        # - zh2en（整词判定）：Vosk 26 字母 grammar 流式转写 —— 按住中经
+        #   utterance 通道实时回显（决策 #11：识别字母实时上屏）；
+        #   松开（end）后服务端整词判定下发 verdict。
         # - en2zh（看英文说中文意思）：从「开始说」到「我说完了」中间可能隔几十秒，
         #   走批量会把整段攒着最后撞超时（真机实测 103s 音频 3s 超时必炸）→
         #   **复用 recite 的流式 WS 通道**（lang 同为 zh），实时 partial + end 后收 final。
@@ -597,6 +601,7 @@ class ASRSession:
         self._final = None
         self._last_partial = ""
         self._got_audio = False
+        self._last_speech = None    # 上行语音活跃度（_on_end 时统计，见 dump 块）
         self._orphan_frames = 0     # 新一轮开始，孤儿帧计数归零
         self._task_started_at = time.monotonic()
         self._pcm_window.clear()
@@ -618,7 +623,7 @@ class ASRSession:
         self.provider = provider
         provider.on_partial(self._on_partial)     # 同步回调 → 仅入 outbox
         provider.on_final(self._on_final)
-        provider.on_utterance(self._on_utterance)  # 语句级结果（Vosk 拼读实时判格）
+        provider.on_utterance(self._on_utterance)  # 语句级结果（zh2en 回显 + verdict 转写来源）
 
         # 排障关键：start 成功要留痕（用户反馈「一直收音」时，看这行 +
         # 下面的错误日志就能判断 App 到底发了什么）
@@ -647,6 +652,43 @@ class ASRSession:
             "ASR end user=%s audio_ms=%s（开始等待云端 final）",
             self.user.id, getattr(provider, "audio_ms", "?"),
         )
+        # 临时诊断（真机识别效果排查）：会话结束即落盘已收上行音频，
+        # 文件名带时间戳避免多次会话互相覆盖。
+        dump = getattr(self, "_dbg_dump", None)
+        if dump:
+            try:
+                import datetime as _dt
+                import wave as _wave
+                ts = _dt.datetime.now().strftime("%H%M%S")
+                path = f"D:/helloagent/zhanglaoshi_zhangyuze/qa/_app_uplink_{ts}.wav"
+                with _wave.open(path, "wb") as f:
+                    f.setnchannels(1); f.setsampwidth(2); f.setframerate(16000)
+                    f.writeframes(bytes(dump))
+                logger.info("ASR 上行音频已 dump user=%s → %s", self.user.id, path)
+            except Exception:  # noqa: BLE001
+                pass
+            # 语音活跃度统计（真机排查产物）：60ms 帧粒度，峰值 3% 或绝对
+            # 300（取大者）以上算活跃帧。真机呼吸声/碰撞噪声电平极低
+            # （峰值 1~3% 满量程、活跃帧 0），但 Vosk 26 字母 grammar 会把
+            # 这种噪声幻觉成 'abcdefg' 判错 —— _spell_verdict 用它拦截。
+            try:
+                import numpy as _np
+                pcm = _np.frombuffer(bytes(dump), dtype=_np.int16).astype(_np.float64)
+                peak = float(_np.abs(pcm).max()) if pcm.size else 0.0
+                frame = 960  # 60ms @16k
+                energies = [
+                    float((pcm[i:i + frame] ** 2).mean())
+                    for i in range(0, max(pcm.size - frame, 1), frame)
+                ]
+                thr = max(peak * 0.03, 300.0) ** 2
+                self._last_speech = {
+                    "dur_s": round(pcm.size / 16000.0, 2),
+                    "peak": peak,
+                    "speech_frames": sum(1 for e in energies if e > thr),
+                }
+            except Exception:  # noqa: BLE001
+                self._last_speech = None
+            self._dbg_dump = None
         try:
             await provider.close()          # 契约约定：close 会产出 final
         except ASRError as exc:
@@ -671,6 +713,13 @@ class ASRSession:
 
         text, conf, duration_ms = final
         text = (text or "").strip()
+
+        # 简化版 spell_zh2en（契约 §5 v1.3）：松开（end）→ 整词判定 verdict。
+        # 判定口径见 _spell_verdict；verdict 是本轮终态，不走 word/en2zh 的
+        # 兜底救援与 judge_and_emit 链路。
+        if self._mode == "spell_zh2en" and self._spell_target:
+            await self._spell_verdict(text, conf, duration_ms, provider)
+            return
 
         # WP-2C：置信度低（疑似听错）→ 先用多模态兜底做一次**忠实**识别再判分（§9.7）。
         # 未启用兜底 / 置信度正常 → 完全不改变原有行为。
@@ -706,14 +755,6 @@ class ASRSession:
             }
         )
 
-        # 简化版 spell_zh2en：判格已由 utterance 通道实时完成（Vosk 每句
-        # 结束即判，见 _on_utterance）；此处**不再重复判** —— 同一文本再跑
-        # 一遍 _spell_feed 会对着已推进的游标错位重判（契约 §5 修订 v1.0.3）。
-        if self._mode == "spell_zh2en" and self._spell_target:
-            self._log(provider, status="ok")
-            self.router.note_ok()
-            return
-
         # 简化版 spell_en2zh：`final` 已下发（上方），网关不判分 ——
         # App 拿转写文本走 /api/practice/answer（compare_service，契约 §6.1）
         if self._mode == "spell_en2zh":
@@ -723,38 +764,122 @@ class ASRSession:
 
         await self._judge_and_emit(text, conf, provider)
 
-    # ================================================================== 拼读流式判定（契约 §5）
+    # ================================================================== 整词判定（契约 §5 v1.3）
 
-    def _spell_feed(self, text: str) -> None:
-        """把一句识别文本映射成字母，逐个判当前格并下发 `letter`（契约 §5）。
+    async def _spell_verdict(
+        self,
+        final_text: str,
+        conf: float | None,
+        duration_ms: int,
+        provider: ASRProvider | None,
+    ) -> None:
+        """松开（end）后的整词判定 —— `verdict` 替代 letter（契约 §5 v1.3）。
 
-        判定引擎 = `services/judge` 拼读判定的谐音映射（原样复用，
-        contract §5：「判定引擎 = 现有 services/judge.py 拼读判定原样复用」）。
-        由 utterance 通道驱动（Vosk 每句结束一次；close 的残余也走此通道）：
-        学生一次念出多个字母（或一口气念完整词）时按序逐格推进；
-        判错的格**不填**（游标不动），App 侧按 §6.4 处理连错提示。
+        - 完整转写 = 本轮 utterance 累积（本地引擎逐句边界；Vosk 边界会把
+          已定版的字母从 FinalResult 清掉，残余 final 不完整）；
+          云端无 utterance 语义 → 回退 final 整段文本。
+        - 判定引擎 = `services/judge` 谐音映射**原样复用**（F13-6，只换调用
+          时机不改算法）：转写还原为字母序列，与 `item.en` 字母序列完全
+          一致 = 对，否则 = 错（契约 §5：判错细节不逐格暴露）。
+        - `final` 照常下发（兼容），但判定只此一次；verdict 即本轮终态。
+        - 判错 → 置 `_spell_muted`：本轮后续音频帧全丢，直到下一次 start（F13-3）。
         """
+        # 重听式判分（2026-10-16 姚工拍板）：流式边听边猜，字母听岔当场
+        # 定版擦不掉（真机实测 apple 中段 'app' 被猜成 'apx'、good morning
+        # 被切碎）。松开后用整段降噪音频离线重解码一次（完整前后文，明显
+        # 更准），两边择优：重听为主、流式累积兜底，任一命中目标即判对；
+        # 两遍皆错才判错（红框按重听文本画）。provider 不支持（云端/旧
+        # mock）时 raw_rehear 为空 → 自动退回纯流式，行为与旧版一致。
+        raw_stream = " ".join(self._spell_texts).strip() or final_text
+        raw_rehear = ""
+        decode = getattr(provider, "offline_decode", None) if provider else None
+        if callable(decode):
+            try:
+                raw_rehear = (decode() or "").strip()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("ASR 离线重解码异常 user=%s：%s", self.user.id, exc)
+        raw = raw_rehear or raw_stream
+        if not raw:
+            arbitrated = await self._try_arbitrate("empty")
+            if arbitrated:
+                raw = arbitrated
+            else:
+                self._log(provider, status="empty",
+                          error_code=str(ErrorCode.ASR_EMPTY))
+                self.outbox.append(
+                    self._error_payload(
+                        ErrorCode.ASR_EMPTY,
+                        "没有听到声音",
+                        action="retry",
+                        fallback="keyboard" if not self.arbitrator.enabled else None,
+                    )
+                )
+                return
+
+        # 无有效语音门控：短噪声/呼吸声会被 Vosk 字母 grammar 幻觉成
+        # 'abcdefg' 之类并判错（真机实测 0.3~0.5s、峰值 1~3%、活跃帧 0）。
+        # 活跃帧 < 2（不足 120ms 真实发声）按「没有听到声音」处理，不计错。
+        stats = getattr(self, "_last_speech", None)
+        if stats and stats.get("speech_frames", 0) < 2:
+            logger.info(
+                "ASR 整词判定拦截：无有效语音 user=%s item=%s raw=%r "
+                "dur=%.2fs peak=%.0f speech_frames=%s",
+                self.user.id, self._spell_item_id, raw,
+                stats.get("dur_s", 0), stats.get("peak", 0),
+                stats.get("speech_frames"),
+            )
+            self._log(provider, status="empty",
+                      error_code=str(ErrorCode.ASR_EMPTY))
+            self.outbox.append(
+                self._error_payload(
+                    ErrorCode.ASR_EMPTY,
+                    "没有听到声音",
+                    action="retry",
+                    fallback="keyboard" if not self.arbitrator.enabled else None,
+                )
+            )
+            return
+
+        self.outbox.append(
+            {
+                "type": "final",
+                "text": raw,
+                "confidence": conf,
+                "duration_ms": duration_ms,
+            }
+        )
+
         from app.services.judge.homophone import get_map
 
-        letters = get_map().to_letters(text)
-        target = self._spell_target
-        while self._spell_index < len(target):
-            if not letters:
-                break
-            letter, letters = letters[0], letters[1:]
-            correct = letter == target[self._spell_index]
-            self.outbox.append(
-                {
-                    "type": "letter",
-                    "index": self._spell_index,
-                    "letter": letter,
-                    "correct": correct,
-                    "session_id": self._spell_session_id,
-                    "item_id": self._spell_item_id,
-                }
-            )
-            if correct:
-                self._spell_index += 1
+        letters = get_map().to_letters(raw)
+        stream_letters = (
+            get_map().to_letters(raw_stream) if raw_stream else None
+        )
+        correct = letters == self._spell_target or (
+            stream_letters == self._spell_target
+        )
+        if correct and letters != self._spell_target:
+            # 重听没对但流式对：按流式文本上屏（verdict 消费方按 text 着色）
+            letters = stream_letters or letters
+        self.outbox.append(
+            {
+                "type": "verdict",
+                "correct": correct,
+                "text": letters,
+                "session_id": self._spell_session_id,
+                "item_id": self._spell_item_id,
+            }
+        )
+        if not correct:
+            self._spell_muted = True
+        logger.info(
+            "ASR 整词判定 user=%s item=%s raw=%r rehear=%r stream=%r "
+            "letters=%r target=%r correct=%s",
+            self.user.id, self._spell_item_id, raw, raw_rehear, raw_stream,
+            letters, self._spell_target, correct,
+        )
+        self._log(provider, status="ok")
+        self.router.note_ok()
 
     async def _on_cancel(self) -> None:
         provider, self.provider = self.provider, None
@@ -773,7 +898,8 @@ class ASRSession:
         assert self.cfg is not None
         task_type = self.cfg.task_type
         # 标准答案只来自 start 显式携带（F10）——旧的「按 word_id 查 words 表」
-        # 回退已随 WP-F 删表拆除（简化版答案在 items 表，走 §5 letter 判定链路）
+        # 回退已随 WP-F 删表拆除（简化版逐题留痕走 REST /api/practice/answer，
+        # zh2en 语音判定见 _spell_verdict）
         expected = self._expected or ""
 
         from app.services.judge import JudgeService, judge_word_or_spell
@@ -913,22 +1039,18 @@ class ASRSession:
     def _on_utterance(self, text: str, ts_ms: int) -> None:
         """Provider 的语句级结果回调（同步，仅入 outbox）。
 
-        Vosk 拼读通道专用：念完一个字母停一下即触发一次。zh2en 模式立刻
-        逐格判定并下发 `letter`（契约 §5 修订 v1.0.3）—— 这是「看中文背
-        英文」页面字母格亮起的**唯一实时路径**（App 此模式无 end 入口）。
-        其他模式（recite/word/en2zh 等）忽略：它们的 final 仍在 end 时收口。
-
-        同时把识别文本本身透传 App（修订 v1.0.4）：utterance 与随后的
-        `letter` 判格**同源同序**，页面「实时显示听到的字母」展示的就是
-        实际参与判格的文本，不会出现「显示的」和「判分的」不一致。
+        v1.3 §5：utterance **只透传回显**（决策 #11：识别到的字母实时上屏），
+        不再驱动逐格判定 —— letter 已废除，判定收敛到松开（end）后的整词
+        `verdict`（见 `_spell_verdict`）。文本同时累积进本轮转写，作为
+        verdict 的完整转写来源。其他模式（recite/word/en2zh 等）忽略。
         """
         if self.cfg is None or self.kicked:
             return
         if not (self._mode == "spell_zh2en" and self._spell_target):
             return
         logger.info(
-            "ASR utterance user=%s text=%r spell_index=%s/%s",
-            self.user.id, text, self._spell_index, len(self._spell_target),
+            "ASR utterance user=%s text=%r item=%s",
+            self.user.id, text, self._spell_item_id,
         )
         self.outbox.append(
             {
@@ -938,7 +1060,7 @@ class ASRSession:
                 "ts_ms": ts_ms,
             }
         )
-        self._spell_feed(text)
+        self._spell_texts.append(text)
 
     # ================================================================== 错误与日志
 

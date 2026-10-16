@@ -42,6 +42,8 @@ class SpellRun {
     required this.typeName,
     required this.items,
     required this.startedAt,
+    this.unitIds = const <int>[],
+    this.types = const <String>[],
     this.returnRoute,
   });
 
@@ -55,6 +57,13 @@ class SpellRun {
   final String typeName;
   final List<SpellItem> items;
   final DateTime startedAt;
+
+  /// 本轮单元 id 快照（v1.3：settle 透传 `unit_ids` 用；错题本重做等
+  /// 单数入口为单元素数组；解析不到为空数组——settle 缺省回服务端 start 快照）。
+  final List<int> unitIds;
+
+  /// 本轮类型快照（v1.3：settle 透传 `types` 用，§7 枚举）。
+  final List<String> types;
 
   /// 结算后要回的路由名（J3：错题本重做传入指回错题本；普通练习为空回单元列表）。
   final String? returnRoute;

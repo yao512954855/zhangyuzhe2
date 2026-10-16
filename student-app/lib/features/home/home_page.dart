@@ -11,6 +11,7 @@ import '../../router/routes/home.dart';
 import '../../router/routes/wrongbook.dart';
 import '../../core/theme/age_profile.dart';
 import '../../core/theme/app_theme.dart';
+import '../theme/theme_switcher_sheet.dart';
 
 /// 首页。
 class HomePage extends StatelessWidget {
@@ -25,6 +26,16 @@ class HomePage extends StatelessWidget {
       appBar: AppBar(
         title: const Text('背记系统'),
         centerTitle: true,
+        // 主题切换入口（UI 规范 §2.4「第一屏、不埋二级菜单」）：
+        // 弹层组件本体在 features/theme/theme_switcher_sheet.dart（APP-01 交付），
+        // 简化版砍掉旧「我的」体系后这里成了唯一的第一屏，入口挂回 AppBar。
+        actions: [
+          IconButton(
+            tooltip: '主题',
+            icon: const Icon(Icons.palette_outlined),
+            onPressed: () => showThemeSwitcher(context),
+          ),
+        ],
       ),
       body: SafeArea(
         child: Padding(

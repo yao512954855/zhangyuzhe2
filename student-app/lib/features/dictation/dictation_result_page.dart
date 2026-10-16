@@ -1,22 +1,18 @@
-/// 听写结果页 —— WP-D D-2 第 4 项。
+/// 听写结果页 —— WP-D D-2 第 4 项 + APP-13 F17-3（契约 v1.3）。
 ///
 /// 对 X · 错 Y + 逐题对错清单（错题显示 recognized 实际识别值；
 /// uncertain 标「拿不准」）；错题逐个 `POST /api/wrongbook/auto-add`
-/// （mode=listen，契约 §7）；停 3 秒自动跳回单元列表
-/// （Timer 在 dispose 里取消，防泄漏）。
+/// （mode=listen，契约 §7）；**手动退出** —— 批改完成后结果页常驻，
+/// 学生点「完成」才跳回单元列表（todo11 A4：单词多时来得及慢慢看）。
 library;
-
-import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers.dart';
 import '../../core/theme/age_profile.dart';
+import '../../core/widgets/app_button.dart';
 import 'dictation_models.dart';
-
-/// 自动跳回的等待时长（测试可注入更短值观察跳转）。
-const Duration kDictationResultAutoJump = Duration(seconds: 3);
 
 /// 听写结果页。
 class DictationResultPage extends ConsumerStatefulWidget {
@@ -26,7 +22,6 @@ class DictationResultPage extends ConsumerStatefulWidget {
     required this.items,
     this.unitName = '',
     this.returnRoute,
-    this.autoJumpAfter = kDictationResultAutoJump,
     /// 测试注入错题入本的假实现（避免真网络）；为空则走真实 API。
     this.wrongAdder,
   });
@@ -37,11 +32,8 @@ class DictationResultPage extends ConsumerStatefulWidget {
   final List<DictationItem> items;
   final String unitName;
 
-  /// 跳回的路由名（单元列表，J1 接线时由 WP-C 传入）；空则退回栈底。
+  /// 完成后跳回的路由名（单元列表，J1 接线时由 WP-C 传入）；空则退回栈底。
   final String? returnRoute;
-
-  /// 测试注入。
-  final Duration autoJumpAfter;
 
   /// 测试注入：错题入本 `(item_id, mode)`。
   final Future<void> Function(int itemId, String mode)? wrongAdder;
@@ -52,7 +44,6 @@ class DictationResultPage extends ConsumerStatefulWidget {
 }
 
 class _DictationResultPageState extends ConsumerState<DictationResultPage> {
-  Timer? _jumpTimer;
   int _wrongAdded = 0;
   int _wrongAddFailed = 0;
   bool _wrongBookSettled = false;
@@ -65,16 +56,9 @@ class _DictationResultPageState extends ConsumerState<DictationResultPage> {
         _addWrongItems();
       }
     });
-    _jumpTimer = Timer(widget.autoJumpAfter, _autoJump);
   }
 
-  @override
-  void dispose() {
-    _jumpTimer?.cancel();
-    super.dispose();
-  }
-
-  /// 错题逐个入错题本（mode=listen）。失败不阻塞跳转，只计数提示。
+  /// 错题逐个入错题本（mode=listen）。失败不阻塞退出，只计数提示。
   Future<void> _addWrongItems() async {
     if (_wrongBookSettled) {
       return;
@@ -112,7 +96,8 @@ class _DictationResultPageState extends ConsumerState<DictationResultPage> {
     }
   }
 
-  void _autoJump() {
+  /// 「完成」手动退出（F17-3：移除自动跳转）。
+  void _finish() {
     if (!mounted) {
       return;
     }
@@ -153,8 +138,8 @@ class _DictationResultPageState extends ConsumerState<DictationResultPage> {
                     const SizedBox(height: AgeProfile.elementGap / 2),
                     Text(
                       _wrongAddFailed == 0
-                          ? '错题已记入错题本 $_wrongAdded 个，马上回单元列表…'
-                          : '错题记入 $_wrongAdded 个、没记上 $_wrongAddFailed 个，马上回单元列表…',
+                          ? '错题已记入错题本 $_wrongAdded 个，看完点「完成」'
+                          : '错题记入 $_wrongAdded 个、没记上 $_wrongAddFailed 个，看完点「完成」',
                       style: profile.captionStyle,
                     ),
                   ],
@@ -172,6 +157,18 @@ class _DictationResultPageState extends ConsumerState<DictationResultPage> {
                     final r = report.results[index];
                     return _ResultCard(result: r);
                   },
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AgeProfile.screenEdgeInset,
+                  0,
+                  AgeProfile.screenEdgeInset,
+                  AgeProfile.elementGap,
+                ),
+                child: AppButton(
+                  label: '完成',
+                  onPressed: _finish,
                 ),
               ),
             ],

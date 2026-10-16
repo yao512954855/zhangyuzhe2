@@ -1,22 +1,25 @@
-/// WP-C 背诵链路验收 —— U3 ~ U12（30-学生端 WP-C 验收用例）。
+/// WP-C 背诵链路验收 —— 契约 v1.3 交互重构（规格 52 APP-12，U16-1 ~ U16-9）。
 ///
-/// U3  start 请求体 {unit_id,type,mode} 与契约一致
-/// U4  Mock WS letter 序列填格：正确字母按 index 填格、错误不填
-/// U5  填满判对 → 自动下一题，answer 上报 correct=true
-/// U6  3 连错出键盘入口；键盘填格同样判对/判错上报
-/// U7  en2zh：转写「开心的」 vs zh=「高兴的」alt=「开心、快乐」→ 服务端判对
-/// U8  en2zh 判错：显示再试一次，可跳过且计入错误
-/// U9  settle 请求与结算页：correct+wrong=total；三项数字正确
-/// U10 错题 auto-add：mode 与当次模式一致
-/// U11 3 秒自动回跳：无挂起 Timer
-/// U12 断线转暂停：进度不清、可继续
+/// U3   startSpellRun 请求体 {unit_id,type,mode} 与契约一致（spell_session 回归）
+/// U16-1 按住 → start 发出、音频推流；松开 → end 发出、推流停止
+/// U16-2 按住中 partial/utterance 实时上屏；松开收 verdict(true) → 绿+👍+倒计时+answer
+/// U16-3 verdict(false) → 红态、推流停止；此后 partial 不再上屏
+/// U16-4 倒计时走完自动下一题（对/错两条路径）；「再来一次」取消倒计时并清空
+/// U16-5 跳过 → answer(correct=false) + auto-add + 立即下一题
+/// U16-6 键盘屏：逐字母填入/⌫ 回退/填满自动判定上报；语音⇄键盘互切不清内容
+/// U16-7 最后一题倒计时走完 → settle → 结算页；无「结束并结算」按钮
+/// U16-8 判对不调 DELETE /api/wrongbook（v1.3 废除）
+/// U16-9 verdict 超时兜底：end 后 1.5s 无 verdict → 可再来一次，不死锁
+/// U7/U8  en2zh 回归：转写比对判对/判错跳过（交互保留，被动适配）
+/// U11    结算页停 3 秒自动回单元列表（回归）
+/// U12/U13 断线转暂停 / 服务端 error（回归，适配新交互）
 library;
 
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -37,24 +40,47 @@ import 'package:student_app/router/routes/recite.dart';
 
 import 'support/fake_home_repository.dart';
 
-/// 永不真启动的录音器：权限放行、start 给空流（测试不碰系统录音插件）。
-class _NeverRecorder extends PcmRecorder {
+/// 按需吐帧的录音器：start 返回可控流（测试观察「推流/停推流」）。
+class _TapRecorder extends PcmRecorder {
+  final StreamController<Uint8List> frames = StreamController<Uint8List>();
+
   @override
   Future<MicPermission> ensurePermission() async => MicPermission.granted;
 
   @override
-  Future<Stream<Uint8List>> start() async => const Stream<Uint8List>.empty();
+  Future<Stream<Uint8List>> start() async => frames.stream;
 
   @override
   Future<void> stop() async {}
 }
 
+/// WsClient 间谍：记录上行的 JSON 与音频帧数（不真连）。
+class SpyWsClient extends WsClient {
+  SpyWsClient({required super.serverStore, required super.localStore});
+
+  final sent = <Map<String, dynamic>>[];
+  int audioFrames = 0;
+
+  @override
+  void sendRawJson(Map<String, dynamic> payload) => sent.add(payload);
+
+  @override
+  bool sendAudio(Uint8List chunk) {
+    audioFrames += 1;
+    return true;
+  }
+
+  @override
+  void sendEnd() => sent.add({'type': 'end'});
+}
+
 /// 会话假件：消息与连接状态都可注入，绝不连真 WS / 不碰麦克风。
 class FakeSession {
   FakeSession(this.serverStore, this.local) {
+    ws = SpyWsClient(serverStore: serverStore, localStore: local);
     session = PracticeWsSession(
-      wsClient: WsClient(serverStore: serverStore, localStore: local),
-      micRecorder: _NeverRecorder(),
+      wsClient: ws,
+      micRecorder: recorder,
       serverMessages: messages.stream,
       serverStates: states.stream,
       autoConnect: false,
@@ -64,38 +90,43 @@ class FakeSession {
   final ServerStore serverStore;
   final LocalStore local;
 
-  final messages = StreamController<Map<String, dynamic>>.broadcast();
-  final states = StreamController<WsState>.broadcast();
+  final recorder = _TapRecorder();
+  late final SpyWsClient ws;
   late final PracticeWsSession session;
 
-  void sayLetter({
+  final messages = StreamController<Map<String, dynamic>>.broadcast();
+  final states = StreamController<WsState>.broadcast();
+
+  /// 服务端 verdict 下行（§5 v1.3）：松开后整词判定结果。
+  void sayVerdict({
     required int itemId,
-    required int index,
-    required String letter,
     required bool correct,
+    String text = '',
   }) {
     messages.add({
-      'type': 'letter',
-      'index': index,
-      'letter': letter,
+      'type': 'verdict',
       'correct': correct,
+      'text': text,
       'session_id': 'ps-1',
       'item_id': itemId,
     });
   }
 
-  void sayTranscript(String text, {bool isFinal = true}) {
-    messages.add({'type': isFinal ? 'final' : 'partial', 'text': text});
-  }
+  /// 服务端 partial 下行：按住中实时回显。
+  void sayPartial(String text) =>
+      messages.add({'type': 'partial', 'text': text, 'is_final': false});
 
-  /// 服务端 utterance 下行（§5 v1.0.4）：语句级定版结果，
-  /// 与随后的 letter 判格同源同序。
+  /// 服务端 utterance 下行：语句级定版回显。
   void sayUtterance({required int itemId, required String text}) {
     messages.add({
       'type': 'utterance',
       'text': text,
       'item_id': itemId,
     });
+  }
+
+  void sayTranscript(String text, {bool isFinal = true}) {
+    messages.add({'type': isFinal ? 'final' : 'partial', 'text': text});
   }
 
   Future<void> dispose() async {
@@ -120,6 +151,8 @@ String defaultRespond(RequestOptions options) {
       return okBody(<String, dynamic>{});
     case '/api/wrongbook/auto-add':
       return okBody({'item_id': 1, 'mode': 'spell_zh2en'});
+    case '/api/settings':
+      return okBody({'spell_verdict_countdown_s': 3});
     default:
       return okBody(null);
   }
@@ -216,17 +249,44 @@ void main() {
       return respond(options);
     });
     await tester.pumpWidget(bootSpell(run: run, fake: fake, adapter: adapter));
-    await tester.pump();
+    // ⚠️ 带时长推进：进页的 GET /api/settings（dio 零时长 Timer）要走完，
+    // 否则测试结束报「Timer is still pending」。
+    await tester.pump(const Duration(milliseconds: 10));
+    await tester.pump(const Duration(milliseconds: 10));
     return received;
   }
 
   List<RequestRecord> callsOf(List<RequestRecord> received, String path) =>
       received.where((r) => r.options.uri.path == path).toList();
 
-  /// letter 事件经「注入流 → session → 页面」两级广播转发，
+  /// 事件经「注入流 → session → 页面」两级广播转发，
   /// 一拍 pump 只走完第一级微任务 —— 两拍才稳定上图（探针实测）。
-  Future<void> pumpLetter(WidgetTester tester) async {
+  /// ⚠️ pump 必须带时长：假时钟下 dio 的零时长 Timer 不推进就不触发（见 U3）。
+  Future<void> pumpEvents(WidgetTester tester) async {
+    await tester.pump(const Duration(milliseconds: 10));
+    await tester.pump(const Duration(milliseconds: 10));
+  }
+
+  /// 让 answer/auto-add 这类 dio 请求链路走完并排干帧
+  /// （verdict 后的倒计时 label 等）。倒计时 periodic Timer 一秒一跳，
+  /// pumpAndSettle 在无待渲染帧时即返回，不会等到下一次 tick，安全。
+  Future<void> drainHttp(WidgetTester tester) async {
+    await tester.pump(const Duration(milliseconds: 20));
+    await tester.pumpAndSettle();
+  }
+
+  /// 按下大圆钮（按住中）。
+  Future<TestGesture> pressHold(WidgetTester tester) async {
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.byKey(const ValueKey('spell-hold'))),
+    );
     await tester.pump();
+    return gesture;
+  }
+
+  /// 松开大圆钮。
+  Future<void> releaseHold(TestGesture gesture, WidgetTester tester) async {
+    await gesture.up();
     await tester.pump();
   }
 
@@ -270,7 +330,269 @@ void main() {
     expect(run!.items.single.en, 'apple');
   });
 
-  testWidgets('U4 Mock WS letter 序列填格：正确按 index 填、错误不填', (tester) async {
+  testWidgets('U16-1 按住 → start+音频推流；松开 → end+推流停止', (tester) async {
+    final fake = FakeSession(serverStore, local);
+    await pumpSpell(tester, run: zh2enRun(items: [appleItem()]), fake: fake);
+    addTearDown(fake.dispose);
+
+    // 按下：start 上行（信封 {type, session_id, mode, item_id}）
+    final gesture = await pressHold(tester);
+    expect(fake.ws.sent.where((m) => m['type'] == 'start'), hasLength(1));
+    expect(fake.ws.sent.where((m) => m['type'] == 'start').single, {
+      'type': 'start',
+      'session_id': 'ps-1',
+      'mode': 'spell_zh2en',
+      'item_id': 101,
+    });
+
+    // 按住期间：音频帧逐包上送
+    fake.recorder.frames.add(Uint8List.fromList(List.filled(4800, 1)));
+    await pumpEvents(tester);
+    expect(fake.ws.audioFrames, greaterThanOrEqualTo(1));
+
+    // 松开：end 上行；此后帧不再推流（press-and-hold 门控）
+    await releaseHold(gesture, tester);
+    expect(fake.ws.sent.where((m) => m['type'] == 'end'), hasLength(1));
+    final framesAtRelease = fake.ws.audioFrames;
+    fake.recorder.frames.add(Uint8List.fromList(List.filled(4800, 2)));
+    await pumpEvents(tester);
+    expect(fake.ws.audioFrames, framesAtRelease,
+        reason: '松开后必须停推流（§5：音频帧只在按住期间推）');
+
+    // 收尾排干：verdict 1.5s 超时 Timer + 超时 snack（3s）
+    await tester.pump(const Duration(milliseconds: 1500));
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('U16-2 partial/utterance 实时上屏；verdict(true) → 绿+👍+倒计时+answer',
+      (tester) async {
+    final fake = FakeSession(serverStore, local);
+    final received = await pumpSpell(
+      tester,
+      run: zh2enRun(items: [appleItem()]),
+      fake: fake,
+    );
+    addTearDown(fake.dispose);
+
+    final gesture = await pressHold(tester);
+
+    // 按住中 partial 实时上屏（浅色进行态，未定版也显示；方案 B 逐格填色）
+    fake.sayPartial('a');
+    await pumpEvents(tester);
+    expect(find.text('A'), findsOneWidget, reason: 'partial 实时转大写填格');
+
+    // 语句级定版：收进累积，partial 不重复
+    fake.sayUtterance(itemId: 101, text: 'a p');
+    await pumpEvents(tester);
+    expect(find.text('P'), findsOneWidget, reason: 'utterance 定版字母填格');
+
+    // 松开 → 服务端 verdict 判对
+    await releaseHold(gesture, tester);
+    fake.sayVerdict(itemId: 101, correct: true, text: 'a p p l e');
+    await drainHttp(tester);
+
+    // 判对：全格绿 + 👍（判对反馈）
+    expect(find.text('👍'), findsOneWidget);
+    expect(find.text('E'), findsOneWidget, reason: '判定文本定版填满 5 格');
+    // 倒计时启动：「再来一次 (3)」
+    expect(find.text('再来一次 (3)'), findsOneWidget);
+
+    // answer 留痕：correct 必填（契约 §4.1 v1.3）
+    final answerCalls = callsOf(received, '/api/practice/answer');
+    expect(answerCalls, hasLength(1));
+    expect(answerCalls.single.options.data, {
+      'session_id': 'ps-1',
+      'item_id': 101,
+      'mode': 'spell_zh2en',
+      'answer': 'a p p l e',
+      'elapsed_ms': isA<int>(),
+      'correct': true,
+    });
+
+    // 收尾排干：倒计时走完 → 最后一题自动 settle → 结算页 3s 回跳
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+    expect(find.text('UNITS'), findsOneWidget);
+  });
+
+  testWidgets('U16-3 verdict(false) → 红态；此后 partial 不再上屏', (tester) async {
+    final fake = FakeSession(serverStore, local);
+    final received = await pumpSpell(
+      tester,
+      run: zh2enRun(items: [appleItem()]),
+      fake: fake,
+    );
+    addTearDown(fake.dispose);
+
+    final gesture = await pressHold(tester);
+    fake.sayPartial('a p p l z');
+    await pumpEvents(tester);
+    expect(find.text('Z'), findsOneWidget, reason: 'partial 逐格填色');
+
+    await releaseHold(gesture, tester);
+    fake.sayVerdict(itemId: 101, correct: false, text: 'a p p l z');
+    await drainHttp(tester);
+
+    // 判错：内容定版（norm 去空格连字符），对齐着色出「再来一次」
+    // apple vs applz：A/P/P/L 对齐绿，Z 对齐到 E 的位置=红
+    expect(find.text('Z'), findsOneWidget);
+    expect(find.text('再来一次 (3)'), findsOneWidget,
+        reason: '判错同样进入倒计时（F16-4）');
+
+    // 此后到达的 partial 不再上屏（U16-3）
+    fake.sayPartial('x x');
+    await pumpEvents(tester);
+    expect(find.text('Z'), findsOneWidget);
+    expect(find.text('X'), findsNothing,
+        reason: '判错后说出的拼读内容丢弃不显示');
+
+    // answer 留痕 correct=false
+    final answerCalls = callsOf(received, '/api/practice/answer');
+    expect(answerCalls.single.options.data['correct'], isFalse);
+
+    // 收尾排干：判错倒计时走完 → auto-add + settle → 结算页回跳
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+    expect(find.text('UNITS'), findsOneWidget);
+  });
+
+  testWidgets('U16-4 倒计时走完自动下一题（对/错）；「再来一次」取消倒计时清空识别区',
+      (tester) async {
+    final fake = FakeSession(serverStore, local);
+    final received = await pumpSpell(tester, run: zh2enRun(), fake: fake);
+    addTearDown(fake.dispose);
+
+    // 第 1 题判对 → 倒计时 → 自动下一题
+    var gesture = await pressHold(tester);
+    await releaseHold(gesture, tester);
+    fake.sayVerdict(itemId: 101, correct: true, text: 'apple');
+    await drainHttp(tester);
+    expect(find.text('香蕉'), findsNothing);
+
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump();
+    expect(find.text('香蕉'), findsOneWidget, reason: '判对倒计时走完自动下一题');
+    expect(callsOf(received, '/api/wrongbook/auto-add'), isEmpty,
+        reason: '判对不入错题本');
+
+    // 第 2 题判错 → 「再来一次」取消倒计时并清空识别区（不限次）
+    gesture = await pressHold(tester);
+    await releaseHold(gesture, tester);
+    fake.sayVerdict(itemId: 102, correct: false, text: 'bananas');
+    await drainHttp(tester);
+    // banana vs bananas：6 格全对齐绿 + 多读的 S 附尾红格
+    expect(find.text('S'), findsOneWidget);
+
+    await tester.tap(find.text('再来一次 (3)'));
+    await tester.pump();
+    expect(find.text('S'), findsNothing, reason: '清空识别区');
+
+    // 倒计时已取消：再等 3 秒仍在本题
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump();
+    expect(find.text('香蕉'), findsOneWidget, reason: '取消倒计时不推进');
+
+    // 重新按住再来一轮（不限次）→ 判错 → 倒计时走完先 auto-add 再推进（最后一题→settle）
+    gesture = await pressHold(tester);
+    await releaseHold(gesture, tester);
+    fake.sayVerdict(itemId: 102, correct: false, text: 'bananas');
+    await drainHttp(tester);
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+
+    expect(find.text('背完啦'), findsOneWidget);
+    final autoAdds = callsOf(received, '/api/wrongbook/auto-add');
+    expect(autoAdds, hasLength(1));
+    expect(autoAdds.single.options.data, {'item_id': 102, 'mode': 'spell_zh2en'});
+  });
+
+  testWidgets('U16-5 跳过 → answer(correct=false) + auto-add + 立即下一题',
+      (tester) async {
+    final fake = FakeSession(serverStore, local);
+    final received = await pumpSpell(tester, run: zh2enRun(), fake: fake);
+    addTearDown(fake.dispose);
+
+    // 未按住直接跳过（常驻按钮，任何时刻可点）
+    await tester.tap(find.text('跳过（判错）'));
+    await tester.pumpAndSettle();
+
+    final answerCalls = callsOf(received, '/api/practice/answer');
+    expect(answerCalls, hasLength(1));
+    expect(answerCalls.single.options.data, {
+      'session_id': 'ps-1',
+      'item_id': 101,
+      'mode': 'spell_zh2en',
+      'answer': '',
+      'elapsed_ms': isA<int>(),
+      'correct': false,
+    });
+
+    final autoAdds = callsOf(received, '/api/wrongbook/auto-add');
+    expect(autoAdds, hasLength(1));
+    expect(autoAdds.single.options.data, {'item_id': 101, 'mode': 'spell_zh2en'});
+
+    expect(find.text('香蕉'), findsOneWidget, reason: '跳过立即下一题');
+  });
+
+  testWidgets('U16-6 键盘屏：逐字母填入/⌫ 回退/填满自动判定；互切不清内容',
+      (tester) async {
+    final fake = FakeSession(serverStore, local);
+    final received = await pumpSpell(
+      tester,
+      run: zh2enRun(items: [appleItem()]),
+      fake: fake,
+    );
+    addTearDown(fake.dispose);
+
+    // 切到键盘屏（图标互切）
+    await tester.tap(find.byIcon(Icons.keyboard_rounded));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('spell-kbd-input')), findsOneWidget);
+
+    // 逐字母填入（不满不判）
+    await tester.enterText(find.byKey(const ValueKey('spell-kbd-input')), 'APPL');
+    await tester.pumpAndSettle();
+    expect(callsOf(received, '/api/practice/answer'), isEmpty,
+        reason: '未填满不判定');
+
+    // ⌫ 逐字母回退
+    await tester.sendKeyEvent(LogicalKeyboardKey.backspace);
+    await tester.pumpAndSettle();
+    final field = tester.widget<TextField>(
+      find.byKey(const ValueKey('spell-kbd-input')),
+    );
+    expect(field.controller!.text, 'APP', reason: '⌫ 逐字母回退');
+
+    // 补齐填满（小写输入验证忽略大小写）→ answer(correct=true) + 倒计时
+    await tester.enterText(find.byKey(const ValueKey('spell-kbd-input')), 'apple');
+    // ⚠️ 填满即判定并上报 answer：drainHttp 让 POST 走完并启动倒计时
+    await drainHttp(tester);
+    final answerCalls = callsOf(received, '/api/practice/answer');
+    expect(answerCalls, hasLength(1));
+    expect(answerCalls.single.options.data, {
+      'session_id': 'ps-1',
+      'item_id': 101,
+      'mode': 'spell_zh2en',
+      'answer': 'APPLE',
+      'elapsed_ms': isA<int>(),
+      'correct': true,
+    });
+    expect(find.text('再来一次 (3)'), findsOneWidget, reason: '键盘判定同走 F16-4 倒计时');
+
+    // 收尾排干：倒计时 → settle → 结算页回跳
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+    expect(find.text('UNITS'), findsOneWidget);
+  });
+
+  testWidgets('U16-6b 语音⇄键盘互切不清已填内容（A6）', (tester) async {
     final fake = FakeSession(serverStore, local);
     await pumpSpell(
       tester,
@@ -279,93 +601,153 @@ void main() {
     );
     addTearDown(fake.dispose);
 
-    fake.sayLetter(itemId: 101, index: 0, letter: 'A', correct: true);
-    await pumpLetter(tester);
+    // 语音轮：判错后内容定版
+    final gesture = await pressHold(tester);
+    fake.sayUtterance(itemId: 101, text: 'a p');
+    await pumpEvents(tester);
+    await releaseHold(gesture, tester);
+    fake.sayVerdict(itemId: 101, correct: false, text: 'a p');
+    await drainHttp(tester);
+    // 方案 B 逐格：A/P 对齐绿，apple 后 3 格红空框
     expect(find.text('A'), findsOneWidget);
+    expect(find.text('P'), findsOneWidget);
 
-    fake.sayLetter(itemId: 101, index: 1, letter: 'X', correct: false);
-    await pumpLetter(tester);
-    // 错误不填格
-    expect(find.text('X'), findsNothing);
-    // 其他格仍空（只填了第 0 格）
-    expect(find.text('P'), findsNothing);
+    // 切键盘：内容带进输入框
+    await tester.tap(find.byIcon(Icons.keyboard_rounded));
+    await tester.pumpAndSettle();
+    final field = tester.widget<TextField>(
+      find.byKey(const ValueKey('spell-kbd-input')),
+    );
+    expect(field.controller!.text, 'AP', reason: '语音→键盘互切不清内容');
+
+    // 切回语音：内容仍在识别区
+    await tester.tap(find.byIcon(Icons.mic_rounded));
+    await tester.pumpAndSettle();
+    expect(find.text('A'), findsOneWidget, reason: '键盘→语音互切不清内容');
+    expect(find.text('P'), findsOneWidget, reason: '键盘→语音互切不清内容');
+
+    // 收尾排干：判错倒计时走完 → settle → 结算页回跳
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+    expect(find.text('UNITS'), findsOneWidget);
   });
 
-  testWidgets('U5 填满判对 → answer(correct=true) → 立即切下一题', (tester) async {
+  testWidgets('U16-7 最后一题倒计时走完 → settle → 结算页；无「结束并结算」',
+      (tester) async {
     final fake = FakeSession(serverStore, local);
+    // unit_ids/types 传本轮快照（F16-7，契约 §4.1）
     final received = await pumpSpell(
       tester,
-      run: zh2enRun(),
+      run: SpellRun(
+        sessionId: 'ps-1',
+        mode: 'spell_zh2en',
+        unitName: 'Starter Unit 1',
+        typeName: 'word',
+        items: [appleItem()],
+        startedAt: DateTime.now(),
+        unitIds: const [7],
+        types: const ['word'],
+      ),
       fake: fake,
     );
     addTearDown(fake.dispose);
 
-    final letters = 'apple'.split('');
-    for (var i = 0; i < letters.length; i++) {
-      fake.sayLetter(
-          itemId: 101, index: i, letter: letters[i], correct: true);
-      await pumpLetter(tester);
-    }
+    expect(find.text('结束并结算'), findsNothing,
+        reason: '「结束并结算」按钮已删除（决策 #14）');
+
+    final gesture = await pressHold(tester);
+    await releaseHold(gesture, tester);
+    fake.sayVerdict(itemId: 101, correct: true, text: 'apple');
+    await drainHttp(tester);
+
+    await tester.pump(const Duration(seconds: 3));
     await tester.pumpAndSettle();
 
-    // answer 上报：本地判格 correct=true，answer=拼出的字母串
-    final answerCalls = callsOf(received, '/api/practice/answer');
-    expect(answerCalls, hasLength(1));
-    expect(answerCalls.single.options.data, {
+    final settleCalls = callsOf(received, '/api/practice/settle');
+    expect(settleCalls, hasLength(1), reason: '最后一题倒计时走完自动 settle');
+    expect(settleCalls.single.options.data, {
       'session_id': 'ps-1',
-      'item_id': 101,
-      'mode': 'spell_zh2en',
-      'answer': 'apple',
-      'elapsed_ms': isA<int>(),
-      'correct': true, // §6.4：zh2en 本地判格 correct 必填
+      'duration_ms': isA<int>(),
+      'unit_ids': [7],
+      'types': ['word'],
     });
+    expect(find.text('背完啦'), findsOneWidget);
 
-    // 立即切下一题（无需点按）
-    expect(find.text('香蕉'), findsOneWidget);
-    expect(find.textContaining('2 / 2'), findsOneWidget);
+    // 结算页 3 秒回跳计时器走完（测试结束不得有挂起 Timer）
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+    expect(find.text('UNITS'), findsOneWidget);
   });
 
-  testWidgets('U6 同格 3 连错出键盘入口；键盘填错上报判错、跳过推进', (tester) async {
+  testWidgets('U16-8 判对不调 DELETE /api/wrongbook（v1.3 废除）', (tester) async {
     final fake = FakeSession(serverStore, local);
     final received = await pumpSpell(
       tester,
-      run: zh2enRun(),
+      run: zh2enRun(items: [appleItem()]),
       fake: fake,
     );
     addTearDown(fake.dispose);
 
-    // 先开始拼读（真实流程：先按开始，服务端才判）
-    await tester.tap(find.text('开始拼读'));
+    final gesture = await pressHold(tester);
+    await releaseHold(gesture, tester);
+    fake.sayVerdict(itemId: 101, correct: true, text: 'apple');
+    await drainHttp(tester);
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+    expect(find.text('背完啦'), findsOneWidget);
+
+    final deletes = received.where(
+      (r) =>
+          r.options.method == 'DELETE' &&
+          r.options.uri.path.contains('/api/wrongbook'),
+    );
+    expect(deletes, isEmpty, reason: '判对不再自动移出错题本（服务端写 mastered_at）');
+
+    // 收尾排干：结算页 3s 回跳 Timer
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+    expect(find.text('UNITS'), findsOneWidget);
+  });
+
+  testWidgets('U16-9 verdict 超时兜底：end 后 1.5s 无 verdict → 可再来一次，不死锁',
+      (tester) async {
+    final fake = FakeSession(serverStore, local);
+    await pumpSpell(
+      tester,
+      run: zh2enRun(items: [appleItem()]),
+      fake: fake,
+    );
+    addTearDown(fake.dispose);
+
+    final gesture = await pressHold(tester);
+    await releaseHold(gesture, tester);
+    expect(find.text('松开结束'), findsNothing);
+
+    // 1.5s 无 verdict → 按「本轮未判定」处理：回到可按住状态
+    await tester.pump(const Duration(milliseconds: 1500));
+    await tester.pump();
+    expect(find.text('按住拼读'), findsOneWidget, reason: '超时后不死锁，可重新按住');
+
+    // 超时 snack 3 秒后自动消失（避免挂起 Timer）
+    await tester.pump(const Duration(seconds: 3));
     await tester.pumpAndSettle();
 
-    // 同一格 3 次 correct=false → 出键盘入口
-    for (var i = 0; i < 3; i++) {
-      fake.sayLetter(itemId: 101, index: 1, letter: 'x', correct: false);
-      await pumpLetter(tester);
-    }
-    expect(find.text('清空重拼'), findsOneWidget,
-        reason: '同一格 3 连错必须出现键盘入口（§6.4）');
-
-    // 键盘填错：A P P L Z ≠ apple → 上报判错、留在本题
-    for (final letter in ['A', 'P', 'P', 'L', 'Z']) {
-      await tester.tap(find.text(letter).last);
-      await tester.pump();
-    }
+    // 再来一次：重新按住 + verdict 判对 → 正常推进
+    final gesture2 = await pressHold(tester);
+    await releaseHold(gesture2, tester);
+    fake.sayVerdict(itemId: 101, correct: true, text: 'apple');
+    await drainHttp(tester);
+    expect(find.text('👍'), findsOneWidget, reason: '判对全格绿 + 👍');
+    await tester.pump(const Duration(seconds: 3));
     await tester.pumpAndSettle();
+    expect(find.text('背完啦'), findsOneWidget);
 
-    final answerCalls = callsOf(received, '/api/practice/answer');
-    expect(answerCalls, hasLength(1));
-    expect(answerCalls.single.options.data['correct'], isFalse);
-    expect(answerCalls.single.options.data['answer'], 'APPLZ');
-    expect(find.text('苹果'), findsOneWidget, reason: '键盘判错后留在本题');
-
-    // 3 次连错（WS 阶段）→ 可跳过；本题已上报过，跳过不再重复上报
-    await tester.tap(find.text('跳过这题（判错）'));
+    // 收尾排干：结算页 3s 回跳 Timer
+    await tester.pump(const Duration(seconds: 3));
     await tester.pumpAndSettle();
-
-    expect(callsOf(received, '/api/practice/answer'), hasLength(1),
-        reason: '已判过的题跳过不重复上报');
-    expect(find.text('香蕉'), findsOneWidget);
+    expect(find.text('UNITS'), findsOneWidget);
   });
 
   testWidgets('U7 en2zh：转写「开心的」命中别名 → 服务端判对 → 自动下一题', (tester) async {
@@ -389,6 +771,8 @@ void main() {
     expect(find.text('happy'), findsOneWidget);
     expect(find.text('adj.'), findsOneWidget);
 
+    await tester.tap(find.text('开始说'));
+    await tester.pumpAndSettle();
     fake.sayTranscript('开心的');
     await tester.pumpAndSettle();
 
@@ -420,16 +804,18 @@ void main() {
     );
     addTearDown(fake.dispose);
 
+    await tester.tap(find.text('开始说'));
+    await tester.pumpAndSettle();
     fake.sayTranscript('难过');
     await tester.pumpAndSettle();
 
     expect(find.textContaining('再试一次'), findsWidgets);
-    expect(find.text('跳过这题（算错）'), findsOneWidget);
+    expect(find.text('跳过（判错）'), findsOneWidget);
     // 判错不中断：还停在本题
     expect(find.text('happy'), findsOneWidget);
 
     // 跳过 → 计入错误并推进
-    await tester.tap(find.text('跳过这题（算错）'));
+    await tester.tap(find.text('跳过（判错）'));
     await tester.pumpAndSettle();
     expect(find.text('sad'), findsOneWidget);
 
@@ -437,61 +823,10 @@ void main() {
     expect(answerCalls, hasLength(1), reason: '服务端已判过，跳过不重复上报');
     expect(answerCalls.single.options.data['answer'], '难过',
         reason: 'en2zh 只转发转写文本，correct 由服务端判定');
-  });
 
-  testWidgets('U9+U10 走完全场 → settle + 结算页三项数字 + auto-add mode 一致',
-      (tester) async {
-    final fake = FakeSession(serverStore, local);
-    final received = await pumpSpell(
-      tester,
-      run: zh2enRun(),
-      fake: fake,
-    );
-    addTearDown(fake.dispose);
-
-    // 第 1 题拼对
-    final letters = 'apple'.split('');
-    for (var i = 0; i < letters.length; i++) {
-      fake.sayLetter(
-          itemId: 101, index: i, letter: letters[i], correct: true);
-      await pumpLetter(tester);
-    }
-    await tester.pumpAndSettle();
-
-    // 第 2 题：zh2en 换题即自动重发 start 开始新一轮拼读（无需点按）
-    for (var i = 0; i < 3; i++) {
-      fake.sayLetter(itemId: 102, index: 0, letter: 'z', correct: false);
-      await pumpLetter(tester);
-    }
-    await tester.tap(find.text('跳过这题（判错）'));
-    await tester.pumpAndSettle();
-
-    // settle 请求
-    final settleCalls = callsOf(received, '/api/practice/settle');
-    expect(settleCalls, hasLength(1));
-    expect(settleCalls.single.options.data, {
-      'session_id': 'ps-1',
-      'duration_ms': isA<int>(),
-    });
-
-    // 结算页三项数字：正确 1 · 错误 1 · 已记入错题 1（1+1=2=total ✓）
-    expect(find.text('正确'), findsOneWidget);
-    expect(find.text('错误'), findsOneWidget);
-    expect(find.text('已记入错题'), findsOneWidget);
-    expect(find.text('1'), findsNWidgets(3));
-
-    // U10：判错的题 auto-add，mode=当次模式
     final autoAdds = callsOf(received, '/api/wrongbook/auto-add');
     expect(autoAdds, hasLength(1));
-    expect(autoAdds.single.options.data, {
-      'item_id': 102,
-      'mode': 'spell_zh2en',
-    });
-
-    // 结算页的 3 秒回跳计时器也要走完（测试结束时不得有挂起 Timer）
-    await tester.pump(const Duration(seconds: 3));
-    await tester.pumpAndSettle();
-    expect(find.text('UNITS'), findsOneWidget);
+    expect(autoAdds.single.options.data, {'item_id': 201, 'mode': 'spell_en2zh'});
   });
 
   testWidgets('U11 结算页停 3 秒自动回单元列表；无挂起 Timer', (tester) async {
@@ -531,7 +866,7 @@ void main() {
     expect(find.text('背完啦'), findsNothing);
   });
 
-  testWidgets('U12 断线转暂停：进度不清、出现「继续」', (tester) async {
+  testWidgets('U12 断线转暂停：进度不清、可重新按住继续', (tester) async {
     final fake = FakeSession(serverStore, local);
     await pumpSpell(
       tester,
@@ -540,17 +875,19 @@ void main() {
     );
     addTearDown(fake.dispose);
 
-    // 先拼出 1 格
-    fake.sayLetter(itemId: 101, index: 0, letter: 'A', correct: true);
-    await pumpLetter(tester);
+    // 按住中听到了内容
+    await pressHold(tester);
+    fake.sayPartial('a');
+    await pumpEvents(tester);
     expect(find.text('A'), findsOneWidget);
 
     // 断线 → 暂停提示，进度不清（状态流也是广播转发，双拍）
     fake.states.add(WsState.closed);
-    await pumpLetter(tester);
+    await pumpEvents(tester);
     expect(find.textContaining('连接断开了'), findsOneWidget);
     expect(find.text('A'), findsOneWidget, reason: '断线不清作答进度（§5）');
-    expect(find.text('继续'), findsOneWidget, reason: '重连后可从「继续」接着来');
+    expect(find.byKey(const ValueKey('spell-hold')), findsOneWidget,
+        reason: '断线后可重新按住继续');
   });
 
   testWidgets('U13 服务端 error（start 被拒）：报错可见、进度不清、可继续', (tester) async {
@@ -562,9 +899,9 @@ void main() {
     );
     addTearDown(fake.dispose);
 
-    // 先拼出 1 格
-    fake.sayLetter(itemId: 101, index: 0, letter: 'A', correct: true);
-    await pumpLetter(tester);
+    await pressHold(tester);
+    fake.sayPartial('a');
+    await pumpEvents(tester);
     expect(find.text('A'), findsOneWidget);
 
     // 服务端 abort（2026-10-11 真机：mode 被拒后界面无反馈成死页）
@@ -574,103 +911,11 @@ void main() {
       'message': '语音没识别出来',
       'action': 'abort',
     });
-    await pumpLetter(tester);
+    await pumpEvents(tester);
     expect(find.textContaining('语音没识别出来'), findsOneWidget,
         reason: '报错必须可见，不能无声卡死');
     expect(find.text('A'), findsOneWidget, reason: '报错不清作答进度');
-    expect(find.text('继续'), findsOneWidget, reason: '报错后按钮要还给用户');
-  });
-
-  testWidgets('U14 实时 partial 上屏：边念边显示听到的字母', (tester) async {
-    final fake = FakeSession(serverStore, local);
-    await pumpSpell(
-      tester,
-      run: zh2enRun(items: [appleItem()]),
-      fake: fake,
-    );
-    addTearDown(fake.dispose);
-
-    await tester.tap(find.text('开始拼读'));
-    await tester.pumpAndSettle();
-
-    // 还没发音：无「听到」区
-    expect(find.text('听到'), findsNothing);
-
-    // 正在念 A：partial 实时上屏（未定版也显示，避免「卡死感」）
-    fake.sayTranscript('a', isFinal: false);
-    await pumpLetter(tester);
-    expect(find.text('听到'), findsOneWidget);
-    expect(find.text('A'), findsOneWidget, reason: 'partial 应实时转为大写显示');
-
-    // 停顿 → utterance 定版：旧 partial 收进「听到」累积，不重复显示
-    fake.sayUtterance(itemId: 101, text: 'a');
-    fake.sayLetter(itemId: 101, index: 0, letter: 'A', correct: true);
-    await pumpLetter(tester);
-    expect(find.text('A'), findsNWidgets(2),
-        reason: '听到区 1 个 + 判对后字母格 1 个');
-  });
-
-  testWidgets('U15 utterance 定版累积 + 多字母一句 + 换题重置 + 迟到消息丢弃', (tester) async {
-    final fake = FakeSession(serverStore, local);
-    await pumpSpell(
-      tester,
-      run: zh2enRun(),
-      fake: fake,
-    );
-    addTearDown(fake.dispose);
-
-    await tester.tap(find.text('开始拼读'));
-    await tester.pumpAndSettle();
-
-    // 第 1 个字母定版
-    fake.sayUtterance(itemId: 101, text: 'a');
-    fake.sayLetter(itemId: 101, index: 0, letter: 'A', correct: true);
-    await pumpLetter(tester);
-    expect(find.text('A'), findsNWidgets(2),
-        reason: '听到区 1 个 + 判对后字母格 1 个');
-
-    // 一口气念 "p p"：一句两个字母，utterance 整句定版 + 两格判对
-    fake.sayUtterance(itemId: 101, text: 'p p');
-    fake.sayLetter(itemId: 101, index: 1, letter: 'P', correct: true);
-    fake.sayLetter(itemId: 101, index: 2, letter: 'P', correct: true);
-    await pumpLetter(tester);
-    expect(find.text('A P P'), findsOneWidget,
-        reason: 'utterance 整句定版累积进「听到」');
-    expect(find.text('P'), findsNWidgets(2), reason: '字母格第 1/2 格亮 P');
-
-    // 剩余字母判对 → 填满自动下一题，「听到」区随新题重置
-    fake.sayLetter(itemId: 101, index: 3, letter: 'L', correct: true);
-    fake.sayLetter(itemId: 101, index: 4, letter: 'E', correct: true);
-    await pumpLetter(tester);
-    await tester.pumpAndSettle();
-    expect(find.text('香蕉'), findsOneWidget, reason: '填满自动下一题');
-    expect(find.text('A'), findsNothing, reason: '换题重置「听到」区');
-
-    // 换题后迟到的旧题 utterance 必须丢弃（不串题显示）
-    fake.sayUtterance(itemId: 101, text: 'z');
-    await pumpLetter(tester);
-    expect(find.text('Z'), findsNothing,
-        reason: 'item_id 不匹配（当前题 102）的迟到消息不显示');
-  });
-
-  testWidgets('U16 判错的字母：听到区照实显示，字母格不填', (tester) async {
-    final fake = FakeSession(serverStore, local);
-    await pumpSpell(
-      tester,
-      run: zh2enRun(items: [appleItem()]),
-      fake: fake,
-    );
-    addTearDown(fake.dispose);
-
-    await tester.tap(find.text('开始拼读'));
-    await tester.pumpAndSettle();
-
-    // 念错（服务端判第 0 格错）：听到区如实显示听到的 X，格子不填
-    fake.sayUtterance(itemId: 101, text: 'x');
-    fake.sayLetter(itemId: 101, index: 0, letter: 'x', correct: false);
-    await pumpLetter(tester);
-    expect(find.text('X'), findsOneWidget, reason: '听到区如实展示，不隐瞒判错');
-    expect(find.textContaining('拼了几次都没对上'), findsNothing,
-        reason: '单次判错不出键盘入口（§6.4：同格 3 次才出）');
+    expect(find.byKey(const ValueKey('spell-hold')), findsOneWidget,
+        reason: '报错后按钮要还给用户');
   });
 }

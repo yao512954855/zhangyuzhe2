@@ -146,6 +146,70 @@ class SettingsService:
 
     # ------------------------------------------------------------------ 写
 
+    # PUT /api/settings 白名单（契约 §4.1：倒计时/显示语言 + cloud_api_key）
+    COUNTDOWN_KEYS = ("dictation_countdown_s", "spell_verdict_countdown_s")
+    HINT_KEY = "dictation_hint"
+    HINT_VALUES = ("zh", "en")
+    COUNTDOWN_MIN, COUNTDOWN_MAX = 1, 10
+    # 云端语音（百炼）API Key：非空覆盖 asr.yaml 种子，改完即生效（key_store 动态解析）
+    APIKEY_KEY = "cloud_api_key"
+    APIKEY_MAX_LEN = 200
+
+    @classmethod
+    def update(cls, payload: dict[str, Any]) -> dict[str, Any]:
+        """`PUT /api/settings`（F12-6）—— 白名单键局部更新，返回全量（同 GET）。
+
+        值域校验（契约 §4.1 v1.3）：
+        - `dictation_countdown_s` / `spell_verdict_countdown_s`：整数 1~10；
+        - `dictation_hint` ∈ zh | en；
+        - `cloud_api_key`：字符串 ≤200，允许空串（=清除覆盖，回落 asr.yaml 种子）；
+        - 白名单之外的键（未知键）→ 10001，**整体拒绝**（其余键不受影响，U12-8）。
+        """
+        from app.core.errors import BizError, ErrorCode
+
+        if not isinstance(payload, dict) or not payload:
+            raise BizError(ErrorCode.PARAM_INVALID, "请求体必须是非空对象")
+
+        allowed = set(cls.COUNTDOWN_KEYS) | {cls.HINT_KEY, cls.APIKEY_KEY}
+        unknown = sorted(set(payload) - allowed)
+        if unknown:
+            raise BizError(ErrorCode.PARAM_INVALID, f"不支持的设置键：{'、'.join(unknown)}")
+
+        for key in cls.COUNTDOWN_KEYS:
+            if key not in payload:
+                continue
+            v = payload[key]
+            # bool 是 int 子类，显式排除
+            if isinstance(v, bool) or not isinstance(v, int) or not (
+                cls.COUNTDOWN_MIN <= v <= cls.COUNTDOWN_MAX
+            ):
+                raise BizError(
+                    ErrorCode.PARAM_INVALID,
+                    f"{key} 必须是 {cls.COUNTDOWN_MIN}~{cls.COUNTDOWN_MAX} 的整数",
+                )
+
+        if cls.HINT_KEY in payload and payload[cls.HINT_KEY] not in cls.HINT_VALUES:
+            raise BizError(
+                ErrorCode.PARAM_INVALID,
+                f"{cls.HINT_KEY} 只能是 {' | '.join(cls.HINT_VALUES)}",
+            )
+
+        if cls.APIKEY_KEY in payload:
+            v = payload[cls.APIKEY_KEY]
+            if not isinstance(v, str):
+                raise BizError(ErrorCode.PARAM_INVALID, f"{cls.APIKEY_KEY} 必须是字符串")
+            v = v.strip()
+            if len(v) > cls.APIKEY_MAX_LEN or "\n" in v or "\r" in v:
+                raise BizError(
+                    ErrorCode.PARAM_INVALID,
+                    f"{cls.APIKEY_KEY} 长度不能超过 {cls.APIKEY_MAX_LEN} 且不能含换行",
+                )
+            payload[cls.APIKEY_KEY] = v
+
+        for key, value in payload.items():
+            cls.set(key, value)
+        return cls.get_all()
+
     @classmethod
     def set(cls, key: str, value: Any) -> None:
         """写库并刷新缓存。

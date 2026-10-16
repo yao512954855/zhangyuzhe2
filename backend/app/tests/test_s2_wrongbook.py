@@ -125,10 +125,10 @@ def test_u8_list_group_by_unit(client: TestClient, seed: dict):
     body = r.json()["data"]
     assert body["total"] == 4
     items = body["items"]
-    # 字段齐全（契约 §4.1 响应形状）
+    # 字段齐全（契约 v1.3 §4.1 响应形状：+ mastered_at）
     assert set(items[0].keys()) == {
         "item_id", "en", "pos", "zh", "mode", "wrong_count",
-        "last_wrong_at", "unit_id", "unit_name", "type",
+        "last_wrong_at", "mastered_at", "unit_id", "unit_name", "type",
     }
     # 按 unit 升序分组：u1 的两条在前，u2 的在后
     unit_seq = [it["unit_id"] for it in items]

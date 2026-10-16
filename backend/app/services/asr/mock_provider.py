@@ -28,10 +28,9 @@ mock:
 | `error` | 成功 | 无 | 抛 `50001` |
 | `connect_fail` | 抛 `50001`（模拟建连失败 → 触发主备切换） | — | — |
 
-> `close()` 多产的那条 `utterance` 是为覆盖「简化版 spell_zh2en 判格由
-> utterance 通道驱动」（契约 §5 修订 v1.0.3）：App 此模式没有 end 入口，
-> 真机上由 LocalProvider 的 Vosk 语句边界逐句触发，Mock 在 close 时一次性
-> 补上，保证 WS 层用例不依赖真模型。
+> `close()` 多产的那条 `utterance` 是为覆盖 v1.3 §5 verdict 链路（契约修订
+> v1.3：松开后整词判定，utterance 只透传回显并充当 verdict 的转写来源）：
+> Mock 在 close 时一次性补上，保证 WS 层用例不依赖真模型。
 """
 
 from __future__ import annotations
@@ -65,6 +64,9 @@ class MockProvider(ASRProvider):
         self._error_code: int = int(ErrorCode.ASR_UNAVAILABLE)
         #: 前 N 次 `start_session` 强制失败（U8 连续错误 / U9 主备切换）
         self._fail_left: int = int(self._base.get("fail_times") or 0)
+        #: 重听式判分（2026-10-16）预置转写：`offline_decode()` 返回值，
+        #: 默认空 = 判分侧自动回退纯流式（旧行为不变）
+        self._rehear_text: str = ""
 
     # ------------------------------------------------------------------ 生命周期
 
@@ -89,6 +91,7 @@ class MockProvider(ASRProvider):
         if self._behavior == "empty":
             final_text = ""
         self._final_text = final_text
+        self._rehear_text = str(merged.get("rehear_text") or "")
 
         script = [str(x) for x in (merged.get("partial_script") or [])]
         if not script and final_text:
@@ -110,6 +113,14 @@ class MockProvider(ASRProvider):
             self._emit_partial(self._script[self._script_pos])
             self._script_pos += 1
 
+    def offline_decode(self) -> str:
+        """重听式判分（2026-10-16）：返回预置 `rehear_text`（默认空=回退流式）。
+
+        与 LocalProvider.offline_decode 同协议：判分侧 session_manager
+        两边择优（重听为主、流式累积兜底）。
+        """
+        return self._rehear_text
+
     async def close(self) -> None:
         self._closed = True
         if self._behavior == "timeout":
@@ -125,9 +136,9 @@ class MockProvider(ASRProvider):
         # 把脚本里剩余的部分作为「最终累计文本」下发
         text = self._final_text or (self._script[-1] if self._script else "")
         # 模拟本地引擎（Vosk）的语句级语义：close 时把最终文本也作为一条
-        # utterance 下发 —— 简化版 zh2en 的逐格判定由 utterance 通道驱动
-        # （契约 §5 修订 v1.0.3）。云端厂商无此语义；不注册 utterance 回调
-        # 或非 spell_zh2en 模式时天然无副作用。
+        # utterance 下发 —— v1.3 zh2en 的整词判定（verdict）以 utterance 累积
+        # 为完整转写来源（契约 §5 v1.3）。云端厂商无此语义；不注册 utterance
+        # 回调或非 spell_zh2en 模式时天然无副作用。
         if self._behavior == "normal" and text:
             self._emit_utterance(text)
         self._emit_final(text, self._confidence, self.audio_ms)

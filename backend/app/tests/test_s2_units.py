@@ -76,12 +76,13 @@ def _table_sql(table: str) -> str:
 
 
 def test_u1_book_units_columns(client: TestClient):
-    """U1a：book_units 列 = id/name/sort/created_at，类型与 NOT NULL 逐字一致。"""
+    """U1a：book_units 列 = id/name/sort/created_at/parent_id（v1.3 二级化），逐字一致。"""
     assert _table_info("book_units") == [
         {"name": "id", "type": "INTEGER", "notnull": 0, "default": None, "pk": 1},
         {"name": "name", "type": "TEXT", "notnull": 1, "default": None, "pk": 0},
         {"name": "sort", "type": "INTEGER", "notnull": 1, "default": "0", "pk": 0},
         {"name": "created_at", "type": "TEXT", "notnull": 1, "default": None, "pk": 0},
+        {"name": "parent_id", "type": "INTEGER", "notnull": 0, "default": None, "pk": 0},
     ]
 
 
@@ -114,7 +115,7 @@ def test_u1_items_columns_and_check(client: TestClient):
 
 
 def test_u1_wrong_book_columns_and_partial_index(client: TestClient):
-    """U1c：wrong_book 列逐字一致 + mode CHECK + 部分索引 WHERE resolved_at IS NULL。"""
+    """U1c：wrong_book 列逐字一致（v1.3 + mastered_at）+ mode CHECK + 部分索引。"""
     assert _table_info("wrong_book") == [
         {"name": "id", "type": "INTEGER", "notnull": 0, "default": None, "pk": 1},
         {"name": "item_id", "type": "INTEGER", "notnull": 1, "default": None, "pk": 0},
@@ -122,6 +123,7 @@ def test_u1_wrong_book_columns_and_partial_index(client: TestClient):
         {"name": "wrong_count", "type": "INTEGER", "notnull": 1, "default": "1", "pk": 0},
         {"name": "last_wrong_at", "type": "TEXT", "notnull": 1, "default": None, "pk": 0},
         {"name": "resolved_at", "type": "TEXT", "notnull": 0, "default": None, "pk": 0},
+        {"name": "mastered_at", "type": "TEXT", "notnull": 0, "default": None, "pk": 0},
     ]
     sql = _table_sql("wrong_book")
     assert "CHECK (mode IN ('listen','spell_zh2en','spell_en2zh'))" in sql
@@ -139,11 +141,11 @@ def test_u1_wrong_book_columns_and_partial_index(client: TestClient):
 
 
 def test_u1_practice_logs_columns_and_checks(client: TestClient):
-    """U1d：practice_logs 列逐字一致 + type/mode 双 CHECK。"""
+    """U1d：practice_logs 重建后（v1.3 unit_ids/types JSON 数组）列逐字一致 + mode CHECK。"""
     assert _table_info("practice_logs") == [
         {"name": "id", "type": "INTEGER", "notnull": 0, "default": None, "pk": 1},
-        {"name": "unit_id", "type": "INTEGER", "notnull": 1, "default": None, "pk": 0},
-        {"name": "type", "type": "TEXT", "notnull": 1, "default": None, "pk": 0},
+        {"name": "unit_ids", "type": "TEXT", "notnull": 1, "default": None, "pk": 0},
+        {"name": "types", "type": "TEXT", "notnull": 1, "default": None, "pk": 0},
         {"name": "mode", "type": "TEXT", "notnull": 1, "default": None, "pk": 0},
         {"name": "total", "type": "INTEGER", "notnull": 1, "default": None, "pk": 0},
         {"name": "correct", "type": "INTEGER", "notnull": 1, "default": None, "pk": 0},
@@ -152,8 +154,9 @@ def test_u1_practice_logs_columns_and_checks(client: TestClient):
         {"name": "created_at", "type": "TEXT", "notnull": 1, "default": None, "pk": 0},
     ]
     sql = _table_sql("practice_logs")
-    assert "CHECK (type IN ('word','phrase','sentence'))" in sql
+    # v1.3：type 单值 CHECK 废除（types 为 JSON 数组，服务层校验），mode CHECK 保留
     assert "CHECK (mode IN ('listen','spell_zh2en','spell_en2zh'))" in sql
+    assert "CHECK (type IN" not in sql
 
 
 def test_u1_check_constraints_reject_bad_enum(client: TestClient):

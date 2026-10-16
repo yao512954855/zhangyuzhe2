@@ -1,20 +1,25 @@
-/// 听写设置页 —— WP-D D-2 第 1 项。
+/// 听写设置页 —— WP-D D-2 第 1 项；v1.3（todo11 A3）改造。
 ///
-/// 只有两个设置：报中文 / 报英文（单选）+ 播报间隔（默认 10s，范围 5~30，
-/// 步进 1）。选项按 UI 规范用卡片/选择块，不用下拉框。
+/// - 报中文 / 报英文（单选，本地选择：决定 TTS 朗读中文释义还是英文单词）；
+/// - 隔多久报下一个：**只读展示服务端设置**（`GET /api/settings` 的
+///   `dictation_countdown_s`，1~10 秒）—— 二轮决策 #13：倒计时在管理端
+///   「练习设置」调整，学生端不再本地可调（旧 5~30s 步进器是死 UI，已删）。
+///   拉取失败显示「--」并提示以管理端设置为准，不阻塞开始听写。
 ///
 /// 入口：单元列表页选【听】后进来（路由注册是接力项 J1，归 WP-C）。
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/age_profile.dart';
 import '../../core/widgets/app_button.dart';
+import '../../core/providers.dart';
 import 'dictation_models.dart';
 import 'dictation_play_page.dart';
 
 /// 听写设置页。
-class DictationSettingsPage extends StatefulWidget {
+class DictationSettingsPage extends ConsumerStatefulWidget {
   const DictationSettingsPage({
     super.key,
     required this.items,
@@ -32,11 +37,40 @@ class DictationSettingsPage extends StatefulWidget {
   final DictationSettings initialSettings;
 
   @override
-  State<DictationSettingsPage> createState() => _DictationSettingsPageState();
+  ConsumerState<DictationSettingsPage> createState() =>
+      _DictationSettingsPageState();
 }
 
-class _DictationSettingsPageState extends State<DictationSettingsPage> {
+class _DictationSettingsPageState extends ConsumerState<DictationSettingsPage> {
   late DictationSettings _settings = widget.initialSettings;
+
+  /// 服务端报词间隔（dictation_countdown_s，1~10）；null = 拉取中/失败。
+  int? _remoteCountdown;
+  bool _remoteFailed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRemoteCountdown();
+  }
+
+  /// 拉服务端报词间隔（失败不阻塞：显示「--」，开始听写照常）。
+  Future<void> _loadRemoteCountdown() async {
+    try {
+      final data = await ref
+          .read(apiClientProvider)
+          .get<Map<String, dynamic>>('/api/settings');
+      final seconds =
+          (data?['dictation_countdown_s'] as num?)?.toInt() ?? 3;
+      if (mounted) {
+        setState(() => _remoteCountdown = seconds.clamp(1, 10));
+      }
+    } on Object {
+      if (mounted) {
+        setState(() => _remoteFailed = true);
+      }
+    }
+  }
 
   void _start() {
     if (widget.items.isEmpty || !mounted) {
@@ -101,10 +135,9 @@ class _DictationSettingsPageState extends State<DictationSettingsPage> {
                   const SizedBox(height: AgeProfile.elementGap * 1.5),
                   Text('隔多久报下一个', style: profile.pageTitleStyle),
                   const SizedBox(height: AgeProfile.elementGap),
-                  _IntervalStepper(
-                    seconds: _settings.intervalSeconds,
-                    onChanged: (s) =>
-                        setState(() => _settings = _settings.copyWith(intervalSeconds: s)),
+                  _IntervalInfo(
+                    seconds: _remoteCountdown,
+                    failed: _remoteFailed,
                   ),
                   const SizedBox(height: AgeProfile.elementGap),
                   if (widget.items.isEmpty)
@@ -159,45 +192,32 @@ class _ModeCard extends StatelessWidget {
   }
 }
 
-/// 间隔步进器（5~30，步进 1）。
-class _IntervalStepper extends StatelessWidget {
-  const _IntervalStepper({required this.seconds, required this.onChanged});
+/// 报词间隔（只读）：显示服务端 `dictation_countdown_s`。
+class _IntervalInfo extends StatelessWidget {
+  const _IntervalInfo({required this.seconds, required this.failed});
 
-  final int seconds;
-  final ValueChanged<int> onChanged;
+  /// 服务端值；null = 拉取中或失败。
+  final int? seconds;
+  final bool failed;
 
   @override
   Widget build(BuildContext context) {
     final profile = AgeScope.of(context);
-    final atMin = seconds <= DictationSettings.minIntervalSeconds;
-    final atMax = seconds >= DictationSettings.maxIntervalSeconds;
+    final text = seconds != null ? '$seconds 秒' : (failed ? '--' : '…');
     return Card(
       margin: EdgeInsets.zero,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        child: Row(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Column(
           children: [
-            IconButton(
-              onPressed: atMin ? null : () => onChanged(seconds - 1),
-              icon: const Icon(Icons.remove_circle_outline_rounded),
-              tooltip: '减 1 秒',
-            ),
-            Expanded(
-              child: Column(
-                children: [
-                  Text('$seconds 秒', style: profile.cardTitleStyle),
-                  Text(
-                    '每一题报完等这么久再报下一题',
-                    style: profile.captionStyle,
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ),
-            ),
-            IconButton(
-              onPressed: atMax ? null : () => onChanged(seconds + 1),
-              icon: const Icon(Icons.add_circle_outline_rounded),
-              tooltip: '加 1 秒',
+            Text(text, style: profile.cardTitleStyle),
+            const SizedBox(height: 4),
+            Text(
+              failed
+                  ? '每一题报完等这么久再报下一题（连接服务器失败，以管理端设置为准）'
+                  : '每一题报完等这么久再报下一题 · 在管理端「练习设置」调整',
+              style: profile.captionStyle,
+              textAlign: TextAlign.center,
             ),
           ],
         ),

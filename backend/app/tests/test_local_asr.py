@@ -169,7 +169,7 @@ class TestEngineBehavior:
             await p.close()
 
         run(flow())
-        assert finals == ["a p p l e"], "final 应为空格分隔小写字母序列，交给 _spell_feed 逐格判定"
+        assert finals == ["a p p l e"], "final 应为空格分隔小写字母序列，交给网关整词判定（verdict）"
 
     def test_spell_utterance_boundary_emits_without_end(self, monkeypatch) -> None:
         """zh2en 核心链路（2026-10-13 真机修复，契约 §5 修订 v1.0.3）：

@@ -18,6 +18,7 @@ import 'package:student_app/core/storage/local_store.dart';
 import 'package:student_app/core/storage/server_store.dart';
 import 'package:student_app/core/theme/age_profile.dart';
 import 'package:student_app/core/theme/app_theme.dart';
+import 'package:student_app/core/widgets/app_button.dart';
 import 'package:student_app/features/home/home_page.dart';
 import 'package:student_app/features/recite/spell_page.dart';
 import 'package:student_app/router/routes/home.dart';
@@ -138,7 +139,31 @@ void main() {
     expect(find.text('Starter Unit 1'), findsOneWidget);
   });
 
-  testWidgets('U2 单元列表数据来自 /api/units；类型单选；空类型不可选', (tester) async {
+  testWidgets('U1c 主题入口：AppBar 调色板按钮弹主题面板，选择持久化（D2 修复）',
+      (tester) async {
+    await tester.pumpWidget(boot(adapter()));
+    await tester.pump();
+
+    // 入口在第一屏（AppBar actions），tooltip 即语义标签
+    expect(find.byTooltip('主题'), findsOneWidget);
+    await tester.tap(find.byTooltip('主题'));
+    await tester.pumpAndSettle();
+
+    // 四模式 + 自动暖色开关齐备（弹层组件 APP-01 交付，此前无入口成孤儿）
+    expect(find.text('选个看着舒服的'), findsOneWidget);
+    for (final label in ['跟随系统', '日间', '纸质护眼', '夜间']) {
+      expect(find.text(label), findsOneWidget);
+    }
+    expect(find.text('晚上自动变暗'), findsOneWidget);
+
+    // 选「夜间」→ 落本地存储（下次打开还用它）
+    await tester.tap(find.text('夜间'));
+    await tester.pumpAndSettle();
+    expect(local.themeId, 'night', reason: '主题选择必须持久化到 LocalStore');
+  });
+
+  testWidgets('U2 单元列表数据来自 /api/units；类型多选 checkbox；未选时按钮禁用',
+      (tester) async {
     useTallScreen(tester);
     await tester.pumpWidget(boot(adapter()));
     await tester.pump();
@@ -150,24 +175,40 @@ void main() {
     expect(find.text('Unit 1 Hello!'), findsOneWidget);
     expect(find.text('暂无内容'), findsOneWidget);
 
-    // 默认选中单词（有内容）→ 底部提示「开始单词背诵」
-    expect(find.text('开始单词背诵'), findsOneWidget);
+    // todo11 A2：类型栏多选化（radio → checkbox），默认全不选
+    for (final key in ['word', 'phrase', 'sentence']) {
+      expect(find.byKey(ValueKey('check-type-$key')), findsOneWidget);
+    }
 
-    // 短句 0 条 → 点了不生效（仍停在单词）
-    await tester.tap(find.text('短句'));
-    await tester.pump();
-    expect(find.text('开始单词背诵'), findsOneWidget);
-
-    // 切到词组（渲染为「词组 2」）→ 提示跟随
-    await tester.tap(find.textContaining('词组'));
-    await tester.pump();
-    expect(find.text('开始词组背诵'), findsOneWidget);
-
-    // 【听】已接线（J2' 销账 2026-10-09）：选中单元+类型后可点，走 mode=listen 组卷
-    final listenWell = tester.widget<InkWell>(
-      find.ancestor(of: find.text('听'), matching: find.byType(InkWell)).last,
+    // F15-2：还没勾单元/类型 → 开始按钮禁用 + 引导提示
+    expect(
+      tester.widget<AppButton>(
+        find.widgetWithText(AppButton, '背').last,
+      ).onPressed,
+      isNull,
     );
-    expect(listenWell.onTap, isNotNull);
+    expect(find.text('先在上面勾选要练的单元'), findsOneWidget);
+
+    // 勾单元 + 勾类型 → 可开始（有内容类型计数才亮）
+    await tester.tap(find.text('Starter Unit 1'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('check-type-word')));
+    await tester.pumpAndSettle();
+    expect(find.text('已选 1 个单元 · 共 5 条'), findsOneWidget);
+    expect(
+      tester.widget<AppButton>(
+        find.widgetWithText(AppButton, '背').last,
+      ).onPressed,
+      isNotNull,
+    );
+
+    // 【听】同一规则（F15-5）：可点，走 mode=listen 多选组卷
+    expect(
+      tester.widget<AppButton>(
+        find.widgetWithText(AppButton, '听').last,
+      ).onPressed,
+      isNotNull,
+    );
   });
 
   testWidgets('U2b start 返回 20004 时上屏服务端消息', (tester) async {
@@ -175,14 +216,18 @@ void main() {
     // 20004 无可练内容（契约 §4 错误码表）；不带 trace_id → displayText=message
     final bizError = jsonEncode({
       'code': 20004,
-      'message': '这个单元下没有可练的内容',
+      'message': '所选单元里没有可练的内容',
       'data': null,
     });
     await tester.pumpWidget(boot(adapter(startResponse: bizError)));
     await tester.pump();
     await tester.tap(find.text('听背'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('背'));
+    await tester.tap(find.text('Starter Unit 1'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('check-type-word')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(AppButton, '背').last);
     await tester.pumpAndSettle();
 
     // 进了模式选择页
@@ -190,7 +235,7 @@ void main() {
     await tester.tap(find.text('看中文背英文'));
     await tester.pumpAndSettle();
 
-    expect(find.text('这个单元下没有可练的内容'), findsOneWidget,
+    expect(find.text('所选单元里没有可练的内容'), findsOneWidget,
         reason: '20004 无可练内容：把服务端 message 原样上屏');
   });
 
@@ -215,16 +260,20 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Starter Unit 1'), findsOneWidget);
 
-    await tester.tap(find.text('背'));
+    // todo11 A1/A2：先勾 1 个单元 + 1 个类型才能开始
+    await tester.tap(find.text('Starter Unit 1'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('check-type-word')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(AppButton, '背').last);
     await tester.pumpAndSettle();
     expect(find.text('Starter Unit 1 · 背诵'), findsOneWidget);
 
     await tester.tap(find.text('看中文背英文'));
     await tester.pumpAndSettle();
 
-    // 到了答题页：中文题面 + 开始按钮
-    expect(find.text('苹果'), findsOneWidget);
-    expect(find.text('开始拼读'), findsOneWidget);
+    // 到了答题页（v1.3 按住说话交互的页内断言归 APP-12 U16，这里只验链路可达）
     expect(find.byType(SpellPage), findsOneWidget);
+    expect(find.text('苹果'), findsOneWidget);
   });
 }

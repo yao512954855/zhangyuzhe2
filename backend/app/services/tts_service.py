@@ -49,16 +49,19 @@ _CACHE_DIR = BASE_DIR / "data" / "tts_cache"
 
 
 def _load_api_key() -> str:
-    """从 asr.yaml 取百炼 key（与 ASR 同源，不新增凭证文件）。"""
+    """取百炼 key（与 ASR 同源，不新增凭证文件）：settings.cloud_api_key 优先，
+    回落 asr.yaml 种子 —— 管理端改 key 对云端 TTS 同样实时生效。"""
+    from app.services.asr.key_store import resolve
+
     path = BASE_DIR / "asr.yaml"
     if not path.exists():
-        return ""
+        return resolve("")
     try:
         raw: dict[str, Any] = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     except Exception:  # pragma: no cover - YAML 语法错误
-        return ""
+        return resolve("")
     aliyun = (raw.get("aliyun") or {}) if isinstance(raw, dict) else {}
-    return str(aliyun.get("api_key") or "")
+    return resolve(str(aliyun.get("api_key") or ""))
 
 
 def _cache_path(engine: str, text: str, lang: str) -> Path:

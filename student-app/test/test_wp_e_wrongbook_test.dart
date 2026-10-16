@@ -1,11 +1,8 @@
 /// WP-E 错题本验收 —— U1 / U2 / U3 / U4 / U6（30-学生端 WP-E 验收用例）。
 ///
-/// U1 列表分组与徽标：三种 mode 徽标正确，错误次数递增显示
-/// U2 分页：翻页无重复无遗漏
-/// U3 手动移出：确认弹窗 → DELETE → 列表消失
-/// U4 重做入口按 mode 分发：listen 进听写、spell 进背诵对应模式
-/// U6 空错题本空态：无崩溃、文案友好
-/// （U5 判对移出 = C/D 链路职责 + 真后端验证，见包报告；U7 = analyze/test。）
+/// v1.3（APP-13）适配：页面改为三类 mode tab + status 过滤，
+/// 假 adapter 对 `mode`/`status` 参数真实过滤；U 系列用例按 tab 切换驱动。
+/// （v1.3 新增验收 U17-4~6 见 test_app13_wrongbook_test.dart。）
 library;
 
 import 'package:flutter/material.dart';
@@ -65,18 +62,6 @@ List<Map<String, dynamic>> sampleRows() => [
       },
     ];
 
-/// `GET /api/wrongbook` 的假分页响应（走真 ApiClient 解包路径）。
-String wrongbookBody(List<Map<String, dynamic>> rows, int page, int pageSize) {
-  final start = (page - 1) * pageSize;
-  final slice = rows.skip(start).take(pageSize).toList();
-  return okBody({
-    'items': slice,
-    'total': rows.length,
-    'page': page,
-    'page_size': pageSize,
-  });
-}
-
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -99,10 +84,31 @@ void main() {
     return JsonAdapter((options) {
       switch (options.uri.path) {
         case '/api/wrongbook':
+          // v1.3：mode/status 过滤真实生效（契约 §4.1）。
+          final mode = options.uri.queryParameters['mode'] ?? '';
+          final status = options.uri.queryParameters['status'] ?? 'unmastered';
           final page = int.parse(options.uri.queryParameters['page'] ?? '1');
           final size =
               int.parse(options.uri.queryParameters['page_size'] ?? '20');
-          return wrongbookBody(rows, page, size);
+          final filtered = rows.where((row) {
+            if (row['mode'] != mode) {
+              return false;
+            }
+            final mastered =
+                (row['mastered_at'] as String? ?? '').isNotEmpty;
+            return switch (status) {
+              'mastered' => mastered,
+              'all' => true,
+              _ => !mastered,
+            };
+          }).toList();
+          final slice = filtered.skip((page - 1) * size).take(size).toList();
+          return okBody({
+            'items': slice,
+            'total': filtered.length,
+            'page': page,
+            'page_size': size,
+          });
         case '/api/practice/start':
           return startResponse ??
               okBody(<String, dynamic>{
@@ -150,41 +156,49 @@ void main() {
     await tester.pumpWidget(boot(adapter()));
     await tester.pumpAndSettle();
 
-    expect(find.text('错题本是空的'), findsOneWidget);
+    expect(find.text('这个分类还没有错题'), findsOneWidget);
     expect(find.text('先去【听背】练一练，做错的题会自动收进来。'), findsOneWidget);
     // 空态不渲染底部操作栏（没有可重做的题）
     expect(find.textContaining('重做全部'), findsNothing);
   });
 
-  testWidgets('U1 列表按单元分组，三种 mode 徽标与错误次数', (tester) async {
+  testWidgets('U1 列表按单元分组，三种 mode 徽标与错误次数（按 tab 各自独立）',
+      (tester) async {
     useTallScreen(tester);
     await tester.pumpWidget(boot(adapter(rows: sampleRows())));
     await tester.pumpAndSettle();
 
-    // 分组头：后端 group_by=unit 已按单元排序 → 连续两个组
-    expect(find.text('Starter Unit 1 · 2 题'), findsOneWidget);
-    expect(find.text('Unit 1 Hello! · 1 题'), findsOneWidget);
-
-    // 题卡：英文 + 词性中文 + mode 徽标（§7 枚举文案）
-    expect(find.text('apple'), findsOneWidget);
-    expect(find.text('n. 苹果'), findsOneWidget);
+    // 听写 tab：go shopping，听写徽标，错 1 次
+    expect(find.text('Starter Unit 1 · 1 题'), findsOneWidget);
     expect(find.text('go shopping'), findsOneWidget);
     expect(find.text('去购物'), findsOneWidget);
+    expect(find.text('听写'), findsNWidgets(2), reason: 'tab 标题 + mode 徽标');
+    expect(find.textContaining('错 1 次'), findsOneWidget);
+
+    // 看中背英 tab：apple
+    await tester.tap(find.text('看中背英'));
+    await tester.pumpAndSettle();
+    expect(find.text('apple'), findsOneWidget);
+    expect(find.text('n. 苹果'), findsOneWidget);
+    expect(find.text('看中文背英文'), findsOneWidget, reason: 'mode 徽标');
+    expect(find.textContaining('错 2 次'), findsOneWidget);
+
+    // 看英背中 tab：happy
+    await tester.tap(find.text('看英背中'));
+    await tester.pumpAndSettle();
     expect(find.text('happy'), findsOneWidget);
     expect(find.text('adj. 高兴的'), findsOneWidget);
-    expect(find.text('听写'), findsOneWidget);
-    expect(find.text('看中文背英文'), findsOneWidget);
-    expect(find.text('看英文背中文'), findsOneWidget);
-
-    // 错误次数 + 最后错误时间（相对天）
-    expect(find.textContaining('错 2 次'), findsOneWidget);
-    expect(find.textContaining('错 1 次'), findsOneWidget);
+    expect(find.text('看英文背中文'), findsOneWidget, reason: 'mode 徽标');
     expect(find.textContaining('错 3 次'), findsOneWidget);
   });
 
   testWidgets('U2 分页：翻页无重复无遗漏', (tester) async {
     useTallScreen(tester);
-    // 页面自己按 page_size=20 分页 → 造 25 条，跨 2 页
+    // v1.3 页面顶部多了状态筛选行，3600px 视口会截掉最后一张卡 → 加高一档。
+    tester.view.physicalSize = const Size(1200, 4200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    // 页面自己按 page_size=20 分页 → 造 25 条，跨 2 页（均为看中背英错题）
     final rows = [
       for (var i = 1; i <= 25; i++)
         {
@@ -204,15 +218,20 @@ void main() {
     await tester.pumpWidget(boot(fake));
     await tester.pumpAndSettle();
 
+    // 进看中背英 tab
+    await tester.tap(find.text('看中背英'));
+    await tester.pumpAndSettle();
+
     // 25 条全部到齐、只出现一次（无重复无遗漏）
     expect(find.text('Unit A · 25 题'), findsOneWidget);
     for (var i = 1; i <= 25; i++) {
       expect(find.text('word$i'), findsOneWidget);
     }
 
-    // 恰好翻了两页，不多不少
+    // 恰好翻了两页，不多不少（只统计看中背英 tab 的请求）
     final wrongbookCalls = fake.received
         .where((r) => r.uri.path == '/api/wrongbook')
+        .where((r) => r.uri.queryParameters['mode'] == 'spell_zh2en')
         .map((r) => r.uri.queryParameters['page'])
         .toList();
     expect(wrongbookCalls, ['1', '2']);
@@ -224,7 +243,11 @@ void main() {
     await tester.pumpWidget(boot(fake));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('移出错题本').first);
+    // apple 是看中背英错题 → 先切 tab
+    await tester.tap(find.text('看中背英'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('移出错题本'));
     await tester.pumpAndSettle();
 
     // 确认弹窗出现
@@ -238,7 +261,7 @@ void main() {
         isFalse);
 
     // 再点 → 确认移出
-    await tester.tap(find.byTooltip('移出错题本').first);
+    await tester.tap(find.byTooltip('移出错题本'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('移出'));
     await tester.pumpAndSettle();
@@ -249,9 +272,9 @@ void main() {
         .map((r) => r.uri.path)
         .toList();
     expect(deletePaths, ['/api/wrongbook/101/spell_zh2en']);
-    // 列表里消失
+    // 列表里消失 → 该 tab 空态
     expect(find.text('apple'), findsNothing);
-    expect(find.text('Starter Unit 1 · 1 题'), findsOneWidget);
+    expect(find.text('这个分类还没有错题'), findsOneWidget);
   });
 
   testWidgets('U4a 重做分发：只有 listen 一组时直达听写设置页', (tester) async {
@@ -271,10 +294,11 @@ void main() {
     expect(fake.received.any((r) => r.uri.path == '/api/practice/start'), isFalse);
   });
 
-  testWidgets('U4b 重做分发：多组先选组，spell 组走 practice/start 进答题页',
+  testWidgets('U4b 重做分发：tab 内单组直达 practice/start 进答题页',
       (tester) async {
     useTallScreen(tester);
-    // 只留两条 spell 错题（不同单元 → 两个组）
+    // v1.3 起 tab 按 mode 过滤，tab 内组卷只剩「同 mode 不同单元/类型」维度；
+    // 这里只留 spell 错题，看中背英 tab 内重做应直达（不再弹选组面板）。
     final rows = sampleRows()
         .where((r) => r['mode'] != 'listen')
         .toList();
@@ -282,23 +306,17 @@ void main() {
     await tester.pumpWidget(boot(fake));
     await tester.pumpAndSettle();
 
+    await tester.tap(find.text('看中背英'));
+    await tester.pumpAndSettle();
     await tester.tap(find.textContaining('重做全部'));
     await tester.pumpAndSettle();
 
-    // 选组面板：两组都列出
-    expect(find.text('这些错题分了几种练法，先重做哪一组？'), findsOneWidget);
-    expect(find.text('看中文背英文（1 题）'), findsOneWidget);
-    expect(find.text('看英文背中文（1 题）'), findsOneWidget);
-
-    await tester.tap(find.text('看中文背英文（1 题）'));
-    await tester.pumpAndSettle();
-
-    // start 请求体 {unit_id,type,mode} 与契约一致，且 mode=spell_zh2en
+    // 单组直达：无选组面板，start 请求体 mode=spell_zh2en（契约 §4.1）
+    expect(find.text('这些错题分了几种练法，先重做哪一组？'), findsNothing);
     final startCalls = fake.received
         .where((r) => r.uri.path == '/api/practice/start')
         .toList();
     expect(startCalls, hasLength(1));
-    expect(startCalls.single.uri.path, '/api/practice/start');
 
     // 进了答题页，且只重做该组的错题（苹果在，高兴的不在）
     expect(find.byType(SpellPage), findsOneWidget);

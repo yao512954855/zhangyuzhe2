@@ -2,7 +2,8 @@
 ///
 /// 单元列表页【背】→ 这里带着 `PracticeSelection` 进 `spell_config_page`
 /// 选模式 → `launchSpellRun` 发 `POST /api/practice/start`
-/// （契约 §4.1：`{unit_id,type,mode}`，返回 `{session_id, items:[...]}`）
+/// （契约 §4.1 v1.3：多选 `{mode,unit_ids,types}`；单数 `{unit_id,type,mode}`
+/// 保留兼容错题本重做等入口，返回 `{session_id, items:[...]}`）
 /// → 进答题页。
 library;
 
@@ -14,19 +15,62 @@ import '../../router/routes/recite.dart';
 import '../recite/spell_session.dart';
 
 /// 一次听背选择（单元 + 类型）。
+///
+/// v1.3（todo11 A1/A2）起支持多单元多类型（契约 §4.1）：
+/// - 选单元页等多选入口传 [unitIds]/[unitNames]/[types]；
+/// - 错题本重做等**单单元入口**保留 [unitId]/[unitName]/[type] 单数字段
+///   （契约：单数保留兼容；同请求两者都传时以数组为准）。
 class PracticeSelection {
   const PracticeSelection({
-    required this.unitId,
-    required this.unitName,
-    required this.type,
+    this.unitId,
+    this.unitName = '',
+    this.type,
+    this.unitIds = const <int>[],
+    this.unitNames = const <String>[],
+    this.types = const <String>[],
   });
 
-  final int unitId;
+  /// 单单元入口：单元 id（错题本重做等）。
+  final int? unitId;
+
+  /// 单单元入口：单元名（展示用）。
   final String unitName;
 
-  /// `word` / `phrase` / `sentence`（§7 枚举，禁止第二套命名）。
-  final String type;
+  /// 单单元入口：`word` / `phrase` / `sentence`（§7 枚举，禁止第二套命名）。
+  final String? type;
+
+  /// 多选入口：单元 id 列表，**顺序 = 勾选顺序**（组卷按单元顺序，契约 §4.1）。
+  final List<int> unitIds;
+
+  /// 多选入口：单元名列表（与 [unitIds] 同序，展示用）。
+  final List<String> unitNames;
+
+  /// 多选入口：类型列表（§7 枚举；顺序 = 勾选顺序）。
+  final List<String> types;
+
+  /// 是否多选入口（unitIds 非空 = 发数组请求体）。
+  bool get isMulti => unitIds.isNotEmpty;
+
+  /// 展示用单元名（多选 = 顿号连接）。
+  String get displayUnitName => isMulti ? unitNames.join('、') : unitName;
+
+  /// 展示用类型名（多选 = 中文标签顿号连接；单选入口保留原值不动）。
+  String get displayTypeName {
+    if (!isMulti) {
+      return type ?? '';
+    }
+    return [
+      for (final t in types) itemTypeLabels[t] ?? t,
+    ].join('、');
+  }
 }
+
+/// §7 item_type 的中文标签（三端 UI 统一用词）。
+const Map<String, String> itemTypeLabels = <String, String>{
+  'word': '单词',
+  'phrase': '词组',
+  'sentence': '短句',
+};
 
 int _toInt(Object? v) {
   if (v is int) {
@@ -40,13 +84,24 @@ int _toInt(Object? v) {
 
 /// 发 `POST /api/practice/start` 并解析成 [SpellRun]。
 ///
-/// 单测断请求体用（U3）：抛出前把 body 组装逻辑独立成 [spellStartBody]。
-Map<String, dynamic> spellStartBody(PracticeSelection selection, String mode) =>
-    <String, dynamic>{
-      'unit_id': selection.unitId,
-      'type': selection.type,
+/// 单测断请求体用（U3/U15-4）：抛出前把 body 组装逻辑独立成 [spellStartBody]。
+Map<String, dynamic> spellStartBody(PracticeSelection selection, String mode) {
+  // v1.3 多选（契约 §4.1）：{mode, unit_ids:[...], types:[...]}，
+  // 数组顺序 = 勾选顺序；只勾 1 个也发数组（单元素，不发单数字段）。
+  if (selection.isMulti) {
+    return <String, dynamic>{
       'mode': mode,
+      'unit_ids': List<int>.of(selection.unitIds),
+      'types': List<String>.of(selection.types),
     };
+  }
+  // 单数兼容（契约 §4.1：错题本重做等单单元入口保留单数字段）。
+  return <String, dynamic>{
+    'unit_id': selection.unitId,
+    'type': selection.type,
+    'mode': mode,
+  };
+}
 
 Future<SpellRun> startSpellRun(
   ApiClient api, {
@@ -90,11 +145,30 @@ Future<SpellRun> startSpellRun(
   return SpellRun(
     sessionId: sessionId,
     mode: mode,
-    unitName: selection.unitName,
-    typeName: selection.type,
+    unitName: selection.displayUnitName,
+    typeName: selection.displayTypeName,
     items: items,
     startedAt: DateTime.now(),
+    // v1.3：带出本轮快照（settle 透传用，F16-7 接线在 APP-12）。
+    unitIds: _snapshotUnitIds(selection),
+    types: _snapshotTypes(selection),
   );
+}
+
+List<int> _snapshotUnitIds(PracticeSelection selection) {
+  if (selection.isMulti) {
+    return List<int>.of(selection.unitIds);
+  }
+  final id = selection.unitId;
+  return id == null ? const <int>[] : <int>[id];
+}
+
+List<String> _snapshotTypes(PracticeSelection selection) {
+  if (selection.isMulti) {
+    return List<String>.of(selection.types);
+  }
+  final type = selection.type;
+  return type == null ? const <String>[] : <String>[type];
 }
 
 /// 组卷并进答题页。返回是否成功进入（失败时已上屏中文提示）。

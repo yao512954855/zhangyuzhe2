@@ -23,23 +23,12 @@ PRACTICE_MODES = ("listen", "spell_zh2en", "spell_en2zh")
 
 
 # ---------------------------------------------------------------------------
-# 单元
+# 单元（v1.3：UnitCreate/UnitUpdate 移至 api/units.py，含 parent_id 两级约束）
 # ---------------------------------------------------------------------------
-
-class UnitCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=100)
-    sort: int = 0
-
-
-class UnitUpdate(BaseModel):
-    name: str | None = Field(default=None, min_length=1, max_length=100)
-    sort: int | None = None
-
 
 # ---------------------------------------------------------------------------
 # 内容条目
 # ---------------------------------------------------------------------------
-
 class ItemCreate(BaseModel):
     unit_id: int
     type: str

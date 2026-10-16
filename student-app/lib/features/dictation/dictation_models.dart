@@ -77,6 +77,40 @@ class DictationSettings {
   }
 }
 
+/// 服务端听写设置（`GET /api/settings` 的相关键，契约 v1.3 §4.1/§7）。
+///
+/// 进听写时拉一次（APP-13 F17-1/F17-2）；拉取失败回退
+/// `zh` / `defaultCountdownSeconds`（3）。
+class DictationRemoteSettings {
+  const DictationRemoteSettings({
+    this.hint = 'zh',
+    this.countdownSeconds = defaultCountdownSeconds,
+  });
+
+  /// 倒计时回退值（契约 §4.1：dictation_countdown_s 值域 1~10）。
+  static const int defaultCountdownSeconds = 3;
+
+  /// 报词屏显语言：`zh` = 中文释义，`en` = 英文（回退 zh）。
+  final String hint;
+
+  /// 报词后 N 秒倒计时自动报下一个（1~10）。
+  final int countdownSeconds;
+
+  factory DictationRemoteSettings.fromJson(Map<String, dynamic> json) {
+    final rawHint = json['dictation_hint']?.toString() ?? 'zh';
+    final seconds =
+        (json['dictation_countdown_s'] as num?)?.toInt() ??
+            defaultCountdownSeconds;
+    return DictationRemoteSettings(
+      hint: rawHint == 'en' ? 'en' : 'zh',
+      countdownSeconds: seconds.clamp(1, 10),
+    );
+  }
+
+  /// 当前词的屏显文本（hint=zh 显示释义，hint=en 显示英文）。
+  String hintTextOf(DictationItem item) => hint == 'en' ? item.en : item.zh;
+}
+
 /// 单词批改结果（`POST /api/dictation/grade` 响应的 results 项）。
 class GradeWordResult {
   const GradeWordResult({

@@ -1,21 +1,27 @@
-/// 背诵答题页 —— 简化版 WP-C（功能点 5/6，契约 §5/§6.4）。
+/// 背诵答题页 —— 简化版 WP-C（功能点 5/6，契约 §5/§6.4，**v1.3 交互重构**）。
 ///
 /// 两种模式一个页面：
-/// - **spell_zh2en（看中文背英文）**：显示中文+词性 → WS `letter` 逐格填
-///   （index 对位 `en` 去空格连字符后的字母序列）→ 填满=对 →
-///   `POST /api/practice/answer(correct=true)` → **立即下一题**。
-///   同一格 3 次错 → 出「用键盘点字母」入口；累计 3 次连错 → 可跳下一题（判错）。
+/// - **spell_zh2en（看中文背英文）**：显示中文+词性 → **按住说话**（press-and-hold,
+///   仿微信语音）——按下大圆钮发 `start` 并推流，**松开发 `end`**；按住中识别
+///   内容**逐格填色**（方案 B：识别到一个字母填一格，不判红绿）。判定在**服务端**
+///   （§5 `verdict` 整词判定）：对=全格绿+👍 → 倒计时；错=按编辑距离逐格着色
+///   （对=绿/错=红/缺=红空格）→ 倒计时（走完先 auto-add 再推进）。语音/键盘随时
+///   互切（不清内容）；键盘=系统键盘优先（禁联想），回退自绘+大间距（常量开关）；键盘填满本地等值比对（忽略
+///   大小写）→ `answer(correct 必填)`。判错/跳过 → auto-add；**判对不再 DELETE
+///   错题本**（v1.3 废除，服务端在 answer correct=true 时自动写 mastered_at）。
 /// - **spell_en2zh（看英文背中文）**：显示英文 → 学生说中文 → 拿转写文本
 ///   `POST /api/practice/answer`（比对在服务端 compare_service）→
-///   对=立即下一题；错=「再试一次」不中断，可跳过（跳过=错）。
+///   对=立即下一题；错=「再试一次」不中断。交互保留（不产生 verdict）。
 ///
-/// 判错的题在 settle 前逐个 `POST /api/wrongbook/auto-add`（mode=当次模式）。
-/// 全部走完 → `POST /api/practice/settle` → 进结算页。
+/// **全场推进（决策 #14）**：「结束并结算」按钮已删除；跳过常驻（=判错，立即
+/// 下一题）；最后一题倒计时走完自动 `POST /api/practice/settle` → 结算页。
+/// 判错的题 `POST /api/wrongbook/auto-add`（mode=当次模式）。
 library;
 
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/net/api_exception.dart';
@@ -30,6 +36,117 @@ import '../../features/dictation/dictation_tts.dart';
 import '../../router/routes/recite.dart';
 import 'settle_page.dart';
 import 'spell_session.dart';
+
+/// 本题作答阶段（zh2en）。
+enum _Phase {
+  /// 未开始/可重新按住。
+  idle,
+
+  /// 按住中：推流 + 实时回显。
+  holding,
+
+  /// 已松开，等服务端 verdict。
+  waiting,
+
+  /// 判对（绿 + 👍），倒计时中。
+  correct,
+
+  /// 判错（红），倒计时中（走完先 auto-add 再推进）。
+  wrong,
+}
+
+/// 拼读格状态（方案 B：填框即时、判红兜底，2026-10-16 姚工拍板）。
+enum _CellStatus {
+  /// 进行态：顺序填格，不判红绿（判定收敛在松开后的整词 verdict）。
+  pending,
+
+  /// 判错态：该目标位与听到的字母对齐且相同。
+  match,
+
+  /// 判错态：该目标位对齐到了不同的字母。
+  wrong,
+
+  /// 判错态：该目标位没听到字母。
+  missing,
+}
+
+/// 一个拼读格：`heard` 为该格显示的字母（null = 空格）。
+@immutable
+class _SpellCell {
+  const _SpellCell({this.heard, required this.status});
+
+  final String? heard;
+  final _CellStatus status;
+}
+
+/// 把「听到的字母序列」对齐到「目标字母序列」—— Needleman-Wunsch 编辑距离
+/// （相同=0，替换/插入/删除=1），用于判错后的逐格着色（方案 B 兜底半）：
+/// - 目标每格 → match / wrong（对齐到不同字母）/ missing（没听到）；
+/// - 听到多出来的字母 → 附加红格排在末尾（extra）。
+///
+/// 纯函数、无 Flutter 依赖，单测直接覆盖（test/test_spell_align_test.dart）。
+List<_SpellCell> alignSpellCells(List<String> target, List<String> heard) {
+  final n = heard.length;
+  final m = target.length;
+  // dp[i][j] = heard[:i] 对齐 target[:j] 的最小代价
+  final dp = List.generate(
+    n + 1,
+    (i) => List.generate(m + 1, (j) {
+      if (i == 0) {
+        return j; // 全靠删除目标字母
+      }
+      if (j == 0) {
+        return i; // 全是多余字母
+      }
+      return 0;
+    }),
+  );
+  for (var i = 1; i <= n; i++) {
+    for (var j = 1; j <= m; j++) {
+      final sub = dp[i - 1][j - 1] + (heard[i - 1] == target[j - 1] ? 0 : 1);
+      final del = dp[i - 1][j] + 1; // heard 多一个
+      final ins = dp[i][j - 1] + 1; // target 缺一个
+      dp[i][j] = sub < del ? (sub < ins ? sub : ins) : (del < ins ? del : ins);
+    }
+  }
+  // 回溯产出对齐动作（反向收集再翻转）。优先级：全对(match) >
+  // 多读(extra) > 缺读(missing) > 替换(wrong) —— 保证 bananas 尾部的
+  // S 显示为「多读红格」而不是抢走最后一位 A 的对齐。
+  final cells = List<_SpellCell?>.filled(m, null);
+  final extras = <String>[];
+  var i = n;
+  var j = m;
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && heard[i - 1] == target[j - 1] &&
+        dp[i][j] == dp[i - 1][j - 1]) {
+      cells[j - 1] = _SpellCell(heard: heard[i - 1], status: _CellStatus.match);
+      i -= 1;
+      j -= 1;
+      continue;
+    }
+    if (i > 0 && dp[i][j] == dp[i - 1][j] + 1) {
+      extras.add(heard[i - 1]); // 多读的字母
+      i -= 1;
+      continue;
+    }
+    if (j > 0 && dp[i][j] == dp[i][j - 1] + 1) {
+      // 目标缺一个字母（没听到）
+      cells[j - 1] = const _SpellCell(heard: null, status: _CellStatus.missing);
+      j -= 1;
+      continue;
+    }
+    // 替换：该目标位对齐到了不同的字母
+    cells[j - 1] = _SpellCell(heard: heard[i - 1], status: _CellStatus.wrong);
+    i -= 1;
+    j -= 1;
+  }
+  return <_SpellCell>[
+    for (final c in cells)
+      c ?? _SpellCell(heard: null, status: _CellStatus.missing),
+    for (final e in extras.reversed)
+      _SpellCell(heard: e, status: _CellStatus.wrong),
+  ];
+}
 
 /// 背诵答题页。
 class SpellPage extends ConsumerStatefulWidget {
@@ -48,26 +165,48 @@ class SpellPage extends ConsumerStatefulWidget {
 class _SpellPageState extends ConsumerState<SpellPage> {
   static const _answerPath = '/api/practice/answer';
 
+  /// F16-6 键盘回退开关：系统键盘优先（禁联想/自动纠错）。真机若不可控
+  /// （如弹中文输入法）→ 改 `false` 回退自绘键盘 + 调大字母间距。
+  static const bool kUseSystemKeyboard = true;
+
   PracticeWsSession? _session;
 
   int _idx = 0;
   final List<SpellItemResult> _results = <SpellItemResult>[];
 
-  // ---- zh2en 答题态 ----
-  List<String?> _filled = const <String?>[];
-  Map<int, int> _cellErrors = <int, int>{};
-  int _falseStreak = 0;
-  bool _keyboardOn = false;
+  /// 已成功 auto-add 的错题 id（判错推进时记；settle 兜底只补漏）。
+  final Set<int> _wrongAddedIds = <int>{};
+
+  // ---- zh2en 答题态（v1.3：识别内容区，无字母格） ----
+  _Phase _phase = _Phase.idle;
+
+  /// 已定版「听到」的内容（utterance 累积 / verdict 定版 / 键盘互切带入）。
+  String _uttered = '';
+
+  /// 按住中的实时 partial（未定版，单独拼在末尾显示）。
+  String _partial = '';
+
+  /// 本题是否已上报 answer（verdict / 键盘判定 / 跳过任一已落账）。
+  bool _answeredThisRound = false;
+
+  /// 语音 ⇄ 键盘（A6：随时互切，不清内容）。
+  bool _keyboardMode = false;
+  final TextEditingController _typeCtl = TextEditingController();
+  final FocusNode _inputFocus = FocusNode();
+
+  // ---- 倒计时推进（F16-4）----
+  /// 判定后倒计时秒数（settings.spell_verdict_countdown_s，进页拉一次，
+  /// 失败回退 3）。
+  int _countdownSecs = 3;
+  bool _countdownLoaded = false;
+  Timer? _countdownTimer;
+  int? _countdownLeft;
+
+  /// verdict 等待兜底（F16-9）：松开后 1.5s 无 verdict → 按未判定处理。
+  Timer? _verdictTimer;
 
   // ---- en2zh 答题态 ----
   String _transcript = '';
-
-  /// zh2en：已定版「听到」的字母序列（utterance 累积）。
-  ///
-  /// 与字母格同源同序：服务端每下发一条 utterance，随后即是对它的逐格
-  /// `letter` 判定（契约 §5 v1.0.4）—— 这里展示的就是实际参与判格的文本。
-  /// 实时 partial 未定版，单独显示在末尾（见 [_heardDisplay]）。
-  String _heard = '';
   bool _capturing = false;
 
   /// 本题阶段：en2zh 判错后的「再试一次」态。
@@ -77,13 +216,9 @@ class _SpellPageState extends ConsumerState<SpellPage> {
   bool _disconnected = false;
   bool _busy = false; // answer/settle 等异步按钮防重
   bool _settled = false;
-
-  /// 本轮（当前题）是否已判过：final 自动判与「我说完了」手动判共用，
-  /// 防止同一轮双判双上报。
-  bool _answeredThisRound = false;
   DateTime? _itemStartAt;
 
-  StreamSubscription<LetterEvent>? _letterSub;
+  StreamSubscription<VerdictEvent>? _verdictSub;
   StreamSubscription<TranscriptEvent>? _transcriptSub;
   StreamSubscription<UtteranceEvent>? _utteranceSub;
   StreamSubscription<WsState>? _stateSub;
@@ -100,17 +235,20 @@ class _SpellPageState extends ConsumerState<SpellPage> {
 
   SpellItem get _item => _run!.items[_idx];
 
-  /// zh2en「听到」区展示文本：已定版累积 + 实时 partial（未定版）。
-  ///
-  /// 例：念完 A（定版）正在念 P → "A P"。空白时返回空串（不显示该区）。
-  String get _heardDisplay {
-    final live = _transcript.trim().toUpperCase();
+  /// 识别内容区展示文本（语音模式）：已定版累积 + 实时 partial。
+  /// 例：念完 A（定版）正在念 P → "A P"。空白时返回空串（显示引导语）。
+  String get _recognizedDisplay {
+    final live = _partial.trim().toUpperCase();
     final parts = <String>[
-      if (_heard.isNotEmpty) _heard,
+      if (_uttered.isNotEmpty) _uttered,
       if (live.isNotEmpty) live,
     ];
     return parts.join(' ');
   }
+
+  /// 当前已填内容的纯字母序列（去空格/连字符），键盘判定与互切带入用。
+  static String _normLetters(String s) =>
+      s.replaceAll(RegExp(r'[\s\-]'), '').toUpperCase();
 
   @override
   void initState() {
@@ -119,8 +257,8 @@ class _SpellPageState extends ConsumerState<SpellPage> {
         PracticeWsSession(
           // ⛔ 不能用 wsClientProvider：它是 autoDispose，页面只 read 不 watch，
           // riverpod 随时回收 → client.dispose() 关掉消息/状态流，页面变聋
-          // （2026-10-11 真机「没听清/连接断开」根因：服务端 final 全对，
-          // 页面永远收不到）。会话与页面同生命周期，自建自有客户端。
+          // （2026-10-11 真机「没听清/连接断开」根因）。会话与页面同生命周期，
+          // 自建自有客户端。
           wsClient: WsClient(
             serverStore: ref.read(serverStoreProvider),
             localStore: ref.read(localStoreProvider),
@@ -128,7 +266,7 @@ class _SpellPageState extends ConsumerState<SpellPage> {
           micRecorder: ref.read(pcmRecorderProvider),
         );
     _session = session;
-    _letterSub = session.letters.listen(_onLetter);
+    _verdictSub = session.verdicts.listen(_onVerdict);
     _transcriptSub = session.transcripts.listen(_onTranscript);
     _utteranceSub = session.utterances.listen(_onUtterance);
     _stateSub = session.states.listen(_onWsState);
@@ -145,16 +283,46 @@ class _SpellPageState extends ConsumerState<SpellPage> {
       _resetItemState();
       _itemStartAt = DateTime.now();
     }
+    if (!_countdownLoaded) {
+      _countdownLoaded = true;
+      unawaited(_loadCountdown());
+    }
+  }
+
+  /// F16-4：进页拉一次 `spell_verdict_countdown_s`（契约 §4.1 settings），
+  /// 拉取失败/缺字段回退 3；值域夹到 1~10（§4.1 服务端同口径）。
+  Future<void> _loadCountdown() async {
+    var secs = 3;
+    try {
+      final data =
+          await ref.read(apiClientProvider).get<Map<String, dynamic>>(
+                '/api/settings',
+              );
+      final v = (data?['spell_verdict_countdown_s'] as num?)?.toInt();
+      if (v != null && v >= 1) {
+        secs = v.clamp(1, 10);
+      }
+    } on Object {
+      // 网络不通/旧后端没有该接口：回退默认 3 秒
+    }
+    if (!mounted) {
+      return;
+    }
+    setState(() => _countdownSecs = secs);
   }
 
   @override
   void dispose() {
-    _letterSub?.cancel();
+    _verdictSub?.cancel();
     _transcriptSub?.cancel();
     _utteranceSub?.cancel();
     _stateSub?.cancel();
     _errorSub?.cancel();
     _levelSub?.cancel();
+    _countdownTimer?.cancel();
+    _verdictTimer?.cancel();
+    _typeCtl.dispose();
+    _inputFocus.dispose();
     // 会话不是 provider 管的（页面生命周期对象），由页面负责关。
     unawaited(_session?.close());
     super.dispose();
@@ -162,39 +330,51 @@ class _SpellPageState extends ConsumerState<SpellPage> {
 
   // ---------------------------------------------------------------- 流事件
 
-  void _onLetter(LetterEvent event) {
+  /// 服务端 verdict（§5 v1.3）：整词判定唯一来源。
+  void _onVerdict(VerdictEvent event) {
     if (!mounted || _settled) {
       return;
     }
-    if (event.itemId != _item.id || event.index < 0) {
+    if (event.itemId != _item.id) {
+      return; // 换题后迟到的旧题判定直接丢
+    }
+    if (_phase != _Phase.waiting && _phase != _Phase.holding) {
       return;
     }
-    final letters = _item.letters;
-    if (event.index >= letters.length) {
+    _verdictTimer?.cancel();
+    _verdictTimer = null;
+    final run = _runOrNull();
+    if (run == null) {
       return;
     }
-    if (event.correct) {
-      setState(() {
-        _filled[event.index] = event.letter;
-        _falseStreak = 0;
-      });
-      if (!_filled.contains(null)) {
-        unawaited(_completeItemCorrect(assembled: _filled.join()));
-      }
-      return;
-    }
-    // 错误：不填格，记连错
     setState(() {
-      _cellErrors[event.index] = (_cellErrors[event.index] ?? 0) + 1;
-      _falseStreak += 1;
-      if ((_cellErrors[event.index] ?? 0) >= 3) {
-        _keyboardOn = true; // 同一格 3 次错 → 出键盘入口（§6.4）
-      }
+      // 判定文本定版上屏（替代逐格 letter，v1.3）
+      _uttered = _normLetters(event.text);
+      _partial = '';
+      _phase = event.correct ? _Phase.correct : _Phase.wrong;
     });
+    if (!event.correct) {
+      // §5 判错抑制：服务端忽略后续帧，App 同时停推流（双保险）
+      _session?.stopPush();
+    }
+    // §4.1：App 收 verdict 后上报留痕（correct 必填，判定已在服务端）
+    unawaited(_afterJudged(correct: event.correct, answer: event.text));
   }
 
   void _onTranscript(TranscriptEvent event) {
     if (!mounted || _settled) {
+      return;
+    }
+    final run = _runOrNull();
+    if (run == null) {
+      return;
+    }
+    if (run.isZh2En) {
+      // 按住中实时回显（决策 #11）；判定已出后到达的 partial 不再上屏（U16-3）
+      if (_phase == _Phase.correct || _phase == _Phase.wrong) {
+        return;
+      }
+      setState(() => _partial = event.text);
       return;
     }
     setState(() {
@@ -207,10 +387,7 @@ class _SpellPageState extends ConsumerState<SpellPage> {
           waiter.complete();
         }
       }
-      // ⚠️ 仅 en2zh 自动判：zh2en 已由 utterance 逐格判完（v1.0.4），
-      // final 只在 close（退出页面）时来，把字母序列 "a p" 送去中文比对
-      // 会误判成错题。
-      if (!_answeredThisRound && _runOrNull()?.isZh2En == false) {
+      if (!_answeredThisRound) {
         _answeredThisRound = true;
         setState(() => _capturing = false);
         unawaited(_judgeTranscript());
@@ -222,8 +399,16 @@ class _SpellPageState extends ConsumerState<SpellPage> {
     if (!mounted || _settled) {
       return;
     }
-    // 换题后迟到的旧题消息直接丢（utterance 与 letter 同源同序，不会漏判）。
+    final run = _runOrNull();
+    if (run == null || !run.isZh2En) {
+      return; // utterance 仅 zh2en 回显用（en2zh 走 transcripts）
+    }
+    // 换题后迟到的旧题消息直接丢。
     if (event.itemId != _item.id) {
+      return;
+    }
+    // 判定已出（对/错）后到达的 utterance 不再上屏（U16-3）
+    if (_phase == _Phase.correct || _phase == _Phase.wrong) {
       return;
     }
     final text = event.text.trim();
@@ -233,8 +418,8 @@ class _SpellPageState extends ConsumerState<SpellPage> {
     setState(() {
       // 这句已定版：收进「听到」累积，并清掉实时 partial ——
       // 否则旧 partial（如 "a"）会和新定版文本重复显示成 "A A"。
-      _heard = (_heard.isEmpty ? text : '$_heard $text').toUpperCase();
-      _transcript = '';
+      _uttered = (_uttered.isEmpty ? text : '$_uttered $text').toUpperCase();
+      _partial = '';
     });
   }
 
@@ -246,6 +431,9 @@ class _SpellPageState extends ConsumerState<SpellPage> {
     setState(() {
       _disconnected =
           state == WsState.reconnecting || state == WsState.closed;
+      if (_disconnected && (_phase == _Phase.holding || _phase == _Phase.waiting)) {
+        _phase = _Phase.idle;
+      }
       if (!_disconnected) {
         _capturing = false;
       }
@@ -260,6 +448,9 @@ class _SpellPageState extends ConsumerState<SpellPage> {
     // 把按钮还给用户。不弹出退栈，学生可直接重试（2026-10-11 真机死页教训）。
     unawaited(_session?.stopCapture());
     setState(() {
+      if (_phase == _Phase.holding || _phase == _Phase.waiting) {
+        _phase = _Phase.idle;
+      }
       _capturing = false;
       _busy = false;
       _asrError = event.message;
@@ -269,19 +460,16 @@ class _SpellPageState extends ConsumerState<SpellPage> {
   // ---------------------------------------------------------------- 作答推进
 
   void _resetItemState() {
-    final run = _run;
-    final letters = run == null || run.items.isEmpty
-        ? const <String>[]
-        : run.items[_idx].letters;
-    _filled = List<String?>.filled(letters.length, null);
-    _cellErrors = <int, int>{};
-    _falseStreak = 0;
-    _keyboardOn = false;
-    _transcript = '';
-    _heard = '';
+    _phase = _Phase.idle;
+    _uttered = '';
+    _partial = '';
+    _answeredThisRound = false;
     _lastWrong = false;
     _capturing = false;
-    _answeredThisRound = false;
+    _cancelCountdown();
+    _verdictTimer?.cancel();
+    _verdictTimer = null;
+    _typeCtl.clear();
   }
 
   SpellRun? _runOrNull() {
@@ -291,7 +479,247 @@ class _SpellPageState extends ConsumerState<SpellPage> {
 
   int get _correctCount => _results.where((r) => r.correct).length;
 
-  Future<void> _beginCapture() async {
+  // ---- 按住说话（F16-1）----
+
+  /// 按下大圆钮：清空识别区（再来一次语义）→ start + 推流。
+  Future<void> _onHoldStart() async {
+    if (_settled || _busy) {
+      return;
+    }
+    if (_phase == _Phase.holding || _phase == _Phase.waiting) {
+      return; // 等判定中不接受新一轮，避免 start/end 乱序
+    }
+    final session = _session;
+    final run = _runOrNull();
+    if (session == null || run == null) {
+      return;
+    }
+    _cancelCountdown();
+    setState(() {
+      _phase = _Phase.holding;
+      _uttered = '';
+      _partial = '';
+      _typeCtl.clear();
+      _answeredThisRound = false;
+      _asrError = null;
+      _micBlocked = false;
+    });
+    final ok = await session.begin(
+      sessionId: run.sessionId,
+      mode: run.mode,
+      itemId: _item.id,
+    );
+    if (!mounted) {
+      return;
+    }
+    if (!ok) {
+      setState(() {
+        _phase = _Phase.idle;
+        _micBlocked = true;
+      });
+      return;
+    }
+    // 录音动效：订阅麦克风电平（broadcast 流，页面生命周期内只订一次）
+    _levelSub ??= session.micLevels.listen((v) {
+      if (mounted) {
+        setState(() => _micLevel = v);
+      }
+    });
+  }
+
+  /// 松开大圆钮：停推流 + 发 `end` → 等服务端 verdict（1.5s 兜底）。
+  void _onHoldEnd() {
+    if (_phase != _Phase.holding) {
+      return;
+    }
+    _session?.endRound();
+    setState(() => _phase = _Phase.waiting);
+    // F16-9：1.5s 无 verdict → 按「本轮未判定」处理，可再来一次，不死锁。
+    _verdictTimer?.cancel();
+    _verdictTimer = Timer(const Duration(milliseconds: 1500), () {
+      if (!mounted || _settled || _phase != _Phase.waiting) {
+        return;
+      }
+      setState(() => _phase = _Phase.idle);
+      showAppSnack(context, '没等到判定结果，再试一次');
+    });
+  }
+
+  // ---- 判定后的共同收口（verdict / 键盘填满）----
+
+  /// 判定落账 → 启动倒计时（F16-4：对错均适用）。上报失败按未判定处理，
+  /// 回到 idle 可再来一次（不死锁）。
+  Future<void> _afterJudged({
+    required bool correct,
+    required String answer,
+  }) async {
+    final run = _runOrNull();
+    if (run == null || _settled) {
+      return;
+    }
+    final reported = await _reportAnswer(
+      answer: answer,
+      localCorrect: correct,
+    );
+    if (!mounted) {
+      return;
+    }
+    if (reported == null) {
+      setState(() {
+        _phase = _Phase.idle;
+        _answeredThisRound = false;
+      });
+      return;
+    }
+    _answeredThisRound = true;
+    _startCountdown();
+  }
+
+  // ---- 倒计时（F16-4）----
+
+  void _startCountdown() {
+    _cancelCountdown();
+    var left = _countdownSecs;
+    _countdownLeft = left;
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      left -= 1;
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (left <= 0) {
+        timer.cancel();
+        _countdownTimer = null;
+        setState(() => _countdownLeft = null);
+        unawaited(_onCountdownExpired());
+      } else {
+        setState(() => _countdownLeft = left);
+      }
+    });
+  }
+
+  void _cancelCountdown() {
+    _countdownTimer?.cancel();
+    _countdownTimer = null;
+    _countdownLeft = null;
+  }
+
+  /// 倒计时走完无操作：错=先 auto-add 再推进；对=直接推进。
+  Future<void> _onCountdownExpired() async {
+    final run = _runOrNull();
+    if (run == null || _settled) {
+      return;
+    }
+    if (_phase == _Phase.wrong) {
+      await _autoAddItem(run, _item.id);
+    }
+    await _advance();
+  }
+
+  /// 「再来一次」：清空识别区 + 取消倒计时，重新按住（不限次）。
+  void _onRetry() {
+    _cancelCountdown();
+    _verdictTimer?.cancel();
+    _verdictTimer = null;
+    setState(() {
+      _phase = _Phase.idle;
+      _uttered = '';
+      _partial = '';
+      _typeCtl.clear();
+      _answeredThisRound = false;
+    });
+  }
+
+  // ---- 键盘（F16-6）----
+
+  void _switchToKeyboard() {
+    if (_phase == _Phase.holding || _phase == _Phase.waiting) {
+      return; // 按住/等判定中不切，先松开
+    }
+    setState(() {
+      _keyboardMode = true;
+      // A6：互切不清空已填内容 —— 语音听到的内容带进输入框继续拼
+      final seed = _normLetters(_recognizedDisplay);
+      _uttered = seed;
+      _partial = '';
+      _typeCtl.text = seed;
+    });
+    _inputFocus.requestFocus();
+  }
+
+  void _switchToVoice() {
+    if (_phase == _Phase.holding || _phase == _Phase.waiting) {
+      return;
+    }
+    setState(() {
+      _keyboardMode = false;
+      // A6：键盘已拼内容带回识别区，不清空
+      _uttered = _normLetters(_typeCtl.text);
+      _partial = '';
+    });
+  }
+
+  void _onTypedChanged() {
+    if (_settled || _busy) {
+      return;
+    }
+    if (_answeredThisRound) {
+      // 判定后继续编辑 = 新一轮作答（等同「再来一次」先清判定态）
+      _cancelCountdown();
+      setState(() {
+        _answeredThisRound = false;
+        _phase = _Phase.idle;
+      });
+    }
+    _maybeKeyboardSubmit();
+  }
+
+  /// 自绘键盘（回退方案）：追加一个字母（填满后不再收）。
+  void _appendLetter(String letter) {
+    final targetLen = _item.letters.length;
+    if (_typeCtl.text.length >= targetLen) {
+      return;
+    }
+    setState(() => _typeCtl.text += letter);
+    _onTypedChanged();
+  }
+
+  /// ⌫ 逐字母回退。
+  void _backspace() {
+    if (_typeCtl.text.isEmpty) {
+      return;
+    }
+    setState(
+        () => _typeCtl.text = _typeCtl.text.substring(0, _typeCtl.text.length - 1));
+    _onTypedChanged();
+  }
+
+  /// 填满 → 本地等值比对（忽略大小写/空格/连字符，§6.4）→ 上报（correct
+  /// 必填）→ 倒计时（同 F16-4）。
+  void _maybeKeyboardSubmit() {
+    if (_phase == _Phase.holding || _phase == _Phase.waiting) {
+      return;
+    }
+    if (_answeredThisRound || _busy || _settled) {
+      return;
+    }
+    final run = _runOrNull();
+    if (run == null) {
+      return;
+    }
+    final target = _item.letters.join();
+    final typed = _normLetters(_typeCtl.text);
+    if (typed.length < target.length) {
+      return;
+    }
+    final correct = typed.toLowerCase() == target.toLowerCase();
+    setState(() => _phase = correct ? _Phase.correct : _Phase.wrong);
+    unawaited(_afterJudged(correct: correct, answer: typed));
+  }
+
+  // ---- en2zh（交互保留）----
+
+  Future<void> _beginSpeak() async {
     if (_busy || _settled) {
       return;
     }
@@ -324,7 +752,6 @@ class _SpellPageState extends ConsumerState<SpellPage> {
         }
       });
       if (ok) {
-        // 录音动效：订阅麦克风电平（broadcast 流，页面生命周期内只订一次）
         _levelSub ??= session.micLevels.listen((v) {
           if (mounted) {
             setState(() => _micLevel = v);
@@ -377,6 +804,7 @@ class _SpellPageState extends ConsumerState<SpellPage> {
     }
   }
 
+  /// en2zh：转写交服务端比对（correct 以响应为准）。对=立即下一题；错=再试一次。
   Future<void> _judgeTranscript() async {
     if (_busy || _settled) {
       return;
@@ -389,7 +817,7 @@ class _SpellPageState extends ConsumerState<SpellPage> {
       });
       return;
     }
-    final correct = await _reportAnswer(
+    final reported = await _reportAnswer(
       answer: text,
       // en2zh 的判定在服务端 compare_service：correct 以响应为准。
       localCorrect: null,
@@ -397,7 +825,7 @@ class _SpellPageState extends ConsumerState<SpellPage> {
     if (!mounted) {
       return;
     }
-    if (correct) {
+    if (reported == true) {
       await _advance();
     } else {
       setState(() {
@@ -407,74 +835,27 @@ class _SpellPageState extends ConsumerState<SpellPage> {
     }
   }
 
-  /// 键盘点字母：填进下一个空格；填满后本地判（§6.4，不扣分，同样上报）。
-  void _onKeyboardLetter(String letter) {
-    if (!_filled.contains(null)) {
-      return;
-    }
-    final nextIndex = _filled.indexOf(null);
-    setState(() => _filled[nextIndex] = letter);
-    if (!_filled.contains(null)) {
-      final assembled = _filled.join();
-      final target = _item.letters.join();
-      final correct = assembled.toLowerCase() == target.toLowerCase();
-      unawaited(_completeItemCorrect(
-        assembled: assembled,
-        forceCorrect: correct,
-      ));
-    }
-  }
+  // ---- 上报 / 跳过 / 推进 ----
 
-  void _clearKeyboardInput() {
-    setState(() {
-      for (var i = 0; i < _filled.length; i++) {
-        _filled[i] = null;
-      }
-    });
-  }
-
-  /// 本题拼读/键盘填满后的收口：本地判格结果上报 → 对=立即下一题。
-  Future<void> _completeItemCorrect({
-    required String assembled,
-    bool? forceCorrect,
-  }) async {
-    if (_busy || _settled) {
-      return;
-    }
-    final correct = forceCorrect ?? true;
-    final reported = await _reportAnswer(
-      answer: assembled,
-      localCorrect: correct,
-    );
-    if (!mounted) {
-      return;
-    }
-    if (reported) {
-      await _advance();
-      return;
-    }
-    // 上报失败：留在本题，提示重试
-    setState(() {
-      _lastWrong = true;
-    });
-  }
-
-  /// 上报 answer。zh2en 本地判格传 correct；en2zh 传 null（以服务端为准）。
-  /// 返回最终判定；请求失败抛异常由调用方感知（这里转成 false + 提示）。
-  Future<bool> _reportAnswer({
+  /// 上报 answer。zh2en（verdict / 键盘本地判定）传 correct；en2zh 传 null
+  /// （以服务端为准）。返回 null = 上报失败（未落账）。
+  ///
+  /// v1.3：判对**不再 DELETE wrongbook**（服务端在 correct=true 时自动写
+  /// mastered_at，契约 §4.1/§6.4）。
+  Future<bool?> _reportAnswer({
     required String answer,
     required bool? localCorrect,
   }) async {
     final run = _runOrNull();
     if (run == null) {
-      return false;
+      return null;
     }
     final startAt = _itemStartAt;
     final elapsedMs = startAt == null
         ? 0
         : DateTime.now().difference(startAt).inMilliseconds;
     try {
-      // §6.4：zh2en 本地判格 → correct 必填；en2zh 判定在服务端 → 不传。
+      // §6.4：zh2en correct 必填；en2zh 判定在服务端 → 不传。
       final data = await ref.read(apiClientProvider).post<Map<String, dynamic>>(
             _answerPath,
             body: <String, dynamic>{
@@ -487,19 +868,8 @@ class _SpellPageState extends ConsumerState<SpellPage> {
             },
           );
       final correct = localCorrect ?? (data?['correct'] == true);
-      if (correct) {
-        // 同题先错后对的（键盘重拼 / en2zh 再试一次）：以最终一次为准，
-        // 不让旧失败记录把它再记进错题本。
-        _results.removeWhere((r) => r.itemId == _item.id);
-        // 判对移出错题本（30-规格 WP-E 约定：判对即 DELETE，fire-and-forget，
-        // 失败不影响背题主链路——移不干净顶多重做一遍）。
-        unawaited(
-          ref
-              .read(apiClientProvider)
-              .delete<dynamic>('/api/wrongbook/${_item.id}/${run.mode}')
-              .catchError((Object _) {}),
-        );
-      }
+      // 同题多轮（先错后对 / 反复重试）：以最终一次为准
+      _results.removeWhere((r) => r.itemId == _item.id);
       _results.add(SpellItemResult(
         itemId: _item.id,
         correct: correct,
@@ -510,36 +880,68 @@ class _SpellPageState extends ConsumerState<SpellPage> {
       if (mounted) {
         showAppSnack(context, e.displayText);
       }
-      return false;
+      return null;
     } on Object {
       if (mounted) {
         showAppSnack(context, '网络不太顺，再试一次');
       }
-      return false;
+      return null;
     }
   }
 
-  /// 跳过（zh2en 3 连错后 / en2zh 判错后）：本题判错。
-  /// 已有本题判定结果（en2zh 服务端已判、键盘重拼已报）就不再重复上报，
-  /// 直接推进；否则补一条 correct=false（U8：跳过=错）。
+  /// 单题判错 auto-add（F16-8：判错/跳过 → auto-add；成功记入
+  /// [_wrongAddedIds]，settle 兜底只补漏不重复）。
+  Future<void> _autoAddItem(SpellRun run, int itemId) async {
+    if (_wrongAddedIds.contains(itemId)) {
+      return;
+    }
+    try {
+      await ref.read(apiClientProvider).post<void>(
+            '/api/wrongbook/auto-add',
+            body: <String, dynamic>{
+              'item_id': itemId,
+              'mode': run.mode,
+            },
+          );
+      _wrongAddedIds.add(itemId);
+    } on Object catch (e) {
+      debugPrint('[spell] auto-add item=$itemId 失败（settle 兜底会再补）：$e');
+    }
+  }
+
+  /// 跳过（F16-5：两屏常驻）= 判错：answer(correct=false) + auto-add →
+  /// 立即下一题。已判过的题不重复上报，只补 auto-add。
   Future<void> _skipItem() async {
     if (_busy || _settled) {
       return;
     }
-    final alreadyJudged = _results.any((r) => r.itemId == _item.id);
-    if (!alreadyJudged) {
-      await _reportAnswer(answer: '', localCorrect: false);
-      if (!mounted) {
-        return;
+    final run = _runOrNull();
+    if (run == null) {
+      return;
+    }
+    _cancelCountdown();
+    _verdictTimer?.cancel();
+    _session?.stopPush();
+    setState(() => _busy = true);
+    try {
+      final alreadyJudged = _results.any((r) => r.itemId == _item.id);
+      if (!alreadyJudged) {
+        await _reportAnswer(answer: '', localCorrect: false);
+        if (!mounted) {
+          return;
+        }
+        // 上报失败（无落账）留在本题
+        if (!_results.any((r) => r.itemId == _item.id)) {
+          return;
+        }
       }
-      // ⚠️ 跳过 = 判错：_reportAnswer 返回 false 是「上报成功且判错」，
-      // 不是失败。以本题是否落账（结果表有无记录）判断上报成败。
-      final nowJudged = _results.any((r) => r.itemId == _item.id);
-      if (!nowJudged) {
-        return; // 上报失败留在本题
+      await _autoAddItem(run, _item.id);
+      await _advance();
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
       }
     }
-    await _advance();
   }
 
   Future<void> _advance() async {
@@ -554,12 +956,8 @@ class _SpellPageState extends ConsumerState<SpellPage> {
     setState(() {
       _idx += 1;
       _itemStartAt = DateTime.now();
+      _resetItemState();
     });
-    _resetItemState();
-    // zh2en：换题即开新一轮拼读（录音常驻，只重发 start）；en2zh 等学生点开始说。
-    if (run.isZh2En && _session != null && !_disconnected) {
-      await _beginCapture();
-    }
   }
 
   Future<void> _settle(SpellRun run) async {
@@ -572,7 +970,7 @@ class _SpellPageState extends ConsumerState<SpellPage> {
     try {
       final durationMs =
           DateTime.now().difference(run.startedAt).inMilliseconds;
-      // 中途退出的题按跳过判错补记，保证 correct+wrong=total（U9 口径）。
+      // 中途未作答的题按跳过判错补记，保证 correct+wrong=total（U9 口径）。
       final answeredIds = _results.map((r) => r.itemId).toSet();
       for (final item in run.items) {
         if (!answeredIds.contains(item.id)) {
@@ -581,21 +979,26 @@ class _SpellPageState extends ConsumerState<SpellPage> {
       }
       correct = _correctCount;
 
+      // F16-7：最后一题倒计时走完自动 settle。
+      // unit_ids/types 传本轮快照（SpellRun 由 startSpellRun 解析注入，
+      // 契约 §4.1；为空 = 单数入口解析不到，缺省让服务端回退 start 快照）。
       try {
         await ref.read(apiClientProvider).post<void>(
               '/api/practice/settle',
               body: <String, dynamic>{
                 'session_id': run.sessionId,
                 'duration_ms': durationMs,
+                if (run.unitIds.isNotEmpty) 'unit_ids': run.unitIds,
+                if (run.types.isNotEmpty) 'types': run.types,
               },
             );
       } on Object catch (e) {
         debugPrint('[spell] settle 失败（结算页照常展示）：$e');
       }
 
-      // 判错的题逐个记入错题本（mode=当次模式，U10）。
+      // 判错未入错题本的逐个补记（mode=当次模式，U10）。
       for (final result in _results) {
-        if (result.correct) {
+        if (result.correct || _wrongAddedIds.contains(result.itemId)) {
           continue;
         }
         try {
@@ -606,6 +1009,7 @@ class _SpellPageState extends ConsumerState<SpellPage> {
                   'mode': run.mode,
                 },
               );
+          _wrongAddedIds.add(result.itemId);
           wrongAdded += 1;
         } on Object catch (e) {
           debugPrint('[spell] auto-add item=${result.itemId} 失败：$e');
@@ -670,8 +1074,7 @@ class _SpellPageState extends ConsumerState<SpellPage> {
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: AgeProfile.elementGap),
-              // 题面区可滚动：字母键盘 + 长短句在小屏也不会溢出（U6 实测
-              // 512dp 视口下 Column 溢出 71px）。
+              // 题面区可滚动：键盘 + 长短句在小屏也不会溢出。
               Flexible(
                 child: SingleChildScrollView(
                   child: run.isZh2En
@@ -684,7 +1087,7 @@ class _SpellPageState extends ConsumerState<SpellPage> {
                   padding: const EdgeInsets.only(bottom: 12),
                   child: InlineNotice(
                     kind: NoticeKind.error,
-                    text: '麦克风没就绪（权限或连接没通），点「继续」再试一次',
+                    text: '麦克风没就绪（权限或连接没通），再按一次试试',
                   ),
                 ),
               if (_disconnected)
@@ -692,7 +1095,7 @@ class _SpellPageState extends ConsumerState<SpellPage> {
                   padding: const EdgeInsets.only(bottom: 12),
                   child: InlineNotice(
                     kind: NoticeKind.info,
-                    text: '连接断开了，先暂停一下；进度没丢，点「继续」接着来',
+                    text: '连接断开了，先暂停一下；进度没丢，再按住圆钮接着来',
                   ),
                 ),
               if (_asrError != null)
@@ -706,6 +1109,150 @@ class _SpellPageState extends ConsumerState<SpellPage> {
               _buildControls(run),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  /// 当前逐格状态（方案 B：填框即时、判红兜底）。
+  /// - idle/holding/waiting：顺序填格（听到的字母进格，不判红绿）；
+  /// - correct：全格绿；
+  /// - wrong：NW 对齐 → 对=绿 / 错=红 / 缺=红空格，多读的字母附红格在后。
+  List<_SpellCell> _buildCells() {
+    final target = _item.letters;
+    final heard = _normLetters(_recognizedDisplay).split('');
+    switch (_phase) {
+      case _Phase.correct:
+        return <_SpellCell>[
+          for (final l in target)
+            _SpellCell(heard: l.toUpperCase(), status: _CellStatus.match),
+        ];
+      case _Phase.wrong:
+        // target 是 en 原文（小写），heard 已大写 → 先统一再对齐
+        return alignSpellCells(
+          <String>[for (final l in target) l.toUpperCase()],
+          heard,
+        );
+      case _Phase.idle:
+      case _Phase.holding:
+      case _Phase.waiting:
+        final cells = <_SpellCell>[
+          for (var i = 0; i < target.length; i++)
+            _SpellCell(
+              heard: i < heard.length ? heard[i] : null,
+              status: _CellStatus.pending,
+            ),
+        ];
+        // 超读的字母也如实显示（pending 态不标红，判定交给服务端）
+        for (var i = target.length; i < heard.length; i++) {
+          cells.add(_SpellCell(heard: heard[i], status: _CellStatus.pending));
+        }
+        return cells;
+    }
+  }
+
+  /// 识别内容区（F16-2，方案 B 替代 v1.3 整段文本）：
+  /// 逐字母方格 —— 按住中识别到一个填一格（主色）；判对全绿 + 👍；
+  /// 判错按编辑距离逐格着色（对=绿/错=红/缺=红空格，多读=尾部红格）。
+  Widget _recognitionArea(AgeProfile profile, AppExtraColors extra) {
+    final palette = Theme.of(context).colorScheme;
+    final String? hint = switch (_phase) {
+      _Phase.holding => '正在听你说…',
+      _Phase.waiting => '松开啦，等判定…',
+      _Phase.idle => '按住下面的圆钮，把这个单词拼出来',
+      _Phase.correct || _Phase.wrong => null,
+    };
+    final cells = _buildCells();
+    return Container(
+      width: double.infinity,
+      constraints: const BoxConstraints(minHeight: 88),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: _phase == _Phase.correct
+            ? extra.successLight
+            : _phase == _Phase.wrong
+                ? extra.errorLight
+                : extra.card,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: _phase == _Phase.correct
+              ? extra.success
+              : _phase == _Phase.wrong
+                  ? extra.error
+                  : extra.divider,
+          width: _phase == _Phase.correct || _phase == _Phase.wrong ? 1.2 : 0.5,
+        ),
+      ),
+      child: Column(
+        children: [
+          if (_phase == _Phase.holding) ...[
+            _MicWave(level: _micLevel),
+            const SizedBox(height: 6),
+          ],
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 6,
+            runSpacing: 6,
+            children: <Widget>[
+              for (final cell in cells) _spellBox(cell, profile, extra, palette),
+            ],
+          ),
+          if (_phase == _Phase.correct) ...[
+            const SizedBox(height: 6),
+            Text(
+              '👍',
+              style: profile.cardTitleStyle.copyWith(color: extra.success),
+            ),
+          ],
+          if (hint != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              hint,
+              style: profile.captionStyle.copyWith(
+                color: _phase == _Phase.holding
+                    ? palette.primary
+                    : extra.textFaint,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// 单个拼读格。进行态：有字母=主色描边、空=淡描边；判错态按 match/wrong/
+  /// missing 着绿/红（missing 显示红空框，不剧透答案）。
+  Widget _spellBox(
+    _SpellCell cell,
+    AgeProfile profile,
+    AppExtraColors extra,
+    ColorScheme palette,
+  ) {
+    final (Color border, Color bg, Color fg) = switch (cell.status) {
+      _CellStatus.match => (extra.success, extra.successLight, extra.success),
+      _CellStatus.wrong => (extra.error, extra.errorLight, extra.error),
+      _CellStatus.missing => (extra.error, extra.errorLight, extra.error),
+      _CellStatus.pending => (
+          cell.heard != null ? palette.primary : extra.divider,
+          extra.card,
+          cell.heard != null ? palette.primary : extra.textFaint,
+        ),
+    };
+    return Container(
+      width: 38,
+      height: 46,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: border, width: cell.heard != null ? 1.4 : 0.8),
+      ),
+      child: Text(
+        cell.heard ?? '',
+        style: profile.cardTitleStyle.copyWith(
+          color: fg,
+          fontWeight: FontWeight.w700,
         ),
       ),
     );
@@ -736,52 +1283,44 @@ class _SpellPageState extends ConsumerState<SpellPage> {
           ),
         ),
         const SizedBox(height: AgeProfile.elementGap),
-        // 「听到」区（v1.0.4）：实时 partial（浅色进行态）+ utterance 定版
-        // （主色加粗）拼成。与字母格同源同序 —— 念 A，这里先出 A；服务端
-        // 判对后第 1 格才亮。学生随时能看到「App 确实听到了」。
-        if (_heardDisplay.isNotEmpty) ...[
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: extra.card,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: extra.divider, width: 0.5),
+        // F16-6：键盘模式 → 识别内容区变成可编辑输入框（系统键盘优先）；
+        // 互切不清内容（A6）。
+        if (_keyboardMode)
+          TextField(
+            key: const ValueKey('spell-kbd-input'),
+            controller: _typeCtl,
+            focusNode: _inputFocus,
+            keyboardType: TextInputType.visiblePassword,
+            enableSuggestions: false,
+            autocorrect: false,
+            textCapitalization: TextCapitalization.characters,
+            maxLength: item.letters.length,
+            inputFormatters: [
+              FilteringTextInputFormatter.allow(RegExp('[a-zA-Z]')),
+            ],
+            textAlign: TextAlign.center,
+            style: profile.cardTitleStyle.copyWith(
+              letterSpacing: 4,
+              fontWeight: FontWeight.w700,
             ),
-            child: Column(
-              children: [
-                Text(
-                  '听到',
-                  style: profile.captionStyle.copyWith(color: extra.textFaint),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  _heardDisplay,
-                  style: profile.cardTitleStyle.copyWith(
-                    color: Theme.of(context).colorScheme.primary,
-                    letterSpacing: 6,
-                    fontWeight: FontWeight.w700,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              ],
+            decoration: InputDecoration(
+              counterText: '',
+              hintText: '用键盘把这个单词拼出来',
+              filled: true,
+              fillColor: extra.card,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
             ),
-          ),
-          const SizedBox(height: AgeProfile.elementGap),
-        ],
-        _LetterGrid(
-          cells: _filled,
-        ),
-        if (_keyboardOn) ...[
-          const SizedBox(height: AgeProfile.elementGap),
-          InlineNotice(
-            kind: NoticeKind.hint,
-            text: '拼了几次都没对上，可以用下面的字母键盘点出来（不扣分）',
-          ),
-          const SizedBox(height: 8),
-          _Keyboard(
-            onLetter: _onKeyboardLetter,
-            onClear: _clearKeyboardInput,
+            onChanged: (_) => _onTypedChanged(),
+          )
+        else
+          _recognitionArea(profile, extra),
+        if (_keyboardMode && !kUseSystemKeyboard) ...[
+          const SizedBox(height: 12),
+          _FallbackKeyboard(
+            onLetter: _appendLetter,
+            onBackspace: _backspace,
           ),
         ],
       ],
@@ -863,137 +1402,140 @@ class _SpellPageState extends ConsumerState<SpellPage> {
 
   Widget _buildControls(SpellRun run) {
     if (run.isZh2En) {
-      final started =
-          _capturing || _filled.any((c) => c != null) || _lastWrong;
-      final canSkip = _falseStreak >= 3;
+      final judged =
+          _phase == _Phase.correct || _phase == _Phase.wrong;
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (!started || _disconnected || _asrError != null)
-            AppButton(
-              label: started ? '继续' : '开始拼读',
-              icon: Icons.mic_rounded,
-              loading: _busy,
-              onPressed: _beginCapture,
-            )
-          else if (canSkip)
-            AppButton(
-              label: '跳过这题（判错）',
-              kind: AppButtonKind.secondary,
-              loading: _busy,
-              onPressed: _skipItem,
-            )
-          else
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Column(
-                children: [
-                  _MicWave(level: _micLevel),
-                  const SizedBox(height: 6),
-                  Text(
-                    _micLevel < 0.04
-                        ? '对着麦克风，一个字母一个字母念出来'
-                        : '听到了，继续念…',
-                    style: Theme.of(context)
-                        .textTheme
-                        .bodyMedium
-                        ?.copyWith(color: AppExtraColors.of(context).textFaint),
-                    textAlign: TextAlign.center,
+          // A6：语音 ⇄ 键盘随时互切（原型图底部两图标）
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              IconButton(
+                tooltip: '语音拼读',
+                icon: Icon(
+                  Icons.mic_rounded,
+                  size: 30,
+                  color: !_keyboardMode
+                      ? Theme.of(context).colorScheme.primary
+                      : AppExtraColors.of(context).textFaint,
+                ),
+                onPressed: _switchToVoice,
+              ),
+              const SizedBox(width: 24),
+              IconButton(
+                tooltip: '键盘拼',
+                icon: Icon(
+                  Icons.keyboard_rounded,
+                  size: 30,
+                  color: _keyboardMode
+                      ? Theme.of(context).colorScheme.primary
+                      : AppExtraColors.of(context).textFaint,
+                ),
+                onPressed: _switchToKeyboard,
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (!_keyboardMode)
+            // F16-1：按住说话大圆钮（press-and-hold）
+            Center(
+              child: GestureDetector(
+                key: const ValueKey('spell-hold'),
+                onTapDown: (_) => unawaited(_onHoldStart()),
+                onTapUp: (_) => _onHoldEnd(),
+                onTapCancel: _onHoldEnd,
+                child: Container(
+                  width: 112,
+                  height: 112,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: _phase == _Phase.holding
+                        ? Theme.of(context).colorScheme.primary
+                        : Theme.of(context)
+                            .colorScheme
+                            .primary
+                            .withValues(alpha: 0.12),
+                    border: Border.all(
+                      color: Theme.of(context).colorScheme.primary,
+                      width: 1.5,
+                    ),
                   ),
-                ],
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.mic_rounded,
+                        size: 36,
+                        color: _phase == _Phase.holding
+                            ? Colors.white
+                            : Theme.of(context).colorScheme.primary,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        _phase == _Phase.holding ? '松开结束' : '按住拼读',
+                        style: AgeScope.of(context).captionStyle.copyWith(
+                              color: _phase == _Phase.holding
+                                  ? Colors.white
+                                  : Theme.of(context).colorScheme.primary,
+                            ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
+          if (judged) ...[
+            const SizedBox(height: 12),
+            AppButton(
+              label: '再来一次${_countdownLeft != null ? ' ($_countdownLeft)' : ''}',
+              kind: AppButtonKind.secondary,
+              onPressed: _onRetry,
+            ),
+          ],
           const SizedBox(height: 12),
           AppButton(
-            label: '结束并结算',
+            label: '跳过（判错）',
             kind: AppButtonKind.text,
             loading: _busy,
-            onPressed: _results.isEmpty ? null : () => unawaited(_settle(run)),
+            onPressed: _skipItem,
           ),
         ],
       );
     }
+    // en2zh：交互保留（无 verdict），跳过常驻
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (_lastWrong) ...[
-          AppButton(
-            label: '跳过这题（算错）',
-            kind: AppButtonKind.secondary,
-            loading: _busy,
-            onPressed: _skipItem,
-          ),
-          const SizedBox(height: 12),
-        ],
         AppButton(
           label: _capturing ? '我说完了' : (_lastWrong ? '再试一次' : '开始说'),
           icon: _capturing ? Icons.check_circle_rounded : Icons.mic_rounded,
           loading: _busy,
-          onPressed: _capturing ? _onSpeakDone : _beginCapture,
+          onPressed: _capturing ? _onSpeakDone : _beginSpeak,
         ),
         const SizedBox(height: 12),
         AppButton(
-          label: '结束并结算',
+          label: '跳过（判错）',
           kind: AppButtonKind.text,
           loading: _busy,
-          onPressed: _results.isEmpty ? null : () => unawaited(_settle(run)),
+          onPressed: _skipItem,
         ),
       ],
     );
   }
 }
 
-/// 字母方格：填出的格子显示字母，空的显示占位。
-class _LetterGrid extends StatelessWidget {
-  const _LetterGrid({required this.cells});
-
-  final List<String?> cells;
-
-  @override
-  Widget build(BuildContext context) {
-    final profile = AgeScope.of(context);
-    final extra = AppExtraColors.of(context);
-    final palette = Theme.of(context).colorScheme;
-
-    return Wrap(
-      spacing: 6,
-      runSpacing: 6,
-      alignment: WrapAlignment.center,
-      children: [
-        for (var i = 0; i < cells.length; i++)
-          Container(
-            width: 38,
-            height: 48,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: cells[i] == null ? extra.card : palette.primary.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: cells[i] == null ? extra.divider : palette.primary,
-                width: cells[i] == null ? 0.5 : 1.2,
-              ),
-            ),
-            child: Text(
-              cells[i] ?? '',
-              style: profile.cardTitleStyle.copyWith(
-                color: palette.primary,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-}
-
-/// 键盘点字母（§6.4：3 连错后的不扣分入口）。
-class _Keyboard extends StatelessWidget {
-  const _Keyboard({required this.onLetter, required this.onClear});
+/// 自绘键盘（F16-6 回退方案）：系统键盘不可控时用，字母间距调大一档，带 ⌫。
+class _FallbackKeyboard extends StatelessWidget {
+  const _FallbackKeyboard({required this.onLetter, required this.onBackspace});
 
   static const _rows = <String>['QWERTYUIOP', 'ASDFGHJKL', 'ZXCVBNM'];
 
+  /// 回退时把字母间距调大一档（规格 A6：真机弹中文输入法 → 自绘 + 大间距）。
+  static const double keyGap = 10;
+
   final ValueChanged<String> onLetter;
-  final VoidCallback onClear;
+  final VoidCallback onBackspace;
 
   @override
   Widget build(BuildContext context) {
@@ -1007,24 +1549,30 @@ class _Keyboard extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               for (final letter in row.split(''))
-                InkWell(
-                  borderRadius: BorderRadius.circular(8),
-                  onTap: () => onLetter(letter),
-                  child: Container(
-                    width: 34,
-                    height: AgeProfile.minTouchTarget,
-                    alignment: Alignment.center,
-                    child: Text(letter, style: profile.bodyStyle),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: keyGap / 2),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: () => onLetter(letter),
+                    child: Container(
+                      width: 36,
+                      height: AgeProfile.minTouchTarget,
+                      alignment: Alignment.center,
+                      child: Text(letter, style: profile.bodyStyle),
+                    ),
                   ),
                 ),
             ],
           ),
-        TextButton(
-          onPressed: onClear,
-          child: Text(
-            '清空重拼',
-            style: profile.captionStyle.copyWith(color: extra.textSub),
-          ),
+        const SizedBox(height: 4),
+        OutlinedButton.icon(
+          onPressed: onBackspace,
+          icon: const Icon(Icons.backspace_outlined, size: 20),
+          label: const Text('删除'),
+        ),
+        Text(
+          '提示：系统键盘更好用；只有弹不出英文键盘时才用这块',
+          style: profile.captionStyle.copyWith(color: extra.textFaint),
         ),
       ],
     );

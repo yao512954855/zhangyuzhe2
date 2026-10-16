@@ -357,9 +357,15 @@ def test_runtime_state_does_not_pollute_settings_table(client):
     with read_conn() as conn:
         keys = [r["key"] for r in conn.execute("SELECT key FROM settings").fetchall()]
     assert "discovery_state" not in keys
-    # localize-dev 批次A：004_capability.sql 新增 capability_mode 种子 → 21 条
-    assert len(keys) == 21, f"settings 只应有 21 条种子值，实际 {len(keys)}：{sorted(keys)}"
+    # localize-dev 批次A：004_capability.sql 新增 capability_mode → 21 条；
+    # 二轮（契约 v1.3）：005_todo11.sql 新增 3 个设置键 → 24 条；
+    # 006_apikey.sql 新增 cloud_api_key → 25 条
+    assert len(keys) == 25, f"settings 只应有 25 条种子值，实际 {len(keys)}：{sorted(keys)}"
     assert "capability_mode" in keys, "004_capability.sql 种子未生效"
+    assert {
+        "dictation_countdown_s", "spell_verdict_countdown_s", "dictation_hint",
+        "cloud_api_key",
+    } <= set(keys), "005/006 设置键种子未生效"
 
 
 def test_refresh_uses_injected_interfaces():

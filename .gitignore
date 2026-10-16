@@ -101,3 +101,13 @@ backend/models/
 # 构建产物与探测临时产物（不入库）
 admin-web/dist-deploy/
 backend/qa/
+
+# 真机上行音频 dump（排障产物，可再生成，不入库）
+qa/_app_uplink_*.wav
+# 会话临时产物
+_restart_log.txt
+.workbuddy/*.png
+.workbuddy/tmp_*.txt
+.workbuddy/ui.xml
+# 管理端构建产物（web11 部署包，可再生成）
+admin-web/dist-web11/

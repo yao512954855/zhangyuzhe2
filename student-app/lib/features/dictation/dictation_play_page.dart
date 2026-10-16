@@ -1,9 +1,13 @@
-/// 听写播报页 —— WP-D D-2 第 2 项。
+/// 听写播报页 —— WP-D D-2 第 2 项 + APP-13 F17-1/F17-2（契约 v1.3）。
 ///
-/// 逐题连播：报完一题等「播报间隔」再报下一题；进度 n/总；
-/// 「重听」只重播当前题（**不计进度**）；「暂停/继续」；
-/// 最后一题播完（或学生点「写完了」提前结束）自动进入拍照批改页，
-/// 两条路都有明确推进，无静默卡死。
+/// 逐题连播：报完一题启动 **N 秒倒计时**（`settings.dictation_countdown_s`，
+/// 进听写拉一次 `GET /api/settings`，失败回退 3），到点自动报下一题；
+/// 报词时屏显该词的中文或英文（`settings.dictation_hint`，回退 zh），
+/// 位于报词动画区下方；进度 n/总；「重听」只重播当前题（**不计进度**）；
+/// 「暂停/继续」；最后一题播完（或学生点「写完了」提前结束）自动进入
+/// 拍照批改页，两条路都有明确推进，无静默卡死。
+///
+/// 未答完 = 漏，照常流转（不特判，契约 todo11 决策 #12：听写无 App 内作答）。
 ///
 /// 红线：播报节奏与判分无关 —— 本页不上报任何 answer。
 library;
@@ -13,6 +17,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/providers.dart';
 import '../../core/theme/age_profile.dart';
 import '../../core/widgets/app_button.dart';
 import 'dictation_capture_page.dart';
@@ -29,6 +34,8 @@ class DictationPlayPage extends ConsumerStatefulWidget {
     this.returnRoute,
     /// 测试注入 fake TTS；为空则从 provider 取默认实现。
     this.tts,
+    /// 测试注入服务端设置；为空则进页面拉一次 `GET /api/settings`。
+    this.remoteSettings,
   });
 
   final List<DictationItem> items;
@@ -36,6 +43,12 @@ class DictationPlayPage extends ConsumerStatefulWidget {
   final String unitName;
   final String? returnRoute;
   final DictationTts? tts;
+
+  /// 服务端设置（dictation_hint / dictation_countdown_s，契约 v1.3）。
+  ///
+  /// 传 null = 进页面拉一次 `/api/settings`；任何失败（断网/无 ProviderScope）
+  /// 都回退 `zh` / 3，不炸（U17-1）。
+  final DictationRemoteSettings? remoteSettings;
 
   @override
   ConsumerState<DictationPlayPage> createState() => _DictationPlayPageState();
@@ -57,8 +70,17 @@ class _DictationPlayPageState extends ConsumerState<DictationPlayPage> {
   bool _paused = false;
   bool _finished = false;
   bool _speaking = false;
-  Timer? _gapTimer;
+  Timer? _tickTimer;
   int _speakSeq = 0; // 作废在途回调：重听/暂停/退出后旧的推进不再生效
+
+  /// 报词屏显语言（'zh' | 'en'），进页面拉取失败回退 zh（F17-1）。
+  String _hintLang = 'zh';
+
+  /// 报词后倒计时秒数，拉取失败回退 3（F17-2）。
+  int _countdownSeconds = DictationRemoteSettings.defaultCountdownSeconds;
+
+  /// 倒计时剩余秒数；0 = 未在倒数（正在报 / 已暂停 / 已结束）。
+  int _remaining = 0;
 
   @override
   void initState() {
@@ -66,6 +88,7 @@ class _DictationPlayPageState extends ConsumerState<DictationPlayPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         _speakCurrent();
+        _loadRemoteSettings();
       }
     });
   }
@@ -73,7 +96,7 @@ class _DictationPlayPageState extends ConsumerState<DictationPlayPage> {
   @override
   void dispose() {
     _speakSeq++;
-    _gapTimer?.cancel();
+    _tickTimer?.cancel();
     _providerTts?.dispose(); // 注入的（fake）由测试自己管
     super.dispose();
   }
@@ -83,12 +106,51 @@ class _DictationPlayPageState extends ConsumerState<DictationPlayPage> {
   String get _currentText =>
       widget.settings.readChinese ? _current.zh : _current.en;
 
-  /// 播当前题；播完后等间隔再推进。
+  /// 报词屏显（F17-1）：位于报词动画区下方。
+  String get _hintText => _hintLang == 'en' ? _current.en : _current.zh;
+
+  /// 拉服务端设置：注入优先；否则进听写拉一次（失败回退默认，不炸）。
+  Future<void> _loadRemoteSettings() async {
+    final injected = widget.remoteSettings;
+    if (injected != null) {
+      _applyRemoteSettings(injected);
+      return;
+    }
+    try {
+      final data = await ref
+          .read(apiClientProvider)
+          .get<Map<String, dynamic>>('/api/settings');
+      if (data != null && mounted) {
+        _applyRemoteSettings(DictationRemoteSettings.fromJson(data));
+      }
+    } on Object {
+      // 断网/解析失败：回退 zh / 3（U17-1 拉取失败回退不炸）。
+    }
+  }
+
+  void _applyRemoteSettings(DictationRemoteSettings remote) {
+    if (!mounted || _finished) {
+      return;
+    }
+    setState(() {
+      _hintLang = remote.hint;
+      _countdownSeconds = remote.countdownSeconds;
+    });
+    // 进听写拉取常在首个词的倒计时中途返回：取消在途倒数，从新值完整重数。
+    if (_remaining > 0) {
+      _startCountdown(_speakSeq);
+    }
+  }
+
+  /// 播当前题；播完后启动倒计时（F17-2），到点推进。
   Future<void> _speakCurrent() async {
-    _gapTimer?.cancel();
+    _tickTimer?.cancel();
     final seq = ++_speakSeq;
     if (mounted) {
-      setState(() => _speaking = true);
+      setState(() {
+        _speaking = true;
+        _remaining = 0;
+      });
     }
     try {
       await _tts.setLanguage(widget.settings.ttsLanguage);
@@ -107,7 +169,34 @@ class _DictationPlayPageState extends ConsumerState<DictationPlayPage> {
     if (mounted) {
       setState(() => _speaking = false);
     }
-    _gapTimer = Timer(Duration(seconds: widget.settings.intervalSeconds), _advance);
+    _startCountdown(seq);
+  }
+
+  /// 报词后 N 秒倒计时（F17-2）：每秒一跳，到 0 自动报下一个。
+  ///
+  /// 用「一秒一发」的一次性 Timer 链（而非 periodic），pause/重听/退出
+  /// 都是「取消当前 + 重新计时」一个语义。
+  void _startCountdown(int seq) {
+    _tickTimer?.cancel();
+    if (!mounted) {
+      return;
+    }
+    setState(() => _remaining = _countdownSeconds);
+    _tickTimer = Timer(const Duration(seconds: 1), () => _onTick(seq));
+  }
+
+  void _onTick(int seq) {
+    if (!mounted || _finished || _paused || seq != _speakSeq) {
+      return;
+    }
+    final next = _remaining - 1;
+    if (next <= 0) {
+      setState(() => _remaining = 0);
+      _advance();
+      return;
+    }
+    setState(() => _remaining = next);
+    _tickTimer = Timer(const Duration(seconds: 1), () => _onTick(seq));
   }
 
   /// 推进到下一题；最后一题 → 进拍照批改页。
@@ -126,12 +215,15 @@ class _DictationPlayPageState extends ConsumerState<DictationPlayPage> {
   /// 结束播报，进拍照批改页（替换本页，返回键不再回到播报）。
   void _goCapture() {
     _speakSeq++;
-    _gapTimer?.cancel();
+    _tickTimer?.cancel();
     _tts.stop();
     if (!mounted) {
       return;
     }
-    setState(() => _finished = true);
+    setState(() {
+      _finished = true;
+      _remaining = 0;
+    });
     Navigator.of(context).pushReplacement(
       MaterialPageRoute<void>(
         builder: (_) => DictationCapturePage(
@@ -160,11 +252,12 @@ class _DictationPlayPageState extends ConsumerState<DictationPlayPage> {
       _speakCurrent(); // 从当前题重新播起（不跳题、不计进度）
     } else {
       _speakSeq++;
-      _gapTimer?.cancel();
+      _tickTimer?.cancel();
       _tts.stop();
       setState(() {
         _paused = true;
         _speaking = false;
+        _remaining = 0;
       });
     }
   }
@@ -187,7 +280,9 @@ class _DictationPlayPageState extends ConsumerState<DictationPlayPage> {
                 Text('第 ${_index + 1} / $total 题', style: profile.pageTitleStyle),
                 const SizedBox(height: AgeProfile.elementGap / 2),
                 Text(
-                  _paused ? '已暂停' : (_speaking ? '正在报，写在本子上…' : '想好了就写下来'),
+                  _paused
+                      ? '已暂停'
+                      : (_speaking ? '正在报，写在本子上…' : '想好了就写下来'),
                   style: profile.captionStyle,
                 ),
                 const Spacer(),
@@ -195,6 +290,19 @@ class _DictationPlayPageState extends ConsumerState<DictationPlayPage> {
                   _paused ? Icons.pause_circle_outline_rounded : Icons.hearing_rounded,
                   size: 96,
                   color: profile.captionStyle.color,
+                ),
+                // F17-1：报词显示（报词动画区下方）。
+                const SizedBox(height: AgeProfile.elementGap / 2),
+                Text(
+                  _hintText,
+                  style: profile.cardTitleStyle.copyWith(fontSize: 28),
+                  textAlign: TextAlign.center,
+                ),
+                // F17-2：倒计时。
+                const SizedBox(height: AgeProfile.elementGap / 2),
+                Text(
+                  _remaining > 0 ? '$_remaining 秒后报下一个' : ' ',
+                  style: profile.captionStyle,
                 ),
                 const Spacer(),
                 Text('提示：纸上写好后点下面的按钮去拍照批改', style: profile.captionStyle),

@@ -193,8 +193,8 @@ class ASRError(Exception):
 PartialCallback = Callable[[str, int], None]              # (text, ts_ms)
 FinalCallback = Callable[[str, float | None, int], None]  # (text, confidence, duration_ms)
 #: 语句级「已确定」结果回调（非最终 final，但不再是抖动中的 partial）——
-#: 目前只有 LocalProvider 的 Vosk 拼读通道在用：念完一个字母停一下即触发一次，
-#: 让「看中文背英文」逐格判定不等 end（契约 §5 修订 v1.0.3，见 local_provider.py）。
+#: v1.3 §5：utterance 只透传回显（决策 #11）并累积为松开（end）后整词
+#: 判定 verdict 的转写来源（见 session_manager._spell_verdict）。
 UtteranceCallback = Callable[[str, int], None]            # (text, ts_ms)
 
 
