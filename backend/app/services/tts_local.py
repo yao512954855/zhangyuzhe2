@@ -29,10 +29,16 @@ logger = get_logger(__name__)
 
 _MODEL_ROOT = BASE_DIR / "models" / "tts"
 
-# lang -> 模型目录名（与 01 §3 模型清单一致）
+# lang -> 模型目录候选（按序尝试，第一个加载成功者生效；效果优先升级 2026-10-19）
+#   en-US：Kokoro-82M int8（音质代差提升）→ piper amy 兜底；zh-CN 仍 melo
+_MODEL_CANDIDATES: dict[str, list[str]] = {
+    "en-US": ["kokoro-int8-multi-lang-v1_1", "vits-piper-en_US-amy-medium"],
+    "zh-CN": ["vits-melo-tts-zh_en"],
+}
+
+# lang -> 主模型目录（探活提示/报错用）
 _MODEL_DIRS: dict[str, str] = {
-    "en-US": "vits-piper-en_US-amy-medium",
-    "zh-CN": "vits-melo-tts-zh_en",
+    lang: cands[0] for lang, cands in _MODEL_CANDIDATES.items()
 }
 
 # 单例：模型目录名 -> 已加载的 sherpa OfflineTts 实例（进程内单例，契约 §6）
@@ -43,15 +49,6 @@ _fail_until: dict[str, float] = {}
 _fail_lock = threading.Lock()
 
 _READY_TTL_S = 60.0
-
-
-def _model_dir(lang: str) -> Path:
-    name = _MODEL_DIRS.get(lang)
-    if not name:
-        raise ValueError(
-            f"本地 TTS 不支持语言 {lang!r}（可选：{', '.join(_MODEL_DIRS)}）"
-        )
-    return _MODEL_ROOT / name
 
 
 def _discover(model_dir: Path) -> tuple[str, str, str]:
@@ -95,6 +92,9 @@ def _load(model_dir: Path, name: str) -> Any:
     if not model_dir.is_dir():
         raise FileNotFoundError(f"模型目录不存在：{model_dir}")
 
+    if name.startswith("kokoro"):
+        return _load_kokoro(model_dir)
+
     onnx_path, tokens_path, data_dir = _discover(model_dir)
     # vits 系中文模型（melo）需要 lexicon + jieba dict_dir；piper 等无此文件传空即可
     lexicon = model_dir / "lexicon.txt"
@@ -118,36 +118,89 @@ def _load(model_dir: Path, name: str) -> Any:
     return tts
 
 
+def _load_kokoro(model_dir: Path) -> Any:
+    """Kokoro-82M int8 多语种（zh+en）加载（效果优先升级 2026-10-19）。
+
+    voices.bin 单文件打包全部音色，sid=0 为默认英文女声（af_heart）；
+    中文数字/日期归一走 rule_fsts（date/number/phone-zh.fst）。
+    """
+    import sherpa_onnx
+
+    model = model_dir / "model.int8.onnx"
+    voices = model_dir / "voices.bin"
+    tokens = model_dir / "tokens.txt"
+    for p in (model, voices, tokens):
+        if not p.is_file():
+            raise FileNotFoundError(f"Kokoro 模型文件缺失：{p}")
+    data_dir = model_dir / "espeak-ng-data"
+    if not data_dir.is_dir():
+        raise FileNotFoundError(f"Kokoro espeak-ng-data 缺失：{data_dir}")
+
+    lexicon = model_dir / "lexicon-us-en.txt"
+    dict_dir = model_dir / "dict"
+    rule_fsts = ",".join(
+        str(model_dir / f)
+        for f in ("date-zh.fst", "number-zh.fst", "phone-zh.fst")
+        if (model_dir / f).is_file()
+    )
+    kokoro = sherpa_onnx.OfflineTtsKokoroModelConfig(
+        model=str(model),
+        voices=str(voices),
+        tokens=str(tokens),
+        data_dir=str(data_dir),
+        lexicon=str(lexicon) if lexicon.is_file() else "",
+        dict_dir=str(dict_dir) if dict_dir.is_dir() else "",
+    )
+    config = sherpa_onnx.OfflineTtsConfig(
+        model=sherpa_onnx.OfflineTtsModelConfig(
+            kokoro=kokoro, num_threads=2, provider="cpu",
+        ),
+        rule_fsts=rule_fsts,
+    )
+    tts = sherpa_onnx.OfflineTts(config)
+    if not tts:
+        raise RuntimeError("sherpa OfflineTts 初始化返回空")
+    return tts
+
+
 def _ensure_engine(lang: str) -> Any:
-    """懒加载 + 双检锁 + 失败冷却。返回已加载的 OfflineTts 实例。"""
-    name = _MODEL_DIRS.get(lang)
-    if not name:
+    """懒加载 + 双检锁 + 失败冷却 + 候选回退。返回已加载的 OfflineTts 实例。"""
+    if lang not in _MODEL_DIRS:
         raise ValueError(
             f"本地 TTS 不支持语言 {lang!r}（可选：{', '.join(_MODEL_DIRS)}）"
         )
 
     # 失败冷却：60s 内不反复重试加载（防雪崩，契约 §6）
     with _fail_lock:
-        if _fail_until.get(name, 0.0) > time.monotonic():
-            raise RuntimeError(f"本地 TTS 引擎 {name} 冷却中（上次加载失败）")
+        if _fail_until.get(lang, 0.0) > time.monotonic():
+            raise RuntimeError(f"本地 TTS 引擎 {lang} 冷却中（上次加载失败）")
 
     # 双检锁：命中单例直接返回
-    inst = _engine.get(name)
+    inst = _engine.get(lang)
     if inst is not None:
         return inst
 
     with _engine_lock:
-        inst = _engine.get(name)
+        inst = _engine.get(lang)
         if inst is not None:
             return inst
-        try:
-            inst = _load(_model_dir(lang), name)
-        except Exception as exc:  # noqa: BLE001 - 加载失败交给路由层决定 50006
-            logger.warning("本地 TTS 引擎加载失败 %s: %s", name, exc)
+        # 候选按序尝试：Kokoro 缺失/加载失败 → piper 兜底
+        last_exc: Exception | None = None
+        for cand in _MODEL_CANDIDATES.get(lang, []):
+            try:
+                inst = _load(_MODEL_ROOT / cand, cand)
+                break
+            except Exception as exc:  # noqa: BLE001 - 记录后试下一候选
+                last_exc = exc
+                logger.warning("本地 TTS 候选引擎加载失败 %s：%s", cand, exc)
+                inst = None
+        if inst is None:
+            exc = last_exc or FileNotFoundError(f"本地 TTS 无可用引擎 lang={lang}")
+            logger.warning("本地 TTS 引擎加载失败 lang=%s：%s", lang, exc)
             with _fail_lock:
-                _fail_until[name] = time.monotonic() + _READY_TTL_S
-            raise
-        _engine[name] = inst
+                _fail_until[lang] = time.monotonic() + _READY_TTL_S
+            raise exc
+        _engine[lang] = inst
         return inst
 
 
@@ -215,7 +268,7 @@ def is_ready() -> tuple[bool, str]:
         return False, "模型文件缺失：" + "、".join(missing[:3]) + (
             "等" if len(missing) > 3 else ""
         )
-    return True, "piper en_US-amy-medium + melo-zh_en"
+    return True, "kokoro-82M-int8（英文，兜底 piper）+ melo-zh_en"
 
 
 def _register_specs() -> None:
@@ -247,7 +300,7 @@ def _register_specs() -> None:
             files.append(str(d / "model.onnx"))
 
     detail = (
-        "piper en_US-amy-medium + melo-zh_en"
+        "kokoro-82M-int8（英文，兜底 piper）+ melo-zh_en"
         if ready_dirs == len(_MODEL_DIRS)
         else "本地 TTS 模型未就绪"
     )

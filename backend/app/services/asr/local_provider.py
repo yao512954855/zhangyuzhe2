@@ -28,6 +28,7 @@ small int8**（zh-en-ja-ko-yue，16k，离线非流式）。provider 本就「�
 from __future__ import annotations
 
 import json
+import re
 import threading
 from typing import Any
 
@@ -47,6 +48,7 @@ logger = get_logger(__name__)
 
 VOSK_MODEL_PREFIX = "vosk-model-small-en-us"
 SHERPA_MODEL_PREFIX = "sherpa-onnx-sense-voice-zh-en-ja-ko-yue"
+WHISPER_DIR_NAME = "sherpa-onnx-whisper-small.en"
 
 LETTERS = [chr(ord("a") + i) for i in range(26)]
 GRAMMAR = json.dumps(LETTERS)                       # Vosk 锁死 26 字母
@@ -66,6 +68,8 @@ _MODEL_SPECS_FILES = [
     "models/asr/vosk-model-small-en-us-0.15/am/final.mdl",
     "models/asr/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/"
     "model.int8.onnx",
+    "models/asr/sherpa-onnx-whisper-small.en/small.en-encoder.int8.onnx",
+    "models/asr/sherpa-onnx-whisper-small.en/small.en-decoder.int8.onnx",
 ]
 
 
@@ -76,6 +80,12 @@ def _asr_model_dirs() -> tuple[Any, Any]:
     sherpa = next((p for p in asr.iterdir()
                    if p.is_dir() and p.name.startswith(SHERPA_MODEL_PREFIX)), None)
     return vosk, sherpa
+
+
+def _whisper_model_dir() -> Any:
+    asr = BASE_DIR / "models" / "asr"
+    return next((p for p in asr.iterdir()
+                 if p.is_dir() and p.name == WHISPER_DIR_NAME), None)
 
 
 # ---------------------------------------------------------------------------
@@ -139,6 +149,37 @@ def _load_sherpa_rec() -> Any:
         )
         logger.info("SenseVoice 模型已加载：%s", sherpa_dir.name)
     return _sherpa_rec
+
+
+#: Whisper 判分单例（效果优先升级 2026-10-19）：小模型缺失 → None（回退 Vosk），
+#: **不**抛 50006——在线拼读链路仍由 Vosk 支撑，whisper 只参与重听判分。
+_whisper_rec: Any = None
+
+
+def _load_whisper_rec() -> Any:
+    """whisper-small.en int8 OfflineRecognizer 单例（仅 offline_decode 用）。"""
+    global _whisper_rec
+    if _whisper_rec is not None:
+        return _whisper_rec
+    with _model_lock:
+        if _whisper_rec is not None:
+            return _whisper_rec
+        wdir = _whisper_model_dir()
+        if wdir is None:
+            return None
+        enc = wdir / "small.en-encoder.int8.onnx"
+        dec = wdir / "small.en-decoder.int8.onnx"
+        tokens = wdir / "small.en-tokens.txt"
+        if not (enc.is_file() and dec.is_file() and tokens.is_file()):
+            return None
+        import sherpa_onnx
+
+        _whisper_rec = sherpa_onnx.OfflineRecognizer.from_whisper(
+            encoder=str(enc), decoder=str(dec), tokens=str(tokens),
+            num_threads=2, provider="cpu",
+        )
+        logger.info("Whisper 判分模型已加载：%s", wdir.name)
+    return _whisper_rec
 
 
 # ---------------------------------------------------------------------------
@@ -360,6 +401,10 @@ class LocalProvider(ASRProvider):
         拿完整上下文重新解码一遍，显著更准。判分侧 session_manager 两边
         择优：重听为主、流式累积兜底，任一命中目标即判对；两遍皆错才判错。
 
+        效果优先升级（2026-10-19）：判分引擎 Vosk → **whisper-small.en
+        int8**（sherpa 离线，完整上下文强于 26 字母 grammar 的小模型）。
+        whisper 缺失/异常时回退 Vosk 整段重解码，行为与旧版一致。
+
         输入是 push_audio 捕获的**降噪后** PCM（与实时链路同一预处理）；
         非 spell 通道 / 无素材 / 解码异常一律返回空串 → 判分侧自动回退
         流式累积，行为与旧版一致。
@@ -369,6 +414,11 @@ class LocalProvider(ASRProvider):
         buf = bytes(getattr(self, "_offline_buf", b""))
         if not buf:
             return ""
+        # ① whisper 判分（完整上下文，标点/大小写在本地归一化）
+        text = self._whisper_decode(buf)
+        if text:
+            return text
+        # ② 回退：Vosk 整段重解码（旧版逻辑，whisper 缺失/异常时到达）
         try:
             rec = self._new_vosk_recognizer(_load_vosk_model())
             texts: list[str] = []
@@ -384,6 +434,27 @@ class LocalProvider(ASRProvider):
             return " ".join(texts).strip()
         except Exception as exc:  # noqa: BLE001
             logger.warning("离线重解码失败，回退流式累积：%s", exc)
+            return ""
+
+    @staticmethod
+    def _whisper_decode(pcm16: bytes) -> str:
+        """whisper 离线解码降噪后整段 PCM；不可用/异常 → 空串（调用方回退）。"""
+        rec = _load_whisper_rec()
+        if rec is None:
+            return ""
+        try:
+            f32 = (np.frombuffer(pcm16, dtype=np.int16).astype(np.float32)
+                   / 32768.0)
+            stream = rec.create_stream()
+            stream.accept_waveform(16000, f32)
+            rec.decode_stream(stream)
+            text = stream.result.text
+            # whisper 会输出标点/大小写（如 'B. O. O. K.'），judge.to_letters
+            # 的 _key 只做小写与空白归一，标点必须在此剥掉，否则 token 匹配
+            # 全部落空（'b.' ≠ 'b'）。
+            return " ".join(re.sub(r"[^a-zA-Z ]", " ", text).split()).lower()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("whisper 离线解码异常，回退 Vosk 重解码：%s", exc)
             return ""
 
     async def close(self) -> None:
@@ -431,5 +502,6 @@ register_model_spec(
     "asr",
     imports=["vosk", "sherpa_onnx"],
     files=_MODEL_SPECS_FILES,
-    detail="vosk-small-en-us-0.15（字母拼读） + sensevoice-small-int8（中英转写，契约修订 v1.0.2）",
+    detail="vosk-small-en-us-0.15（字母拼读实时回显） + sensevoice-small-int8（中英转写）"
+           " + whisper-small.en-int8（重听判分，效果优先升级）",
 )

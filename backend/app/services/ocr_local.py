@@ -23,28 +23,51 @@ logger = get_logger(__name__)
 _engine: Any = None
 _engine_lock = threading.Lock()
 
-# 在能力框架登记 OCR 本地引擎（批次 C）：包内置 PP-OCRv4 mobile，无需单独模型文件。
-# ready 判定 = rapidocr_onnxruntime 可 import（import 成功即视为就绪）。
+# 在能力框架登记 OCR 本地引擎：PP-OCRv5 server 检测+识别（models/ocr 下自备
+# onnx，2026-10-19 效果优先升级，手写识别率显著高于旧 mobile 版）；
+# cls 用包内自带 mobile 模型（无需单独下载）。模型缺失 → 回落包默认
+# v5 mobile。ready 判定 = rapidocr 可 import + 主模型文件在盘。
 from app.core.capability import register_model_spec  # noqa: E402
+from app.core.config import BASE_DIR  # noqa: E402
+
+_OCR_MODEL_DIR = BASE_DIR / "models" / "ocr"
+_OCR_DET = _OCR_MODEL_DIR / "ch_PP-OCRv5_det_server.onnx"
+_OCR_REC = _OCR_MODEL_DIR / "ch_PP-OCRv5_rec_server.onnx"
 
 register_model_spec(
     "ocr",
-    imports=["rapidocr_onnxruntime"],
-    files=[],
-    detail="PP-OCRv4 mobile（包内置）",
+    imports=["rapidocr"],
+    files=[str(_OCR_DET), str(_OCR_REC)],
+    detail="PP-OCRv5 server（models/ocr，手写增强；缺失回落 v5 mobile）",
 )
 
 
 def _get_engine() -> Any:
-    """懒加载 RapidOCR 单例（双检锁）。加载/导入失败向上抛，由路由层兜底。"""
+    """懒加载 RapidOCR 单例（双检锁）。加载/导入失败向上抛，由路由层兜底。
+
+    效果优先升级（2026-10-19）：优先 rapidocr 3.x + PP-OCRv5 server
+    det/rec（models/ocr 下 onnx 自备，手写识别率高于旧 mobile 版）；
+    模型文件缺失时回落包默认 v5 mobile。
+    """
     global _engine
     if _engine is None:
         with _engine_lock:
             if _engine is None:
-                from rapidocr_onnxruntime import RapidOCR
+                from rapidocr import RapidOCR
 
-                logger.info("加载本地 OCR 引擎 RapidOCR（PP-OCRv4 mobile）……")
-                _engine = RapidOCR()
+                if _OCR_DET.is_file() and _OCR_REC.is_file():
+                    logger.info("加载本地 OCR 引擎 RapidOCR（PP-OCRv5 server）……")
+                    _engine = RapidOCR(
+                        params={
+                            "Det.model_path": str(_OCR_DET),
+                            "Rec.model_path": str(_OCR_REC),
+                        }
+                    )
+                else:
+                    logger.info(
+                        "models/ocr 缺 v5 server 模型，回落 RapidOCR 默认（v5 mobile）……"
+                    )
+                    _engine = RapidOCR()
     return _engine
 
 
@@ -89,13 +112,21 @@ class LocalOcrClient:
 def _extract_items(result: Any) -> list[tuple[Any, Any, Any]]:
     """把 RapidOCR 返回归一成 [(box, text, score), ...]。
 
+    - RapidOCROutput（rapidocr 3.x，属性 boxes/txts/scores）
     - 2 元组 (results, scores)：results 每项 = [box, text, score_str]
-      （RapidOCR 1.2.x 实测形态，score 为字符串）
-    - 3 元组 (boxes, txts, scores)：旧版形态
+      （rapidocr_onnxruntime 1.2.x 旧形态，score 为字符串）
+    - 3 元组 (boxes, txts, scores)：更旧形态
     - None / 空：无文本
     """
     if not result:
         return []
+    txts = getattr(result, "txts", None)
+    if txts is not None:  # RapidOCROutput（rapidocr 3.x）
+        boxes = getattr(result, "boxes", None)
+        scores = getattr(result, "scores", None)
+        if boxes is None or not txts:
+            return []
+        return list(zip(boxes, txts, scores or [1.0] * len(txts)))
     if len(result) == 3:
         boxes, txts, scores = result
         if not boxes:
