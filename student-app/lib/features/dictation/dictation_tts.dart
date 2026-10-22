@@ -27,6 +27,9 @@ abstract interface class DictationTts {
   /// 设置朗读语言（'zh-CN' / 'en-US'）。
   Future<void> setLanguage(String language);
 
+  /// 设置语速（0.0~1.0，todo13 #5：来自管理端 dictation_speech_rate/100）。
+  Future<void> setSpeechRate(double rate);
+
   /// 朗读文本；awaitSpeakCompletion 开启时 future 在读完才完成。
   Future<void> speak(String text);
 
@@ -70,6 +73,16 @@ class FlutterTtsAdapter implements DictationTts {
       await _tts.setLanguage(language);
     } catch (_) {
       // 个别机型缺语言包会抛错；不阻断流程（系统会退回默认语言）。
+    }
+  }
+
+  @override
+  Future<void> setSpeechRate(double rate) async {
+    await _ensureConfigured();
+    try {
+      await _tts.setSpeechRate(rate.clamp(0.0, 1.0));
+    } catch (_) {
+      // 个别机型引擎不支持语速调节；不阻断流程（退回引擎默认语速）。
     }
   }
 
@@ -134,6 +147,12 @@ class CloudTtsPlayer implements DictationTts {
   @override
   Future<void> setLanguage(String language) async {
     _lang = language;
+  }
+
+  @override
+  Future<void> setSpeechRate(double rate) async {
+    // 云端合成走服务端 qwen3-tts（无语速参数下发，todo13 #5 范围外）；
+    // 设备不可用属兜底场景，保持引擎默认语速即可。
   }
 
   @override
@@ -213,6 +232,12 @@ class ResilientTts implements DictationTts {
   Future<void> setLanguage(String language) async {
     await device.setLanguage(language);
     await cloud.setLanguage(language);
+  }
+
+  @override
+  Future<void> setSpeechRate(double rate) async {
+    await device.setSpeechRate(rate);
+    await cloud.setSpeechRate(rate);
   }
 
   @override

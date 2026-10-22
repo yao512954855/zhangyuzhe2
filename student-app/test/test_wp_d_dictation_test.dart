@@ -47,6 +47,9 @@ class FakeTts implements DictationTts {
   }
 
   @override
+  Future<void> setSpeechRate(double rate) async {}
+
+  @override
   Future<void> speak(String text) async {
     spoken.add(text);
   }

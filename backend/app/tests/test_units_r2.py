@@ -65,6 +65,19 @@ def _mk_item(client: TestClient, unit_id: int, type_: str, en: str, zh: str) -> 
     return r.json()["data"]["id"]
 
 
+def _mk_item_raw(unit_id: int, type_: str, en: str, zh: str) -> None:
+    """直插 DB 挂内容到一级单元（todo13 #1 叶节点校验后 API 已禁止一级录内容，
+    但 counts「自身+二级汇总」逻辑对存量数据仍需成立，本 helper 用于覆盖该防御逻辑）。"""
+    from app.core.db import utc_now_iso, write_tx
+
+    with write_tx() as conn:
+        conn.execute(
+            "INSERT INTO items (unit_id, type, en, pos, zh, alt_zh, sort, created_at)"
+            " VALUES (?, ?, ?, '', ?, '', 0, ?)",
+            (unit_id, type_, en, zh, utc_now_iso()),
+        )
+
+
 def _find(tree: list[dict], unit_id: int) -> dict | None:
     for root in tree:
         if root["id"] == unit_id:
@@ -86,13 +99,13 @@ def test_u11_4_two_level_tree_counts(client: TestClient):
     a1 = _mk_unit(client, "Unit 1", sort=1, parent_id=a)
     a2 = _mk_unit(client, "Unit 2", sort=2, parent_id=a)
 
-    # A 自身 1 word；A1 挂 2 word + 1 phrase；A2 挂 1 sentence
-    _mk_item(client, a, "word", "self", "自身")
+    # A 自身 1 word（存量场景，直插）；A1 挂 2 word + 1 phrase；A2 挂 1 sentence
+    _mk_item_raw(a, "word", "self", "自身")
     _mk_item(client, a1, "word", "apple", "苹果")
     _mk_item(client, a1, "word", "cat", "猫")
     _mk_item(client, a1, "phrase", "good morning", "早上好")
     _mk_item(client, a2, "sentence", "I am a boy.", "我是一个男孩。")
-    _mk_item(client, b, "word", "dog", "狗")
+    _mk_item_raw(b, "word", "dog", "狗")
 
     r = client.get("/api/units")
     assert r.status_code == 200 and r.json()["code"] == 0
@@ -152,7 +165,7 @@ def test_u11_6_put_move_between_parents(client: TestClient):
     b = _mk_unit(client, "U11-6 B", sort=21)
     a1 = _mk_unit(client, "U11-6 A1", sort=1, parent_id=a)
     _mk_item(client, a1, "word", "move", "移动")
-    _mk_item(client, a, "word", "stay", "留下")
+    _mk_item_raw(a, "word", "stay", "留下")  # 一级存量内容（直插，见 helper 注释）
 
     # 移动前：A counts 含 A1
     tree = client.get("/api/units").json()["data"]

@@ -6,7 +6,17 @@
  */
 import { api, newIdempotencyKey } from './client'
 
-import type { ItemImportResult, ItemListQuery, ItemRow, ItemSavePayload, ItemUpdatePayload, ItemType, PageResult } from './types'
+import type {
+  ItemBatchDeleteResult,
+  ItemBatchMoveResult,
+  ItemImportResult,
+  ItemListQuery,
+  ItemRow,
+  ItemSavePayload,
+  ItemUpdatePayload,
+  ItemType,
+  PageResult,
+} from './types'
 
 // ---------------------------------------------------------------------------
 // 枚举与 UI 映射（契约 §7：英文值全局唯一，中文只在 UI 层）
@@ -47,6 +57,32 @@ export function deleteItem(id: number): Promise<void> {
   return api.delete<void>(`/items/${id}`)
 }
 
+/** `POST /api/items/batch-delete` {ids}（todo13 #2）。 */
+export function batchDeleteItems(ids: number[]): Promise<ItemBatchDeleteResult> {
+  return api.post<ItemBatchDeleteResult>('/items/batch-delete', { ids })
+}
+
+/** `POST /api/items/batch-move` {ids, target_unit_id}（todo13 #2）。 */
+export function batchMoveItems(ids: number[], targetUnitId: number): Promise<ItemBatchMoveResult> {
+  return api.post<ItemBatchMoveResult>('/items/batch-move', {
+    ids,
+    target_unit_id: targetUnitId,
+  })
+}
+
+/** `POST /api/items/import-text`（todo13 #4 竖线粘贴导入）。 */
+export function importTextItems(
+  text: string,
+  unitId: number,
+  type: ItemType,
+): Promise<ItemImportResult> {
+  return api.post<ItemImportResult>('/items/import-text', {
+    text,
+    unit_id: unitId,
+    type,
+  })
+}
+
 // ---------------------------------------------------------------------------
 // Excel 导入 / 导出 / 模板
 // ---------------------------------------------------------------------------
@@ -61,14 +97,17 @@ export function importItems(file: File, unitId: number, type: ItemType): Promise
   return api.post<ItemImportResult>('/items/import', form, { timeout: 60000 })
 }
 
-/** `GET /api/items/export?unit_id&type` → xlsx 二进制（列：英文|词性|中文|其他可接受答案）。 */
-export async function exportItems(unitId: number, type: ItemType): Promise<void> {
+/**
+ * `GET /api/items/export?unit_id` → xlsx 二进制（todo13 #3：导出**整个选中分类**
+ * 的单词/词组/短句混导，带「类型」列；不再按类型细分）。
+ */
+export async function exportItems(unitId: number): Promise<void> {
   const blob = await api.get<Blob>('/items/export', {
-    params: { unit_id: unitId, type },
+    params: { unit_id: unitId },
     responseType: 'blob',
     timeout: 60000,
   })
-  saveBlob(blob, `items-${type}.xlsx`)
+  saveBlob(blob, `items-${unitId}.xlsx`)
 }
 
 /** `GET /api/items/import-template` → xlsx 二进制（表头 + 1 行示例）。 */

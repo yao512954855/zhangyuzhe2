@@ -21,6 +21,12 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/content/ItemTable.vue'),
     meta: { title: '内容录入', icon: 'EditPen', order: 20, group: '内容录入' },
   },
+  {
+    path: '/items/quick-import',
+    name: 'items-quick-import',
+    component: () => import('@/views/content/QuickImport.vue'),
+    meta: { title: '快速导入', icon: 'Paste', order: 21, group: '内容录入' },
+  },
 ]
 
 export default routes

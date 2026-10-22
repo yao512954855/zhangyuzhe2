@@ -18,6 +18,8 @@ import UnitTree from '@/components/UnitTree.vue'
 import {
   ITEM_TYPES,
   ITEM_TYPE_LABEL,
+  batchDeleteItems,
+  batchMoveItems,
   createItem,
   deleteItem,
   downloadImportTemplate,
@@ -26,6 +28,7 @@ import {
   listItems,
   updateItem,
 } from '@/api/items'
+import { isLeafUnit } from '@/api/types'
 import type { ItemImportResult, ItemRow, ItemType, UnitNode } from '@/api/types'
 
 // ---------------------------------------------------------------------------
@@ -55,8 +58,12 @@ const appliedKeyword = ref('')
 /** 页头副标题。 */
 const subtitle = computed(() => {
   if (!selectedUnit.value) return '先在左侧选择单元'
-  return `${selectedUnit.value.name} · ${ITEM_TYPE_LABEL[activeType.value]}`
+  const leafHint = isLeafUnit(selectedUnit.value) ? '' : '（有下级分类，不能录入内容）'
+  return `${selectedUnit.value.name} · ${ITEM_TYPE_LABEL[activeType.value]}${leafHint}`
 })
+
+/** 当前选中是否末级分类（todo13 #1：非叶节点不能录入/导入内容）。 */
+const selectedIsLeaf = computed(() => isLeafUnit(selectedUnit.value))
 
 // ---------------------------------------------------------------------------
 // 行内编辑 / 新增
@@ -96,6 +103,10 @@ function rowClassName({ row }: { row: EditableRow }): string {
 function startCreate(): void {
   if (!selectedUnit.value) {
     ElMessage.warning('请先在左侧选择单元')
+    return
+  }
+  if (!selectedIsLeaf.value) {
+    ElMessage.warning('该分类下有下级分类，请选择末级分类后再录入内容')
     return
   }
   cancelEdit()
@@ -268,6 +279,10 @@ function pickImportFile(): void {
     ElMessage.warning('请先在左侧选择单元')
     return
   }
+  if (!selectedIsLeaf.value) {
+    ElMessage.warning('该分类下有下级分类，请选择末级分类后再导入内容')
+    return
+  }
   fileInputRef.value?.click()
 }
 
@@ -294,7 +309,8 @@ async function doExport(): Promise<void> {
   if (!selectedUnit.value) return
   busy.value = true
   try {
-    await exportItems(selectedUnit.value.id, activeType.value)
+    // todo13 #3：导出选中分类的**全部类型**（混导带「类型」列），不再按 tab 细分
+    await exportItems(selectedUnit.value.id)
   } catch {
     // 统一提示
   } finally {
@@ -319,15 +335,117 @@ onActivated(() => {
   treeRef.value?.refresh()
   if (selectedUnit.value) load()
 })
+
+// ---------------------------------------------------------------------------
+// 批量删除 / 批量移动（todo13 #2）
+// ---------------------------------------------------------------------------
+
+/** 勾选的条目 id（仅真实行，新增草稿行 selectable=false 不会进）。 */
+const selectedIds = ref<number[]>([])
+
+function handleSelectionChange(rows: ItemRow[]): void {
+  selectedIds.value = rows.map((r) => r.id)
+}
+
+/** 清空勾选（批量栏「取消勾选」）。 */
+function clearSelection(): void {
+  selectedIds.value = []
+}
+
+async function doBatchDelete(): Promise<void> {
+  const ids = selectedIds.value
+  if (ids.length === 0) return
+  try {
+    await ElMessageBox.confirm(`删除选中的 ${ids.length} 条内容？该操作不可恢复。`, '批量删除', {
+      type: 'warning',
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+    })
+  } catch {
+    return
+  }
+
+  busy.value = true
+  try {
+    const result = await batchDeleteItems(ids)
+    ElMessage.success(
+      result.missing.length > 0
+        ? `已删除 ${result.deleted} 条，${result.missing.length} 条不存在`
+        : `已删除 ${result.deleted} 条`,
+    )
+    selectedIds.value = []
+    await load()
+    treeRef.value?.refresh()
+  } catch {
+    // 统一提示
+  } finally {
+    busy.value = false
+  }
+}
+
+// 批量移动弹窗的 v-model 载体（handleMoveTargetSelect 同步拿到对象）
+const moveTargetId = ref<number | null>(null)
+
+// 批量移动：弹窗里用 UnitTree 选目标分类（必须是末级分类）
+const moveDialogVisible = ref(false)
+const moveTarget = ref<UnitNode | null>(null)
+
+function openBatchMove(): void {
+  if (selectedIds.value.length === 0) return
+  moveTarget.value = null
+  moveTargetId.value = null
+  moveDialogVisible.value = true
+}
+
+function handleMoveTargetSelect(unit: UnitNode): void {
+  moveTarget.value = unit
+}
+
+async function submitBatchMove(): Promise<void> {
+  if (!moveTarget.value) {
+    ElMessage.warning('请先在左侧选择目标分类')
+    return
+  }
+  if (!isLeafUnit(moveTarget.value)) {
+    ElMessage.warning('目标分类下有下级分类，请选择末级分类')
+    return
+  }
+  if (selectedUnit.value && moveTarget.value.id === selectedUnit.value.id) {
+    ElMessage.warning('目标分类就是当前分类，无需移动')
+    return
+  }
+
+  busy.value = true
+  try {
+    const result = await batchMoveItems(selectedIds.value, moveTarget.value.id)
+    const hint =
+      result.skipped.length > 0
+        ? `已移动 ${result.moved} 条，${result.skipped.length} 条因目标分类已有同名内容跳过`
+        : `已移动 ${result.moved} 条`
+    ElMessage.success(hint)
+    moveDialogVisible.value = false
+    selectedIds.value = []
+    await load()
+    treeRef.value?.refresh() // 两个分类的 counts 都变了
+  } catch {
+    // 统一提示（含目标非叶 10001 兜底）
+  } finally {
+    busy.value = false
+  }
+}
 </script>
 
 <template>
   <div class="admin-page">
     <PageHeader title="内容录入" :subtitle="subtitle">
       <el-button :disabled="!selectedUnit" @click="doDownloadTemplate">模板下载</el-button>
-      <el-button :disabled="!selectedUnit" @click="doExport">导出 Excel</el-button>
-      <el-button type="primary" :disabled="!selectedUnit" @click="pickImportFile">Excel 导入</el-button>
-      <el-button type="primary" @click="startCreate">新增一行</el-button>
+      <el-button :disabled="!selectedUnit" @click="doExport">导出 Excel（全部类型）</el-button>
+      <el-button
+        type="primary"
+        :disabled="!selectedUnit || !selectedIsLeaf"
+        @click="pickImportFile"
+      >Excel 导入</el-button>
+      <el-button type="primary" :disabled="!selectedIsLeaf" @click="startCreate">新增一行</el-button>
     </PageHeader>
 
     <input
@@ -382,6 +500,18 @@ onActivated(() => {
           </template>
 
           <template v-else>
+            <!-- 批量操作栏（todo13 #2）：有勾选才出现 -->
+            <div v-if="selectedIds.length > 0" class="item-table__batch-bar">
+              <span>已选 {{ selectedIds.length }} 条</span>
+              <el-button type="danger" size="small" :disabled="busy" @click="doBatchDelete">
+                批量删除
+              </el-button>
+              <el-button type="primary" size="small" :disabled="busy" @click="openBatchMove">
+                批量移动到…
+              </el-button>
+              <el-button size="small" @click="clearSelection">取消勾选</el-button>
+            </div>
+
             <LoadingBox :loading="loading" :has-data="loadedOnce" :rows="8">
               <el-table
                 :data="tableData"
@@ -390,7 +520,14 @@ onActivated(() => {
                 size="small"
                 v-loading="busy"
                 :row-class-name="rowClassName"
+                @selection-change="handleSelectionChange"
               >
+                <el-table-column
+                  type="selection"
+                  width="42"
+                  :selectable="(row: EditableRow) => row.id !== 0"
+                />
+
                 <el-table-column label="英文" min-width="180">
                   <template #default="{ row }">
                     <el-input v-if="row.id === 0" v-model="createDraft.en" size="small" placeholder="必填" />
@@ -460,6 +597,22 @@ onActivated(() => {
       </el-col>
     </el-row>
 
+    <!-- 批量移动弹窗（todo13 #2）：左侧选目标分类，必须是末级 -->
+    <el-dialog v-model="moveDialogVisible" title="批量移动" width="480px" :close-on-click-modal="false">
+      <el-alert
+        type="info"
+        :closable="false"
+        show-icon
+        title="在下方选择目标分类（必须是末级分类）；目标已有同名内容的行为自动跳过"
+        class="item-table__move-alert"
+      />
+      <UnitTree v-model="moveTargetId" @select="handleMoveTargetSelect" />
+      <template #footer>
+        <el-button @click="moveDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="busy" @click="submitBatchMove">移动</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 导入结果弹窗（U8） -->
     <el-dialog v-model="importResultVisible" title="导入结果" width="520px">
       <template v-if="importResult">
@@ -525,6 +678,21 @@ onActivated(() => {
 
 .item-table__file-input {
   display: none;
+}
+
+.item-table__batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  border-radius: 8px;
+  background: var(--el-color-primary-light-9);
+  font-size: 13px;
+}
+
+.item-table__move-alert {
+  margin-bottom: 10px;
 }
 
 .item-table__en {

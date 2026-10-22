@@ -85,10 +85,15 @@ class DictationRemoteSettings {
   const DictationRemoteSettings({
     this.hint = 'zh',
     this.countdownSeconds = defaultCountdownSeconds,
+    this.speechRate = defaultSpeechRate,
   });
 
   /// 倒计时回退值（契约 §4.1：dictation_countdown_s 值域 1~10）。
   static const int defaultCountdownSeconds = 3;
+
+  /// 报词语速回退值（todo13 #5：管理端 dictation_speech_rate 0~100，
+  /// App 换算 flutter_tts setSpeechRate = 值/100；默认 45 = 中速偏慢）。
+  static const double defaultSpeechRate = 0.45;
 
   /// 报词屏显语言：`zh` = 中文释义，`en` = 英文（回退 zh）。
   final String hint;
@@ -96,14 +101,22 @@ class DictationRemoteSettings {
   /// 报词后 N 秒倒计时自动报下一个（1~10）。
   final int countdownSeconds;
 
+  /// 报词 TTS 语速（0.0~1.0；来自管理端设置，拉取失败用默认值）。
+  final double speechRate;
+
   factory DictationRemoteSettings.fromJson(Map<String, dynamic> json) {
     final rawHint = json['dictation_hint']?.toString() ?? 'zh';
     final seconds =
         (json['dictation_countdown_s'] as num?)?.toInt() ??
             defaultCountdownSeconds;
+    final rate = (json['dictation_speech_rate'] as num?)?.toDouble();
     return DictationRemoteSettings(
       hint: rawHint == 'en' ? 'en' : 'zh',
       countdownSeconds: seconds.clamp(1, 10),
+      speechRate: rate == null
+          ? defaultSpeechRate
+          // 后端域 0~100，异常值一并兜到默认（正常不会走到）
+          : (rate / 100).clamp(0.1, 1.0),
     );
   }
 

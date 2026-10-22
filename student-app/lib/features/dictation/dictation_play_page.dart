@@ -79,6 +79,9 @@ class _DictationPlayPageState extends ConsumerState<DictationPlayPage> {
   /// 报词后倒计时秒数，拉取失败回退 3（F17-2）。
   int _countdownSeconds = DictationRemoteSettings.defaultCountdownSeconds;
 
+  /// 报词 TTS 语速（todo13 #5），拉取失败回退 0.45（中速偏慢）。
+  double _speechRate = DictationRemoteSettings.defaultSpeechRate;
+
   /// 倒计时剩余秒数；0 = 未在倒数（正在报 / 已暂停 / 已结束）。
   int _remaining = 0;
 
@@ -87,7 +90,8 @@ class _DictationPlayPageState extends ConsumerState<DictationPlayPage> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        _speakCurrent();
+        // todo13 #5：先取设置再报词 —— 第一题就要用上管理端语速；
+        // _loadRemoteSettings 无论成败都会兜底调 _speakCurrent。
         _loadRemoteSettings();
       }
     });
@@ -110,10 +114,12 @@ class _DictationPlayPageState extends ConsumerState<DictationPlayPage> {
   String get _hintText => _hintLang == 'en' ? _current.en : _current.zh;
 
   /// 拉服务端设置：注入优先；否则进听写拉一次（失败回退默认，不炸）。
+  /// 无论成败，最后都会启动首题报读（todo13 #5：保证首题带正确语速）。
   Future<void> _loadRemoteSettings() async {
     final injected = widget.remoteSettings;
     if (injected != null) {
       _applyRemoteSettings(injected);
+      _speakCurrent();
       return;
     }
     try {
@@ -124,7 +130,10 @@ class _DictationPlayPageState extends ConsumerState<DictationPlayPage> {
         _applyRemoteSettings(DictationRemoteSettings.fromJson(data));
       }
     } on Object {
-      // 断网/解析失败：回退 zh / 3（U17-1 拉取失败回退不炸）。
+      // 断网/解析失败：回退 zh / 3 / 0.45（U17-1 拉取失败回退不炸）。
+    }
+    if (mounted && !_finished) {
+      _speakCurrent();
     }
   }
 
@@ -135,6 +144,7 @@ class _DictationPlayPageState extends ConsumerState<DictationPlayPage> {
     setState(() {
       _hintLang = remote.hint;
       _countdownSeconds = remote.countdownSeconds;
+      _speechRate = remote.speechRate;
     });
     // 进听写拉取常在首个词的倒计时中途返回：取消在途倒数，从新值完整重数。
     if (_remaining > 0) {
@@ -154,6 +164,9 @@ class _DictationPlayPageState extends ConsumerState<DictationPlayPage> {
     }
     try {
       await _tts.setLanguage(widget.settings.ttsLanguage);
+      // todo13 #5：报词语速走管理端设置（默认 0.45 中速偏慢）——
+      // 此前没设语速，吃各机型系统 TTS 默认值，部分机型默认偏快、吐词含糊
+      await _tts.setSpeechRate(_speechRate);
       await _tts.speak(_currentText);
     } catch (_) {
       // TTS 故障不静默卡死：给出提示，学生可点「重听当前题」重试。

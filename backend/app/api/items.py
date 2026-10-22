@@ -16,7 +16,7 @@ from fastapi.responses import Response as FastAPIResponse
 
 from app.core.pagination import parse_pagination
 from app.core.response import ok, page
-from app.schemas.simplify import ItemCreate, ItemUpdate
+from app.schemas.simplify import ItemBatchDelete, ItemBatchMove, ItemCreate, ItemTextImport, ItemUpdate
 from app.services import item_service
 
 router = APIRouter(tags=["items"])
@@ -72,6 +72,28 @@ async def import_items(
 ) -> dict:
     raw = await file.read()
     return ok(item_service.import_items(raw, unit_id=unit_id, item_type=type))
+
+
+@router.post("/api/items/batch-delete")
+async def batch_delete_items(body: ItemBatchDelete) -> dict:
+    """todo13 #2：{ids} → {deleted, missing}。"""
+    return ok(item_service.batch_delete(body.ids))
+
+
+@router.post("/api/items/batch-move")
+async def batch_move_items(body: ItemBatchMove) -> dict:
+    """todo13 #2：{ids, target_unit_id} → {moved, skipped:[{id,reason}]}。"""
+    return ok(
+        item_service.batch_move(body.ids, target_unit_id=body.target_unit_id)
+    )
+
+
+@router.post("/api/items/import-text")
+async def import_text_items(body: ItemTextImport) -> dict:
+    """todo13 #4：竖线粘贴导入 {text, unit_id, type} → {inserted, duplicated, failed}。"""
+    return ok(
+        item_service.import_text(body.text, unit_id=body.unit_id, item_type=body.type)
+    )
 
 
 @router.get("/api/items/export")

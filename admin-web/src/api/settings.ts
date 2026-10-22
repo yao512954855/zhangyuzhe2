@@ -12,10 +12,15 @@ import { api, BizError } from './client'
 
 import { ErrorCode } from './types'
 
-/** 报词显示语言（契约 §7 settings 键：dictation_hint）。 */
+/** 听写报词显示语言（契约 §7 settings 键：dictation_hint）。 */
 export type DictationHint = 'zh' | 'en'
 
-/** `GET /api/settings` 返回（后端还会带既有键；本页消费 v1.3 三键 + cloud_api_key）。 */
+/** 听写报词 TTS 语速值域（todo13 #5：0~100，App 端 setSpeechRate = 值/100）。 */
+export const SPEECH_RATE_MIN = 0
+export const SPEECH_RATE_MAX = 100
+export const SPEECH_RATE_DEFAULT = 45
+
+/** `GET /api/settings` 返回（后端还会带既有键；本页消费 v1.3 三键 + cloud_api_key + 语速）。 */
 export interface AppSettings {
   /** 听写：报词后 N 秒自动报下一个（1~10，默认 3）。 */
   dictation_countdown_s: number
@@ -23,6 +28,8 @@ export interface AppSettings {
   spell_verdict_countdown_s: number
   /** 听写报词显示语言。 */
   dictation_hint: DictationHint
+  /** 听写报词 TTS 语速（0~100，默认 45；todo13 #5）。 */
+  dictation_speech_rate: number
   /** 云端语音（百炼）API Key —— 后端返回**掩码**（前4后4），明文不出服务。
    *  PUT 传非空 = 覆盖（保存即生效）；传空串 = 清除覆盖（回落 asr.yaml 种子）。 */
   cloud_api_key: string
@@ -43,11 +50,12 @@ const USE_MOCK = (import.meta.env as Record<string, string | undefined>).VITE_US
 
 const MOCK_KEY = 'bjsys_mock_settings_v1'
 
-/** 种子 = 契约 §3.1b `005_todo11.sql` + `006_apikey.sql` 的默认值。 */
+/** 种子 = 契约 §3.1b `005_todo11.sql` + `006_apikey.sql` + `007_speech_rate.sql` 的默认值。 */
 const DEFAULTS: AppSettings = {
   dictation_countdown_s: 3,
   spell_verdict_countdown_s: 3,
   dictation_hint: 'zh',
+  dictation_speech_rate: SPEECH_RATE_DEFAULT,
   cloud_api_key: '',
 }
 
@@ -83,6 +91,19 @@ function validatePatch(patch: SettingsUpdatePayload): void {
   }
   if (patch.dictation_hint !== undefined && patch.dictation_hint !== 'zh' && patch.dictation_hint !== 'en') {
     throw new BizError(ErrorCode.PARAM_INVALID, 'dictation_hint 只允许 zh | en')
+  }
+  if (patch.dictation_speech_rate !== undefined) {
+    const value = patch.dictation_speech_rate
+    if (
+      !Number.isInteger(value) ||
+      value < SPEECH_RATE_MIN ||
+      value > SPEECH_RATE_MAX
+    ) {
+      throw new BizError(
+        ErrorCode.PARAM_INVALID,
+        `dictation_speech_rate 取值必须为 ${SPEECH_RATE_MIN}~${SPEECH_RATE_MAX} 的整数`,
+      )
+    }
   }
   if (patch.cloud_api_key !== undefined) {
     const key = patch.cloud_api_key

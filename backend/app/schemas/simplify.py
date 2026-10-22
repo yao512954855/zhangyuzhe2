@@ -49,6 +49,24 @@ class ItemUpdate(BaseModel):
     sort: int | None = None
 
 
+class ItemBatchDelete(BaseModel):
+    """todo13 #2：内容条目批量删除。"""
+    ids: list[int] = Field(min_length=1)
+
+
+class ItemBatchMove(BaseModel):
+    """todo13 #2：内容条目批量移动到目标分类（目标必须是末级分类）。"""
+    ids: list[int] = Field(min_length=1)
+    target_unit_id: int
+
+
+class ItemTextImport(BaseModel):
+    """todo13 #4：竖线粘贴导入（`face | n. | 脸，面部` 一行一条）。"""
+    text: str = Field(min_length=1, max_length=100_000)
+    unit_id: int
+    type: str
+
+
 # ---------------------------------------------------------------------------
 # 练习（practice，内存会话）
 # ---------------------------------------------------------------------------

@@ -47,6 +47,13 @@ export interface UnitNode {
   name: string
   sort: number
   counts: UnitCounts
+  /** 两级树：一级带 children，二级为空数组（v1.3 后端契约；旧平铺响应无此字段）。 */
+  children?: UnitNode[]
+}
+
+/** 有下级分类的节点不能直接录内容（todo13 #1）。 */
+export function isLeafUnit(unit: UnitNode | null | undefined): boolean {
+  return !!unit && !(unit.children && unit.children.length > 0)
 }
 
 /** `POST /api/units` / `PUT /api/units/{id}` 载荷。 */
@@ -105,6 +112,18 @@ export interface ItemImportResult {
   inserted: number
   duplicated: number
   failed: { row: number; reason: string }[]
+}
+
+/** `POST /api/items/batch-delete` 返回（todo13 #2）。 */
+export interface ItemBatchDeleteResult {
+  deleted: number
+  missing: number[]
+}
+
+/** `POST /api/items/batch-move` 返回（todo13 #2）。 */
+export interface ItemBatchMoveResult {
+  moved: number
+  skipped: { id: number; reason: string }[]
 }
 
 /** 后端错误码 —— 与 `backend/app/core/errors.py` 的 `ErrorCode` 逐条对齐。 */

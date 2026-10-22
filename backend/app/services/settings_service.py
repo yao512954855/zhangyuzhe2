@@ -154,6 +154,9 @@ class SettingsService:
     # 云端语音（百炼）API Key：非空覆盖 asr.yaml 种子，改完即生效（key_store 动态解析）
     APIKEY_KEY = "cloud_api_key"
     APIKEY_MAX_LEN = 200
+    # 听写报词 TTS 语速（todo13 #5）：int 0~100，App 端 setSpeechRate = 值/100
+    SPEECH_RATE_KEY = "dictation_speech_rate"
+    SPEECH_RATE_MIN, SPEECH_RATE_MAX = 0, 100
 
     @classmethod
     def update(cls, payload: dict[str, Any]) -> dict[str, Any]:
@@ -170,7 +173,10 @@ class SettingsService:
         if not isinstance(payload, dict) or not payload:
             raise BizError(ErrorCode.PARAM_INVALID, "请求体必须是非空对象")
 
-        allowed = set(cls.COUNTDOWN_KEYS) | {cls.HINT_KEY, cls.APIKEY_KEY}
+        allowed = (
+            set(cls.COUNTDOWN_KEYS)
+            | {cls.HINT_KEY, cls.APIKEY_KEY, cls.SPEECH_RATE_KEY}
+        )
         unknown = sorted(set(payload) - allowed)
         if unknown:
             raise BizError(ErrorCode.PARAM_INVALID, f"不支持的设置键：{'、'.join(unknown)}")
@@ -193,6 +199,17 @@ class SettingsService:
                 ErrorCode.PARAM_INVALID,
                 f"{cls.HINT_KEY} 只能是 {' | '.join(cls.HINT_VALUES)}",
             )
+
+        if cls.SPEECH_RATE_KEY in payload:
+            v = payload[cls.SPEECH_RATE_KEY]
+            if isinstance(v, bool) or not isinstance(v, int) or not (
+                cls.SPEECH_RATE_MIN <= v <= cls.SPEECH_RATE_MAX
+            ):
+                raise BizError(
+                    ErrorCode.PARAM_INVALID,
+                    f"{cls.SPEECH_RATE_KEY} 必须是 "
+                    f"{cls.SPEECH_RATE_MIN}~{cls.SPEECH_RATE_MAX} 的整数",
+                )
 
         if cls.APIKEY_KEY in payload:
             v = payload[cls.APIKEY_KEY]

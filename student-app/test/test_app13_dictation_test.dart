@@ -37,10 +37,16 @@ const _items = [
 class FakeTts implements DictationTts {
   final List<String> spoken = <String>[];
   final List<String> languages = <String>[];
+  final List<double> rates = <double>[];
 
   @override
   Future<void> setLanguage(String language) async {
     languages.add(language);
+  }
+
+  @override
+  Future<void> setSpeechRate(double rate) async {
+    rates.add(rate);
   }
 
   @override
@@ -73,6 +79,52 @@ Widget _hostPage(WidgetBuilder pushPage, {String probeKey = 'probe'}) =>
     );
 
 void main() {
+  group('todo13 #5 报词语速（dictation_speech_rate → setSpeechRate）', () {
+    test('fromJson：0~100 → /100，缺失/异常回退默认 0.45', () {
+      expect(
+        DictationRemoteSettings.fromJson({
+          'dictation_hint': 'zh',
+          'dictation_countdown_s': 3,
+          'dictation_speech_rate': 60,
+        }).speechRate,
+        closeTo(0.6, 1e-9),
+      );
+      expect(
+        DictationRemoteSettings.fromJson({'dictation_hint': 'zh'}).speechRate,
+        DictationRemoteSettings.defaultSpeechRate,
+        reason: '旧后端无该键 → 默认 0.45',
+      );
+      expect(
+        DictationRemoteSettings.fromJson({
+          'dictation_speech_rate': 9999,
+        }).speechRate,
+        lessThanOrEqualTo(1.0),
+        reason: '异常大值兜到 1.0',
+      );
+    });
+
+    testWidgets('注入 remoteSettings 的语速会传给 TTS（首题即生效）', (tester) async {
+      final tts = FakeTts();
+      await tester.pumpWidget(
+        _wrap(
+          DictationPlayPage(
+            items: _items,
+            settings: const DictationSettings(),
+            tts: tts,
+            remoteSettings: const DictationRemoteSettings(
+              hint: 'zh',
+              countdownSeconds: 3,
+              speechRate: 0.3,
+            ),
+          ),
+        ),
+      );
+      await tester.pump(); // postFrame → 应用设置 → 首题报读
+      expect(tts.rates, isNotEmpty, reason: '首题报读前已 setSpeechRate');
+      expect(tts.rates.first, closeTo(0.3, 1e-9));
+    });
+  });
+
   group('U17-1 报词显示（dictation_hint，报词动画区下方）', () {
     testWidgets('hint=zh → 报 apple 时屏显「苹果」', (tester) async {
       await tester.pumpWidget(

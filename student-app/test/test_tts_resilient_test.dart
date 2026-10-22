@@ -11,11 +11,17 @@ import 'package:student_app/features/dictation/dictation_tts.dart';
 class _FakeTts implements DictationTts {
   final List<String> spoken = <String>[];
   final List<String> languages = <String>[];
+  final List<double> rates = <double>[];
   int stopCount = 0;
 
   @override
   Future<void> setLanguage(String language) async {
     languages.add(language);
+  }
+
+  @override
+  Future<void> setSpeechRate(double rate) async {
+    rates.add(rate);
   }
 
   @override
@@ -82,6 +88,9 @@ class _DeadTts implements DictationTts {
 
   @override
   Future<void> setLanguage(String language) async {}
+
+  @override
+  Future<void> setSpeechRate(double rate) async {}
 
   @override
   Future<void> speak(String text) async {

@@ -21,6 +21,8 @@ import LoadingBox from '@/components/LoadingBox.vue'
 import {
   COUNTDOWN_MAX,
   COUNTDOWN_MIN,
+  SPEECH_RATE_MAX,
+  SPEECH_RATE_MIN,
   getSettings,
   putSettings,
   type DictationHint,
@@ -34,10 +36,12 @@ const form = reactive<{
   dictation_countdown_s: number
   spell_verdict_countdown_s: number
   dictation_hint: DictationHint
+  dictation_speech_rate: number
 }>({
   dictation_countdown_s: 3,
   spell_verdict_countdown_s: 3,
   dictation_hint: 'zh',
+  dictation_speech_rate: 45,
 })
 
 /** 云端语音 API Key：后端只回掩码；apiKeyInput 是用户输入的新值（空=不改）。 */
@@ -64,6 +68,13 @@ function validateLocal(): string {
       return `${label}取值必须为 ${COUNTDOWN_MIN}~${COUNTDOWN_MAX} 的整数`
     }
   }
+  if (
+    !Number.isInteger(form.dictation_speech_rate) ||
+    form.dictation_speech_rate < SPEECH_RATE_MIN ||
+    form.dictation_speech_rate > SPEECH_RATE_MAX
+  ) {
+    return `听写语速取值必须为 ${SPEECH_RATE_MIN}~${SPEECH_RATE_MAX} 的整数`
+  }
   return ''
 }
 
@@ -74,6 +85,7 @@ async function load(): Promise<void> {
     form.dictation_countdown_s = data.dictation_countdown_s
     form.spell_verdict_countdown_s = data.spell_verdict_countdown_s
     form.dictation_hint = data.dictation_hint
+    form.dictation_speech_rate = data.dictation_speech_rate
     apiKeyMasked.value = data.cloud_api_key ?? ''
     loadedOnce.value = true
   } catch {
@@ -102,6 +114,7 @@ async function save(): Promise<void> {
       dictation_countdown_s: form.dictation_countdown_s,
       spell_verdict_countdown_s: form.spell_verdict_countdown_s,
       dictation_hint: form.dictation_hint,
+      dictation_speech_rate: form.dictation_speech_rate,
     }
     // 输入留空 = 不修改 Key；填了 = 覆盖（后端保存即生效）
     if (newKey) payload.cloud_api_key = newKey
@@ -110,6 +123,7 @@ async function save(): Promise<void> {
     form.dictation_countdown_s = data.dictation_countdown_s
     form.spell_verdict_countdown_s = data.spell_verdict_countdown_s
     form.dictation_hint = data.dictation_hint
+    form.dictation_speech_rate = data.dictation_speech_rate
     apiKeyMasked.value = data.cloud_api_key ?? ''
     apiKeyInput.value = ''
     ElMessage.success('已保存，修改即时生效')
@@ -195,6 +209,29 @@ onMounted(load)
         <el-card shadow="never" class="block-card">
           <template #header>
             <div class="block-card__header">
+              <span>听写报词语速</span>
+              <span class="block-card__hint">0~100，数字越大越快；默认 45（中速偏慢）</span>
+            </div>
+          </template>
+
+          <el-form label-width="140px" @submit.prevent>
+            <el-form-item label="报词语速">
+              <el-slider
+                v-model="form.dictation_speech_rate"
+                :min="SPEECH_RATE_MIN"
+                :max="SPEECH_RATE_MAX"
+                :step="5"
+                show-input
+                class="rate-slider"
+              />
+            </el-form-item>
+          </el-form>
+          <div class="hint-desc">学生手机上按此语速报词；觉得太快调小、太慢调大，保存后学生下次进听写即生效</div>
+        </el-card>
+
+        <el-card shadow="never" class="block-card">
+          <template #header>
+            <div class="block-card__header">
               <span>云端语音 API Key</span>
               <span class="block-card__hint">百炼语音识别 / 合成 · 修改立即生效无需重启</span>
             </div>
@@ -269,6 +306,10 @@ onMounted(load)
   margin-top: 8px;
   font-size: 13px;
   color: var(--admin-text-secondary);
+}
+
+.rate-slider {
+  max-width: 460px;
 }
 
 .key-state {

@@ -21,8 +21,9 @@ from app.services import unit_service
 
 logger = get_logger(__name__)
 
-#: 导出 / 模板的冻结列序（契约 §4.1：列：英文|词性|中文|其他可接受答案）
-EXPORT_HEADERS: list[str] = ["英文", "词性", "中文", "其他可接受答案"]
+#: 导出 / 模板的列序（todo13 #3：加「类型」列，选中分类三种混导；
+#: 旧文件无此列 → 导入回落表单 type，兼容不破）
+EXPORT_HEADERS: list[str] = ["英文", "词性", "中文", "其他可接受答案", "类型"]
 
 #: 展示型列（只 trim，不转全角）
 _RAW_COLUMNS = frozenset({"中文", "其他可接受答案"})
@@ -31,6 +32,11 @@ _RAW_COLUMNS = frozenset({"中文", "其他可接受答案"})
 TEMPLATE_PATH_RELATIVE = "templates/items_template.xlsx"
 
 _VALID_TYPES = ("word", "phrase", "sentence")
+
+#: 「类型」列中文 ↔ code（todo13 #3/#4：Excel 类型列与竖线导入用中文，
+#: 直接写英文 code 也接受）
+_TYPE_CN_TO_CODE = {"单词": "word", "词组": "phrase", "短句": "sentence"}
+_TYPE_CODE_TO_CN = {v: k for k, v in _TYPE_CN_TO_CODE.items()}
 
 
 # ---------------------------------------------------------------------------
@@ -59,6 +65,42 @@ def _require_zh(zh: str | None) -> str:
 
 def _require_unit(unit_id: int) -> None:
     unit_service.get(unit_id)  # 不存在 → 30001
+
+
+def _require_leaf_unit(unit_id: int) -> None:
+    """有下级分类的节点不能直接录内容（todo13 #1，2026-10-19 甲方反馈）。
+
+    一级分组只是组织结构，内容（单词/词组/短句）只能挂在末级分类下，
+    否则树形统计与 App 端两级选择会出现「内容悬在分组上」的歧义。
+    """
+    _require_unit(unit_id)
+    with read_conn() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM book_units WHERE parent_id = ? LIMIT 1", (unit_id,)
+        ).fetchone()
+    if row is not None:
+        raise BizError(
+            ErrorCode.PARAM_INVALID, "该分类下有下级分类，请选择末级分类后再录入内容"
+        )
+
+
+def _row_type(row: dict[str, Any], fallback: str) -> str:
+    """从 Excel「类型」列解析行类型（todo13 #3）。
+
+    - 列缺失（旧文件）或该行类型为空 → 回落表单 `fallback`；
+    - 接受中文（单词/词组/短句）或英文 code（word/phrase/sentence）；
+    - 写了但不认识 → 抛参数错（带列值，方便排查）。
+    """
+    raw = str(row.get("类型") or "").strip()
+    if not raw:
+        return fallback
+    code = _TYPE_CN_TO_CODE.get(raw) or (raw if raw in _VALID_TYPES else None)
+    if code is None:
+        raise BizError(
+            ErrorCode.PARAM_INVALID,
+            f"类型列值无法识别：{raw!r}（应为 单词/词组/短句）",
+        )
+    return code
 
 
 def _en_exists(conn: Any, unit_id: int, item_type: str, en: str, *,
@@ -139,8 +181,8 @@ def create(
     alt_zh: str = "",
     sort: int = 0,
 ) -> dict[str, Any]:
-    """`POST /api/items`。重复 en → `20003`。"""
-    _require_unit(unit_id)
+    """`POST /api/items`。重复 en → `20003`；非叶分类 → 10001。"""
+    _require_leaf_unit(unit_id)
     _require_type(item_type)
     en = _require_en(en)
     zh = _require_zh(zh)
@@ -169,7 +211,7 @@ def update(item_id: int, *, fields: dict[str, Any]) -> dict[str, Any]:
         return get_item(item_id)
 
     if "unit_id" in changes:
-        _require_unit(int(changes["unit_id"]))
+        _require_leaf_unit(int(changes["unit_id"]))  # 移动目标也必须是末级分类
     if "type" in changes:
         _require_type(changes["type"])
     if "en" in changes:
@@ -207,6 +249,75 @@ def delete(item_id: int) -> None:
         conn.execute("DELETE FROM items WHERE id = ?", (item_id,))
 
 
+def batch_delete(ids: list[int]) -> dict[str, Any]:
+    """`POST /api/items/batch-delete` {ids}（todo13 #2）。
+
+    返回 `{deleted, missing}`：missing = 请求里不存在/已删的 id 列表。
+    wrong_book 由 ON DELETE CASCADE 级联删。
+    """
+    unique = sorted({int(i) for i in ids})
+    if not unique:
+        raise BizError(ErrorCode.PARAM_INVALID, "ids 不能为空")
+    with write_tx() as conn:
+        marks = ",".join("?" for _ in unique)
+        found = {
+            int(r["id"])
+            for r in conn.execute(
+                f"SELECT id FROM items WHERE id IN ({marks})", unique
+            ).fetchall()
+        }
+        missing = [i for i in unique if i not in found]
+        if found:
+            found_list = sorted(found)
+            marks_found = ",".join("?" for _ in found_list)
+            conn.execute(
+                f"DELETE FROM items WHERE id IN ({marks_found})", found_list
+            )
+    logger.info("items 批量删除：%s 条（缺失 %s）", len(found), missing)
+    return {"deleted": len(found), "missing": missing}
+
+
+def batch_move(ids: list[int], *, target_unit_id: int) -> dict[str, Any]:
+    """`POST /api/items/batch-move` {ids, target_unit_id}（todo13 #2）。
+
+    目标必须是**末级分类**（todo13 #1 同口径）。逐行判重：
+    目标 unit+type 下已有同 en → 跳过并汇报，其余移动。
+    返回 `{moved, skipped: [{id, reason}]}`。
+    """
+    _require_leaf_unit(target_unit_id)
+    unique = sorted({int(i) for i in ids})
+    if not unique:
+        raise BizError(ErrorCode.PARAM_INVALID, "ids 不能为空")
+    moved = 0
+    skipped: list[dict[str, Any]] = []
+    with write_tx() as conn:
+        marks = ",".join("?" for _ in unique)
+        rows = conn.execute(
+            f"SELECT id, type, en FROM items WHERE id IN ({marks})", unique
+        ).fetchall()
+        existing = {
+            (str(r["type"]), str(r["en"]).strip().lower())
+            for r in conn.execute(
+                "SELECT type, en FROM items WHERE unit_id = ?", (target_unit_id,)
+            ).fetchall()
+        }
+        for r in rows:
+            key = (str(r["type"]), str(r["en"]).strip().lower())
+            if key in existing:
+                skipped.append(
+                    {"id": int(r["id"]),
+                     "reason": f"目标分类下已有同名{_TYPE_CODE_TO_CN.get(str(r['type']), '')}「{r['en']}」"}
+                )
+                continue
+            conn.execute(
+                "UPDATE items SET unit_id = ? WHERE id = ?", (target_unit_id, int(r["id"]))
+            )
+            existing.add(key)  # 同批内互斥
+            moved += 1
+    logger.info("items 批量移动 → unit=%s：移动 %s / 跳过 %s", target_unit_id, moved, len(skipped))
+    return {"moved": moved, "skipped": skipped}
+
+
 # ---------------------------------------------------------------------------
 # Excel 导入 / 导出 / 模板
 # ---------------------------------------------------------------------------
@@ -222,7 +333,7 @@ def import_items(raw: bytes, *, unit_id: int, item_type: str) -> dict[str, Any]:
                     重复的行也算 duplicated（同一批内容重复，合并语义）
     - `failed`    ：缺英文 / 缺中文等无法入库的行，带 Excel 行号与原因
     """
-    _require_unit(unit_id)
+    _require_leaf_unit(unit_id)
     _require_type(item_type)
 
     try:
@@ -238,14 +349,13 @@ def import_items(raw: bytes, *, unit_id: int, item_type: str) -> dict[str, Any]:
     inserted = 0
     duplicated = 0
     failed: list[dict[str, Any]] = []
-    seen_in_file: set[str] = set()
+    seen_in_file: set[tuple[str, str]] = set()
 
     with write_tx() as conn:
         existing = {
-            str(r["en"]).strip().lower()
+            (str(r["type"]), str(r["en"]).strip().lower())
             for r in conn.execute(
-                "SELECT en FROM items WHERE unit_id = ? AND type = ?",
-                (unit_id, item_type),
+                "SELECT type, en FROM items WHERE unit_id = ?", (unit_id,)
             ).fetchall()
         }
         now = utc_now_iso()
@@ -256,6 +366,12 @@ def import_items(raw: bytes, *, unit_id: int, item_type: str) -> dict[str, Any]:
             zh = str(row.get("中文") or "").strip()
             pos = str(row.get("词性") or "").strip()
             alt = str(row.get("其他可接受答案") or "").strip()
+            # todo13 #3：行类型——「类型」列缺失/为空回落表单 type（旧文件兼容）
+            try:
+                row_type = _row_type(row, item_type)
+            except BizError as exc:
+                failed.append({"row": excel_row, "reason": str(exc)})
+                continue
 
             reasons: list[str] = []
             if not en:
@@ -263,10 +379,10 @@ def import_items(raw: bytes, *, unit_id: int, item_type: str) -> dict[str, Any]:
             if not zh:
                 reasons.append("中文不能为空")
             if not reasons:
-                if en.lower() in seen_in_file or en in existing:
+                if (row_type, en.lower()) in seen_in_file or (row_type, en) in existing:
                     duplicated += 1
                     continue
-                seen_in_file.add(en.lower())
+                seen_in_file.add((row_type, en.lower()))
 
             if reasons:
                 failed.append({"row": excel_row, "reason": "；".join(reasons)})
@@ -277,7 +393,7 @@ def import_items(raw: bytes, *, unit_id: int, item_type: str) -> dict[str, Any]:
                 INSERT INTO items (unit_id, type, en, pos, zh, alt_zh, sort, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, 0, ?)
                 """,
-                (unit_id, item_type, en, pos, zh, alt, now),
+                (unit_id, row_type, en, pos, zh, alt, now),
             )
             inserted += 1
 
@@ -295,7 +411,10 @@ def export(*, unit_id: int | None = None, item_type: str | None = None) -> tuple
     rows, _ = list_items(unit_id=unit_id, item_type=item_type, limit=-1, offset=0)
     data = write_xlsx(
         EXPORT_HEADERS,
-        [(r["en"], r["pos"], r["zh"], r["alt_zh"]) for r in rows],
+        [
+            (r["en"], r["pos"], r["zh"], r["alt_zh"], _TYPE_CODE_TO_CN.get(r["type"], r["type"]))
+            for r in rows
+        ],
     )
     return data, xlsx_response_headers("items_export.xlsx")
 
@@ -313,12 +432,14 @@ def build_items_template() -> tuple[bytes, dict[str, str]]:
         example_notes=[
             "· 必填：英文、中文；词性、其他可接受答案可以留空",
             "· 其他可接受答案：除「中文」外还想让学生答对的写法，多条用顿号「、」分隔",
+            "· 类型：单词/词组/短句（todo13 #3：一列混导）；留空 = 按导入时选择的类型",
         ],
         example_rows=[
-            ["hello", "感叹词", "你好", "喂、哈罗"],
-            ["good morning", "", "早上好", ""],
+            ["hello", "感叹词", "你好", "喂、哈罗", "单词"],
+            ["good morning", "", "早上好", "", "词组"],
+            ["How are you", "", "你好", "", "短句"],
         ],
-        column_widths={"英文": 24, "词性": 12, "中文": 24, "其他可接受答案": 32},
+        column_widths={"英文": 24, "词性": 12, "中文": 24, "其他可接受答案": 32, "类型": 10},
     )
     _persist_template_copy(data)
     return data, xlsx_response_headers("items_template.xlsx")
@@ -334,3 +455,90 @@ def _persist_template_copy(data: bytes) -> None:
         (target / "items_template.xlsx").write_bytes(data)
     except OSError as exc:  # noqa: BLE001 - 磁盘只读等场景降级为仅在线下载
         logger.warning("模板副本落盘失败（忽略）：%s", exc)
+
+
+# ---------------------------------------------------------------------------
+# 竖线粘贴导入（todo13 #4，Excel 导入的补充）
+# ---------------------------------------------------------------------------
+
+def import_text(text: str, *, unit_id: int, item_type: str) -> dict[str, Any]:
+    """`POST /api/items/import-text` {text, unit_id, type}。
+
+    格式（一行一条，竖线「|」分隔，段数自适应）：
+    - 2 段：`英文 | 中文`；
+    - 3 段：`英文 | 词性 | 中文`；**短句（sentence）没有词性**，此时中间段并入中文；
+    - 1 段 / 超 3 段：该行失败，报错带行号（原始行号，含空行）。
+
+    判重/合并语义与 `import_items` 完全一致（同 unit+type 下 en，文件内也算）。
+    返回 `{inserted, duplicated, failed: [{row, reason}]}`。
+    """
+    _require_leaf_unit(unit_id)
+    _require_type(item_type)
+
+    inserted = 0
+    duplicated = 0
+    failed: list[dict[str, Any]] = []
+    seen_in_file: set[tuple[str, str]] = set()
+
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+
+    with write_tx() as conn:
+        existing = {
+            (str(r["type"]), str(r["en"]).strip().lower())
+            for r in conn.execute(
+                "SELECT type, en FROM items WHERE unit_id = ?", (unit_id,)
+            ).fetchall()
+        }
+        now = utc_now_iso()
+
+        for line_no, line in enumerate(lines, start=1):
+            line = line.strip()
+            if not line:
+                continue
+            parts = [p.strip() for p in line.split("|")]
+
+            if len(parts) == 2:
+                en, pos, zh = parts[0], "", parts[1]
+            elif len(parts) == 3:
+                en, mid, zh = parts[0], parts[1], parts[2]
+                if item_type == "sentence":
+                    # 短句没有词性：中间段视为中文的一部分（todo13 #4 确认口径）
+                    zh = f"{mid} {zh}".strip() if mid else zh
+                    pos = ""
+                else:
+                    pos = mid
+            else:
+                failed.append({
+                    "row": line_no,
+                    "reason": "格式无法识别：需要 2~3 段（英文|中文 或 英文|词性|中文）",
+                })
+                continue
+
+            reasons: list[str] = []
+            if not en:
+                reasons.append("英文不能为空")
+            if not zh:
+                reasons.append("中文不能为空")
+            if not reasons:
+                if (item_type, en.lower()) in seen_in_file or (item_type, en) in existing:
+                    duplicated += 1
+                    continue
+                seen_in_file.add((item_type, en.lower()))
+            if reasons:
+                failed.append({"row": line_no, "reason": "；".join(reasons)})
+                continue
+
+            conn.execute(
+                """
+                INSERT INTO items (unit_id, type, en, pos, zh, alt_zh, sort, created_at)
+                VALUES (?, ?, ?, ?, ?, '', 0, ?)
+                """,
+                (unit_id, item_type, en, pos, zh, now),
+            )
+            inserted += 1
+
+    logger.info(
+        "items 竖线导入 unit=%s type=%s：新增 %s / 重复 %s / 失败 %s",
+        unit_id, item_type, inserted, duplicated, len(failed),
+    )
+    return {"inserted": inserted, "duplicated": duplicated, "failed": failed}

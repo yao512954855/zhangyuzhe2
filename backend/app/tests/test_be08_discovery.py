@@ -360,7 +360,7 @@ def test_runtime_state_does_not_pollute_settings_table(client):
     # localize-dev 批次A：004_capability.sql 新增 capability_mode → 21 条；
     # 二轮（契约 v1.3）：005_todo11.sql 新增 3 个设置键 → 24 条；
     # 006_apikey.sql 新增 cloud_api_key → 25 条
-    assert len(keys) == 25, f"settings 只应有 25 条种子值，实际 {len(keys)}：{sorted(keys)}"
+    assert len(keys) == 26, f"settings 只应有 26 条种子值，实际 {len(keys)}：{sorted(keys)}"
     assert "capability_mode" in keys, "004_capability.sql 种子未生效"
     assert {
         "dictation_countdown_s", "spell_verdict_countdown_s", "dictation_hint",
